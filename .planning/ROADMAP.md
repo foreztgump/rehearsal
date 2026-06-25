@@ -137,9 +137,16 @@ Plans:
 **Plans**: TBD
 
 Plans:
+**Wave 1**
 
 - [ ] 04-01: Upload + parser (pymupdf4llm/python-docx) + size guard + parse-failure handling
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 04-02: Setup-time distillation pass → compact brief; inject once; KB-active indicator + ephemeral teardown
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 04-03: Prefix-cache invalidation verification (turn-2 TTFT ≪ turn-1) + KB-load VRAM re-check
 
 ### Phase 5: History Management
