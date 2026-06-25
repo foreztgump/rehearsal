@@ -25,6 +25,8 @@ The user can hold a natural spoken conversation with a credible expert persona a
 
 (None yet — ship to validate)
 
+**Foundation laid in Phase 1: Foundation & Infrastructure** — self-hosted Docker Compose stack (LiveKit, agent worker, Ollama, Whisper, Kokoro, web) with GPU passthrough, pinned `gemma4:e4b-it-q4_K_M`, defended 16GB VRAM budget, and per-stage metrics scaffold. Requirements PERF-02, PERF-03, DEPLOY-01, DEPLOY-02 implemented (live Docker/GPU smoke tests operator-gated on the Proxmox VM).
+
 ### Active
 
 <!-- Current scope. Building toward these. -->
@@ -124,4 +126,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-24 after initialization*
+*Last updated: 2026-06-25 after Phase 1 (Foundation & Infrastructure) complete*
