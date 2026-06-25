@@ -114,12 +114,53 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (populated during roadmap creation) | | |
+| VOICE-01 | Phase 2 | Pending |
+| VOICE-02 | Phase 2 | Pending |
+| VOICE-03 | Phase 2 | Pending |
+| VOICE-04 | Phase 2 | Pending |
+| VOICE-05 | Phase 2 | Pending |
+| VOICE-06 | Phase 2 | Pending |
+| VOICE-07 | Phase 2 | Pending |
+| VOICE-08 | Phase 2 | Pending |
+| PERS-01 | Phase 2 | Pending |
+| PERS-02 | Phase 3 | Pending |
+| PERS-03 | Phase 3 | Pending |
+| PERS-04 | Phase 3 | Pending |
+| PERS-05 | Phase 3 | Pending |
+| PERS-06 | Phase 3 | Pending |
+| PERS-07 | Phase 3 | Pending |
+| KB-01 | Phase 4 | Pending |
+| KB-02 | Phase 4 | Pending |
+| KB-03 | Phase 4 | Pending |
+| KB-04 | Phase 4 | Pending |
+| KB-05 | Phase 4 | Pending |
+| KB-06 | Phase 4 | Pending |
+| KB-07 | Phase 4 | Pending |
+| KB-08 | Phase 4 | Pending |
+| MODE-01 | Phase 6 | Pending |
+| MODE-02 | Phase 6 | Pending |
+| MODE-03 | Phase 6 | Pending |
+| MODE-04 | Phase 6 | Pending |
+| MODE-05 | Phase 6 | Pending |
+| SESS-01 | Phase 7 | Pending |
+| SESS-02 | Phase 7 | Pending |
+| SESS-03 | Phase 7 | Pending |
+| SESS-04 | Phase 7 | Pending |
+| SESS-05 | Phase 5 | Pending |
+| REL-01 | Phase 7 | Pending |
+| REL-02 | Phase 7 | Pending |
+| REL-03 | Phase 4 | Pending |
+| PERF-01 | Phase 2 | Pending |
+| PERF-02 | Phase 1 | Pending |
+| PERF-03 | Phase 1 | Pending |
+| DEPLOY-01 | Phase 1 | Pending |
+| DEPLOY-02 | Phase 1 | Pending |
+| DEPLOY-03 | Phase 2 | Pending |
 
 **Coverage:**
 - v1 requirements: 42 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 42 ⚠️
+- Mapped to phases: 42
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-06-24*
