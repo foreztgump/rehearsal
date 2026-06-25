@@ -26,7 +26,7 @@ Requirements for the first complete release. Each maps to roadmap phases.
 - [ ] **PERS-04**: User can adjust behavior knobs — difficulty, verbosity, correction-aggressiveness
 - [ ] **PERS-05**: User can select the persona's voice from Kokoro preset voices
 - [ ] **PERS-06**: Persona changes (role, instructions, knobs, voice) apply within the current session without a restart
-- [ ] **PERS-07**: The default trainer gently corrects sloppy terminology toward precise practitioner phrasing (tuned by the correction-aggressiveness knob)
+- [x] **PERS-07**: The default trainer gently corrects sloppy terminology toward precise practitioner phrasing (tuned by the correction-aggressiveness knob)
 
 ### Knowledge Base
 
@@ -128,7 +128,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PERS-04 | Phase 3 | Pending |
 | PERS-05 | Phase 3 | Pending |
 | PERS-06 | Phase 3 | Pending |
-| PERS-07 | Phase 3 | Pending |
+| PERS-07 | Phase 3 | Complete |
 | KB-01 | Phase 4 | Pending |
 | KB-02 | Phase 4 | Pending |
 | KB-03 | Phase 4 | Pending |
