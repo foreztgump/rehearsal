@@ -1,0 +1,17 @@
+# Adept TLS reverse proxy (Caddy). Terminates the mkcert-minted LAN cert and
+# fronts the web shell; a second TLS vhost passes the LiveKit WS endpoint
+# through so wss:// works on the LAN in Phase 2. The cert/key are mounted
+# read-only at /certs (see certs/README.md for how to mint them).
+
+# Web shell on 443.
+:443 {
+	tls /certs/lan.pem /certs/lan-key.pem
+	reverse_proxy web:3000
+}
+
+# LiveKit signaling (WebSocket) over TLS on 7443 → livekit-server:7880.
+# Phase 2 points the browser client at wss://<lan-host>:7443.
+:7443 {
+	tls /certs/lan.pem /certs/lan-key.pem
+	reverse_proxy livekit-server:7880
+}

@@ -94,6 +94,25 @@ services:
       - adept
     restart: unless-stopped
 
+  proxy:
+    # mkcert-trusted TLS termination on 443 → web:3000, plus a TLS vhost passing
+    # through the LiveKit WS endpoint (livekit-server:7880) so wss:// works in
+    # Phase 2. Certs are mounted read-only from ./certs (see certs/README.md).
+    image: caddy:2.8
+    env_file: .env
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:443:443"
+      - "${LAN_BIND_IP:-127.0.0.1}:7443:7443"
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+    networks:
+      - adept
+    depends_on:
+      - web
+      - livekit-server
+    restart: unless-stopped
+
 networks:
   adept:
     driver: bridge
