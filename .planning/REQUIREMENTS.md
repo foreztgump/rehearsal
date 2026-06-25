@@ -21,11 +21,11 @@ Requirements for the first complete release. Each maps to roadmap phases.
 ### Persona
 
 - [x] **PERS-01**: A default Cybersecurity Trainer persona is available immediately on load (no setup required to start talking)
-- [ ] **PERS-02**: User can edit the persona's role and system instructions in a side panel
-- [ ] **PERS-03**: User can edit the persona's display name
-- [ ] **PERS-04**: User can adjust behavior knobs — difficulty, verbosity, correction-aggressiveness
-- [ ] **PERS-05**: User can select the persona's voice from Kokoro preset voices
-- [ ] **PERS-06**: Persona changes (role, instructions, knobs, voice) apply within the current session without a restart
+- [x] **PERS-02**: User can edit the persona's role and system instructions in a side panel
+- [x] **PERS-03**: User can edit the persona's display name
+- [x] **PERS-04**: User can adjust behavior knobs — difficulty, verbosity, correction-aggressiveness
+- [x] **PERS-05**: User can select the persona's voice from Kokoro preset voices
+- [x] **PERS-06**: Persona changes (role, instructions, knobs, voice) apply within the current session without a restart
 - [x] **PERS-07**: The default trainer gently corrects sloppy terminology toward precise practitioner phrasing (tuned by the correction-aggressiveness knob)
 
 ### Knowledge Base
@@ -123,11 +123,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | VOICE-07 | Phase 2 | Complete |
 | VOICE-08 | Phase 2 | Complete |
 | PERS-01 | Phase 2 | Complete |
-| PERS-02 | Phase 3 | Pending |
-| PERS-03 | Phase 3 | Pending |
-| PERS-04 | Phase 3 | Pending |
-| PERS-05 | Phase 3 | Pending |
-| PERS-06 | Phase 3 | Pending |
+| PERS-02 | Phase 3 | Complete |
+| PERS-03 | Phase 3 | Complete |
+| PERS-04 | Phase 3 | Complete |
+| PERS-05 | Phase 3 | Complete |
+| PERS-06 | Phase 3 | Complete |
 | PERS-07 | Phase 3 | Complete |
 | KB-01 | Phase 4 | Pending |
 | KB-02 | Phase 4 | Pending |

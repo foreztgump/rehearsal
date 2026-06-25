@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation & Infrastructure** - Self-hosted, GPU-passthrough Docker Compose stack with pinned models, VRAM budget, and per-stage metrics scaffold (completed 2026-06-25)
 - [x] **Phase 2: Bare Voice Loop (MVP Gate)** - End-to-end streamed voice-to-voice conversation with the default trainer, barge-in, and instrumented latency (completed 2026-06-25)
-- [ ] **Phase 3: Persona Layer** - Live-editable expert persona (role, name, knobs, voice) over the frozen-prefix prompt layout
+- [x] **Phase 3: Persona Layer** - Live-editable expert persona (role, name, knobs, voice) over the frozen-prefix prompt layout (completed 2026-06-25)
 - [ ] **Phase 4: Knowledge Base Layer** - Upload → distill → inline-and-cache ephemeral docs while preserving the flat-TTFT invariant
 - [ ] **Phase 5: History Management** - Sliding-window / summarization behind the frozen prefix so long sessions keep flat TTFT
 - [ ] **Phase 6: Interview Mode** - One-question-at-a-time role-play interview with critique and model answer
@@ -105,12 +105,12 @@ Plans:
   4. The default trainer gently corrects sloppy terminology toward precise practitioner phrasing, scaled by the correction-aggressiveness knob
   5. The prompt is laid out as `[static persona] + [static KB slot] + [rolling history] + [new turn]` — frozen prefix ready for KB caching
 
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans complete
 
 Plans:
 
 - [x] 03-01-PLAN.md
-- [ ] 03-02-PLAN.md
+- [x] 03-02-PLAN.md
 
 **Wave 1**
 
@@ -211,7 +211,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|----------------|--------|-----------|
 | 1. Foundation & Infrastructure | 3/3 | Complete    | 2026-06-25 |
 | 2. Bare Voice Loop (MVP Gate) | 3/3 | Complete    | 2026-06-25 |
-| 3. Persona Layer | 1/2 | In Progress|  |
+| 3. Persona Layer | 2/2 | Complete   | 2026-06-25 |
 | 4. Knowledge Base Layer | 0/3 | Not started | - |
 | 5. History Management | 0/1 | Not started | - |
 | 6. Interview Mode | 0/2 | Not started | - |
