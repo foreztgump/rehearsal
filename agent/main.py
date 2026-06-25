@@ -24,7 +24,7 @@ from livekit.plugins import openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 import metrics
-from persona import DEFAULT_PERSONA, render_persona
+from persona import DEFAULT_PERSONA, Persona, render_persona
 
 # In-stack model endpoints (Docker `adept` network — all LAN-local, no egress).
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://ollama:11434/v1")
@@ -225,6 +225,31 @@ async def entrypoint(ctx: JobContext) -> None:
     # hot-swap the persona via agent.update_instructions(...) without a restart.
     agent = Agent(instructions=render_persona(DEFAULT_PERSONA))
     await session.start(agent=agent, room=ctx.room)
+
+    # Live persona hot-swap (PERS-06): the browser side panel sends a full persona
+    # snapshot over the `persona.update` RPC. The handler closes over the named
+    # `agent`/`session` and applies the change IN PLACE — no AgentSession/Agent
+    # teardown, no TTS-plugin recreation:
+    #   * agent.update_instructions(...) is async; effective on the NEXT turn.
+    #   * session.tts.update_options(voice=...) is sync and mutates the EXISTING
+    #     TTS instance, so the metrics_collected subscription bound in
+    #     metrics.attach() survives (Pattern E). The one re-prefill turn after an
+    #     edit shows elevated llm_ttft_ms / over_budget:["llm_ttft"] — expected.
+    # Full-snapshot apply is idempotent (last-edit-wins), so it is spam-safe with
+    # no extra debounce; an edit arriving mid-turn applies to the next turn only.
+    # The native RPC return value ("applied") IS the "applying…→applied" ack.
+    async def handle_persona_update(data):
+        snapshot = json.loads(data.payload)
+        p = Persona(**snapshot)
+        await agent.update_instructions(render_persona(p))
+        session.tts.update_options(voice=p.voice_id)
+        return "applied"
+
+    # Register AFTER connect/start so the method exists before the client calls it.
+    ctx.room.local_participant.register_rpc_method(
+        "persona.update", handle_persona_update
+    )
+
     await session.generate_reply(instructions=GREETING_INSTRUCTIONS)
 
 
