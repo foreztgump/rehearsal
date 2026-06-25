@@ -37,6 +37,15 @@ services:
   ollama:
     image: ollama/ollama:0.6.8
     env_file: .env
+    environment:
+      # VRAM-budget trio (01-02): flash-attn is REQUIRED for the q8_0 KV cache
+      # quant, which ~halves KV memory so STT+LLM+TTS co-reside under 16GB;
+      # keep_alive=-1 pins the model resident (no cold reload / KV dump).
+      # q8_0 silently falls back to F16 if gemma4 is off Ollama's flash-attn
+      # allowlist — scripts/vram-validate.sh verifies engagement empirically.
+      - OLLAMA_FLASH_ATTENTION=1
+      - OLLAMA_KV_CACHE_TYPE=q8_0
+      - OLLAMA_KEEP_ALIVE=-1
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:11434:11434"
     volumes:

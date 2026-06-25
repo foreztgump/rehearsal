@@ -1,0 +1,33 @@
+# Adept LLM Modelfile — Phase 1 (01-02).
+#
+# Bakes the tight Phase-1 context window + Gemma 4 sampling params onto the
+# resolved base tag. FROM uses ${OLLAMA_MODEL} so there is no hardcoded gemma
+# tag here either — generate the pinned model by substituting the env var:
+#
+#   set -a && . ./.env && set +a
+#   envsubst '${OLLAMA_MODEL}' < ollama/Modelfile \
+#     | docker compose exec -T ollama ollama create adept-gemma -f -
+#
+# (OLLAMA_MODEL is resolved by ollama/pull-and-pin.sh; rung 1 = gemma4:e4b-it-q4_K_M.)
+FROM ${OLLAMA_MODEL}
+
+# Tight Phase-1 context window. Ollama PRE-ALLOCATES the full num_ctx KV cache
+# upfront, so every extra 1k is reserved VRAM against the 16GB floor. 8192 is
+# ample for Phase 1 (no KB yet); this grows in Phase 4 when the distilled KB
+# brief lands in the frozen prefix.
+PARAMETER num_ctx 8192
+
+# Gemma 4 recommended sampling (steady trainer voice tuned later).
+PARAMETER temperature 1.0
+PARAMETER top_p 0.95
+PARAMETER top_k 64
+
+# Thinking/reasoning mode is DISABLED to protect TTFT and first-sentence TTS
+# streaming. Gemma 4 thinking is request-driven (Ollama `think: false`), so the
+# warmup + agent callers pass think=false rather than the model needing a
+# template-level <|think|> strip. ollama/warmup.py asserts no <think> preamble.
+#
+# Known Ollama bug #15260: `think=false` + `format` (structured JSON) silently
+# drops the format constraint for gemma4. NOT a Phase 1 blocker (no structured
+# output yet) — flagged here for the Phase 4 KB-distillation work, which may
+# want JSON output and must work around #15260.
