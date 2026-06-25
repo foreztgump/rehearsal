@@ -34,7 +34,7 @@ Requirements for the first complete release. Each maps to roadmap phases.
 - [x] **KB-02**: Uploaded documents are parsed and distilled into a compact domain brief at upload time
 - [x] **KB-03**: The domain brief is loaded into the session context once and held in the model's prefix/KV cache (no per-turn retrieval)
 - [x] **KB-04**: With a KB loaded, the agent's answers demonstrably reference the user's material; with no KB, they do not
-- [ ] **KB-05**: Per-turn time-to-first-token stays flat whether or not a KB is loaded (the flat-TTFT invariant — KB cost is paid once at session start)
+- [x] **KB-05**: Per-turn time-to-first-token stays flat whether or not a KB is loaded (the flat-TTFT invariant — KB cost is paid once at session start)
 - [x] **KB-06**: KB is ephemeral — cleared at session end (privacy + simplicity)
 - [x] **KB-07**: User sees an indicator showing the KB is active and how many docs are loaded
 - [x] **KB-08**: An upload-size guard warns or distills more aggressively when an upload is large enough to bloat the cached prefix / KV-cache VRAM
@@ -133,7 +133,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | KB-02 | Phase 4 | Complete |
 | KB-03 | Phase 4 | Complete |
 | KB-04 | Phase 4 | Complete |
-| KB-05 | Phase 4 | Pending |
+| KB-05 | Phase 4 | Complete |
 | KB-06 | Phase 4 | Complete |
 | KB-07 | Phase 4 | Complete |
 | KB-08 | Phase 4 | Complete |

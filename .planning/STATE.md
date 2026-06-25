@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 04
 current_phase_name: knowledge-base-layer
-status: executing
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-06-25T22:58:03.638Z"
+status: verifying
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-06-25T23:04:03.555Z"
 last_activity: 2026-06-25
 last_activity_desc: Phase 04 execution started
 progress:
   total_phases: 7
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 11
-  completed_plans: 10
-  percent: 43
+  completed_plans: 11
+  percent: 57
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-25)
 
 Phase: 04 (knowledge-base-layer) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-25 — Phase 04 execution started
 
 Progress: [████████████████████] 8/8 plans (100% of phases 1–3)
@@ -67,6 +67,7 @@ Progress: [████████████████████] 8/8 pla
 | Phase 03 P02 | 12 min | 4 tasks | 3 files |
 | Phase 04 P04-01 | 12 min | 5 tasks | 7 files |
 | Phase 04 P04-02 | 10 min | 4 tasks | 4 files |
+| Phase 04 P04-03 | 8 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -85,6 +86,7 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-03: LiveKit ICE pinned via node_ip + --node-ip flag (use_external_ip:false) — STUN discovery is WAN egress; udp mux 7882 single firewall rule. Keys via LIVEKIT_KEYS env, not committed. Turn detector = local MultilingualModel, weights baked offline. Metrics scaffold subscribes per-plugin metrics_collected (session-level deprecated); warmup LLM TTFT emitted in worker prewarm as the one real metric. — Local-first WebRTC requires pinning the advertised IP (node_ip) instead of STUN discovery; bake model weights at build for offline startup.
 - [Phase 02]: Phase 2 / 02-02: thinking-OFF on live LLM turns plumbed via with_ollama(reasoning_effort="none") — Ollama /v1 ignores native think but maps reasoning_effort=none to internal Think=false. Path (a) chosen over a Modelfile <think> strip: no Modelfile change, tag still resolves from OLLAMA_MODEL. preemptive_generation NOT passed (livekit not importable in sandbox — introspection deferred to VM). Greeting via session.generate_reply after session.start. — Keeps the no-second-hardcoded-LLM-tag prohibition; avoids unverified-kwarg risk per sandbox conservative-path guidance.
 - [Phase ?]: Phase 2 / 02-03: endpointing pinned on the non-deprecated turn_handling dict (dynamic, min_delay 0.3s) with MultilingualModel nested; the plan's claimed two-incompatible-surfaces TypeError BLOCKER is disproven by reading livekit-agents@1.5.0/1.5.17/1.6.4 source (direct kwargs are deprecated-but-migrated, no TypeError). Barge-in tuned (interruption min_duration 0.3s + resume_false_interruption); Silero VAD activation_threshold 0.5->0.65. Per-turn metrics consolidated via a speech_id-keyed buffer computing real e2e_ms (no LiveKit v2v field exists) + rolling P50/P95. Client-side AEC is the sole echo defense (headphones hint added); no server noise-cancellation plugin.
+- [Phase 04]: num_ctx kept at 8192: documented worst case (persona+brief+history+headroom ~8190) fits; Ollama pre-allocates num_ctx as VRAM so no inflation. Bump gated on operator Proof-C measurement. — KB-05/PERF-02 keystone proof coupled the num_ctx pin to BRIEF_TOKEN_BUDGET; flat-TTFT + cache-hit + KB-load VRAM are deferred VM operator gates in 04-KB-VERIFY.md.
 
 ### Pending Todos
 
@@ -105,6 +107,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-25T22:58:03.634Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-06-25T23:03:48.276Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None

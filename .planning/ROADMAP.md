@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation & Infrastructure** - Self-hosted, GPU-passthrough Docker Compose stack with pinned models, VRAM budget, and per-stage metrics scaffold (completed 2026-06-25)
 - [x] **Phase 2: Bare Voice Loop (MVP Gate)** - End-to-end streamed voice-to-voice conversation with the default trainer, barge-in, and instrumented latency (completed 2026-06-25)
 - [x] **Phase 3: Persona Layer** - Live-editable expert persona (role, name, knobs, voice) over the frozen-prefix prompt layout (completed 2026-06-25)
-- [ ] **Phase 4: Knowledge Base Layer** - Upload → distill → inline-and-cache ephemeral docs while preserving the flat-TTFT invariant
+- [x] **Phase 4: Knowledge Base Layer** - Upload → distill → inline-and-cache ephemeral docs while preserving the flat-TTFT invariant (completed 2026-06-25)
 - [ ] **Phase 5: History Management** - Sliding-window / summarization behind the frozen prefix so long sessions keep flat TTFT
 - [ ] **Phase 6: Interview Mode** - One-question-at-a-time role-play interview with critique and model answer
 - [ ] **Phase 7: Polish & Reliability** - Session controls, transcript export, and graceful failure handling
@@ -134,13 +134,13 @@ Plans:
   4. KB is ephemeral (cleared at session end); a KB-active indicator shows doc count and an upload-size guard warns/distills harder on oversize uploads
   5. A failed KB upload (parse error, oversize) surfaces a clear error and the session continues without the KB
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 
 Plans:
 
 - [x] 04-01-PLAN.md
 - [x] 04-02-PLAN.md
-- [ ] 04-03-PLAN.md
+- [x] 04-03-PLAN.md
 
 **Wave 1**
 
@@ -148,7 +148,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 04-02: Setup-time distillation pass → compact brief; inject once; KB-active indicator + ephemeral teardown
+- [x] 04-02: Setup-time distillation pass → compact brief; inject once; KB-active indicator + ephemeral teardown
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -224,7 +224,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 1. Foundation & Infrastructure | 3/3 | Complete    | 2026-06-25 |
 | 2. Bare Voice Loop (MVP Gate) | 3/3 | Complete    | 2026-06-25 |
 | 3. Persona Layer | 2/2 | Complete   | 2026-06-25 |
-| 4. Knowledge Base Layer | 2/3 | In Progress|  |
+| 4. Knowledge Base Layer | 3/3 | Complete   | 2026-06-25 |
 | 5. History Management | 0/1 | Not started | - |
 | 6. Interview Mode | 0/2 | Not started | - |
 | 7. Polish & Reliability | 0/2 | Not started | - |
