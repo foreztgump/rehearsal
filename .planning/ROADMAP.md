@@ -14,7 +14,7 @@ Adept is built as a strict downward dependency chain dictated by the research bu
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation & Infrastructure** - Self-hosted, GPU-passthrough Docker Compose stack with pinned models, VRAM budget, and per-stage metrics scaffold (completed 2026-06-25)
-- [ ] **Phase 2: Bare Voice Loop (MVP Gate)** - End-to-end streamed voice-to-voice conversation with the default trainer, barge-in, and instrumented latency
+- [x] **Phase 2: Bare Voice Loop (MVP Gate)** - End-to-end streamed voice-to-voice conversation with the default trainer, barge-in, and instrumented latency (completed 2026-06-25)
 - [ ] **Phase 3: Persona Layer** - Live-editable expert persona (role, name, knobs, voice) over the frozen-prefix prompt layout
 - [ ] **Phase 4: Knowledge Base Layer** - Upload → distill → inline-and-cache ephemeral docs while preserving the flat-TTFT invariant
 - [ ] **Phase 5: History Management** - Sliding-window / summarization behind the frozen prefix so long sessions keep flat TTFT
@@ -71,13 +71,13 @@ Plans:
   4. User sees a live listening/thinking/speaking state indicator and a live two-sided transcript
   5. Voice-to-voice latency is instrumented per-turn and meets P50 < ~1.2s in this phase (tightening toward < 1.0s by polish)
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 
 Plans:
 
 - [x] 02-01-PLAN.md
 - [x] 02-02-PLAN.md
-- [ ] 02-03-PLAN.md
+- [x] 02-03-PLAN.md
 
 **Wave 1**
 
@@ -85,7 +85,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 02-02: AgentSession pipeline (VAD → turn-detect → STT → LLM → first-sentence TTS) with default trainer persona
+- [x] 02-02: AgentSession pipeline (VAD → turn-detect → STT → LLM → first-sentence TTS) with default trainer persona
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -202,7 +202,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation & Infrastructure | 3/3 | Complete    | 2026-06-25 |
-| 2. Bare Voice Loop (MVP Gate) | 2/3 | In Progress|  |
+| 2. Bare Voice Loop (MVP Gate) | 3/3 | Complete   | 2026-06-25 |
 | 3. Persona Layer | 0/2 | Not started | - |
 | 4. Knowledge Base Layer | 0/3 | Not started | - |
 | 5. History Management | 0/1 | Not started | - |

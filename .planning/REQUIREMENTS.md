@@ -11,12 +11,12 @@ Requirements for the first complete release. Each maps to roadmap phases.
 
 - [x] **VOICE-01**: User can speak into the mic and hear a spoken response from the agent (full streamed mic → STT → LLM → TTS loop)
 - [x] **VOICE-02**: Agent begins speaking on the first completed sentence of its response (sentence-chunked TTS streaming), not after the full response is generated
-- [ ] **VOICE-03**: Agent stops speaking instantly when the user starts talking (barge-in)
-- [ ] **VOICE-04**: Agent waits for the user to finish a thought before responding, using semantic endpointing (not a fixed silence timer), so it does not cut in on pauses
+- [x] **VOICE-03**: Agent stops speaking instantly when the user starts talking (barge-in)
+- [x] **VOICE-04**: Agent waits for the user to finish a thought before responding, using semantic endpointing (not a fixed silence timer), so it does not cut in on pauses
 - [x] **VOICE-05**: User talks hands-free via open-mic VAD (no push-to-talk)
 - [x] **VOICE-06**: User sees a visible agent-state indicator showing listening / thinking / speaking
 - [x] **VOICE-07**: User sees a live two-sided transcript of both their speech and the agent's response as the conversation happens
-- [ ] **VOICE-08**: Voice-to-voice latency is instrumented per-turn (via LiveKit per-turn metrics) and visible for tuning
+- [x] **VOICE-08**: Voice-to-voice latency is instrumented per-turn (via LiveKit per-turn metrics) and visible for tuning
 
 ### Persona
 
@@ -63,7 +63,7 @@ Requirements for the first complete release. Each maps to roadmap phases.
 
 ### Performance & Deployment
 
-- [ ] **PERF-01**: Voice-to-voice latency meets P50 < 1.0s and P95 < 1.5s on the target hardware
+- [x] **PERF-01**: Voice-to-voice latency meets P50 < 1.0s and P95 < 1.5s on the target hardware
 - [x] **PERF-02**: The full stack runs within the 16GB VRAM floor (STT + LLM + TTS co-resident, no embedder or vector store), with the LLM served as `gemma4:e4b-it-q4_K_M` and thinking/reasoning mode disabled
 - [x] **PERF-03**: All inference runs locally — no audio, transcripts, or KB content leaves the local network
 - [x] **DEPLOY-01**: The entire system (LiveKit server, agent worker, Ollama, Whisper, Kokoro, web frontend) comes up from a single Docker Compose stack with GPU passthrough
@@ -116,12 +116,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | VOICE-01 | Phase 2 | Complete |
 | VOICE-02 | Phase 2 | Complete |
-| VOICE-03 | Phase 2 | Pending |
-| VOICE-04 | Phase 2 | Pending |
+| VOICE-03 | Phase 2 | Complete |
+| VOICE-04 | Phase 2 | Complete |
 | VOICE-05 | Phase 2 | Complete |
 | VOICE-06 | Phase 2 | Complete |
 | VOICE-07 | Phase 2 | Complete |
-| VOICE-08 | Phase 2 | Pending |
+| VOICE-08 | Phase 2 | Complete |
 | PERS-01 | Phase 2 | Complete |
 | PERS-02 | Phase 3 | Pending |
 | PERS-03 | Phase 3 | Pending |
@@ -150,7 +150,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REL-01 | Phase 7 | Pending |
 | REL-02 | Phase 7 | Pending |
 | REL-03 | Phase 4 | Pending |
-| PERF-01 | Phase 2 | Pending |
+| PERF-01 | Phase 2 | Complete |
 | PERF-02 | Phase 1 | Complete (tag `gemma4:e4b-it-q4_K_M` confirmed verbatim in 01-02 — ladder rung 1; target tag == resolved tag) |
 | PERF-03 | Phase 1 | Complete |
 | DEPLOY-01 | Phase 1 | Complete |
