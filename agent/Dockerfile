@@ -26,6 +26,8 @@ RUN python -m livekit.agents download-files
 # persona.py provides the persona model + render_persona used by the runtime
 # persona.update RPC handler.
 COPY metrics.py persona.py main.py ./
+# The KB parser package (Plan 04-01) — pure, livekit-free; copied as a directory.
+COPY kb/ ./kb/
 
 # Run the LiveKit worker. `start` connects to livekit-server, runs the startup
 # warmup, emits the one real metric, and registers — no live voice turn yet.

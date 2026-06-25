@@ -10,3 +10,12 @@ livekit-plugins-turn-detector
 
 # Host-side warmup client (ollama/warmup.py logic reused at agent startup).
 httpx
+
+# KB parse deps (Plan 04-01), pinned tight (no :latest, no unbounded float).
+# PDF/TXT/MD are free via pymupdf4llm/stdlib; DOCX uses python-docx because
+# pymupdf4llm's Office support needs the PAID PyMuPDF Pro (PERF-03 / license —
+# 04-RESEARCH §3.2). pymupdf4llm is the thin meta-package on top of the pinned
+# pymupdf below (the version that actually bounds the PDF parser).
+pymupdf4llm
+pymupdf~=1.27
+python-docx~=1.1
