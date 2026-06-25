@@ -146,7 +146,30 @@ def build_session(vad: silero.vad.VAD) -> AgentSession:
             voice=KOKORO_VOICE,
             api_key="none",
         ),
-        turn_detection=MultilingualModel(),
+        # Endpointing surface (Plan 02-03 BLOCKER — resolved by reading the real
+        # AgentSession source across the whole ~=1.5 pin, NOT by guessing).
+        # Verified against livekit-agents@1.5.0, @1.5.17 and @1.6.4
+        # (voice/agent_session.py + voice/turn.py): the TWO surfaces are NOT
+        # mutually exclusive and the direct kwargs do NOT throw TypeError —
+        #   * direct kwargs (min_endpointing_delay=..., min_interruption_duration=...)
+        #     are present but DEPRECATED; __init__ migrates them via
+        #     _migrate_turn_handling() into the dict below.
+        #   * turn_handling=TurnHandlingOptions(...) (a TypedDict, passable as a
+        #     plain dict) is the NON-deprecated consolidated surface and is the
+        #     ONLY one that exposes `mode: "dynamic"` endpointing.
+        # We use the dict surface (future-proof under ~=1.5 resolving to 1.6.x;
+        # dynamic mode preferred per Pattern D1). The MultilingualModel turn
+        # detector is the semantic decider and MUST live INSIDE the dict —
+        # when turn_handling is given, the deprecated top-level turn_detection
+        # kwarg is dropped (else-branch in __init__), so nesting it is required.
+        # min_delay 0.3s ∈ [0.25, 0.35] (default 0.5s is half the P50 budget).
+        # VM-introspection-pending: confirm the installed signature with
+        #   python -c "import inspect, livekit.agents as a; print(inspect.signature(a.AgentSession.__init__))"
+        # (sandbox cannot import livekit — grounded on tagged source instead).
+        turn_handling={
+            "turn_detection": MultilingualModel(),
+            "endpointing": {"mode": "dynamic", "min_delay": 0.3, "max_delay": 3.0},
+        },
     )
 
 
