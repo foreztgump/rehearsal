@@ -26,9 +26,10 @@ from livekit.plugins import openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 import metrics
-from kb import KbParseError, ParsedDoc
+from kb import DistillError, KbParseError, ParsedDoc
+from kb import distill as kb_distill
 from kb import parse as kb_parse
-from persona import DEFAULT_PERSONA, Persona, render_persona
+from persona import DEFAULT_PERSONA, Persona, render_prompt
 
 # In-stack model endpoints (Docker `adept` network — all LAN-local, no egress).
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://ollama:11434/v1")
@@ -223,11 +224,22 @@ KB_STATE_ATTRIBUTE = "kb.state"
 class _SessionKb:
     """In-memory, per-session KB state (KB-06 ephemeral — no disk/db).
 
-    Holds ONLY the parsed docs for the life of the job; it drops when the job ends.
-    04-02 adds a `brief: str` field (the distilled, injected-once brief).
+    Holds ONLY the parsed docs + the distilled brief for the life of the job; it
+    drops when the job ends. `brief` is the distilled, injected-once string that
+    lands in the frozen KB_SLOT (04-02) — set once, never re-distilled per turn.
     """
 
     docs: list[ParsedDoc] = field(default_factory=list)
+    brief: str = ""
+
+
+def _concat_docs(docs: list[ParsedDoc]) -> str:
+    """Deterministic join of the parsed docs' text for the distill pass.
+
+    A fixed `"\n\n"` separator and no volatile data, so the distill INPUT is stable
+    for a given set of uploads (the distill OUTPUT lands in the frozen prefix).
+    """
+    return "\n\n".join(d.text for d in docs)
 
 
 async def entrypoint(ctx: JobContext) -> None:
@@ -245,8 +257,16 @@ async def entrypoint(ctx: JobContext) -> None:
     metrics.attach(session)
     # Named local ref (was inline): 03-02's RPC handler will close over `agent` to
     # hot-swap the persona via agent.update_instructions(...) without a restart.
-    agent = Agent(instructions=render_persona(DEFAULT_PERSONA))
+    # render_prompt(DEFAULT_PERSONA, "") is byte-identical to the old
+    # render_persona(DEFAULT_PERSONA) golden (the empty-KB seam).
+    agent = Agent(instructions=render_prompt(DEFAULT_PERSONA, ""))
     await session.start(agent=agent, room=ctx.room)
+
+    # Track the CURRENT persona so the KB inject and persona edits COMPOSE (Pattern
+    # D3 / the "(persona × KB) epoch" model): a KB load re-emits under this persona;
+    # a persona edit re-emits the current brief. Mutable holder so both closures
+    # (handle_persona_update, ingest_kb) read/write the same reference.
+    current_persona: list[Persona] = [DEFAULT_PERSONA]
 
     # Live persona hot-swap (PERS-06): the browser side panel sends a full persona
     # snapshot over the `persona.update` RPC. The handler closes over the named
@@ -260,10 +280,15 @@ async def entrypoint(ctx: JobContext) -> None:
     # Full-snapshot apply is idempotent (last-edit-wins), so it is spam-safe with
     # no extra debounce; an edit arriving mid-turn applies to the next turn only.
     # The native RPC return value ("applied") IS the "applying…→applied" ack.
+    # Compose with the KB (Pattern D3): a persona edit re-emits the CURRENT brief via
+    # render_prompt(p, session_kb.brief), so editing the persona after a KB load never
+    # clobbers the grounding. current_persona is updated so a later KB inject re-emits
+    # under this persona — both are one-time, user-initiated re-prefills that compose.
     async def handle_persona_update(data):
         snapshot = json.loads(data.payload)
         p = Persona(**snapshot)
-        await agent.update_instructions(render_persona(p))
+        current_persona[0] = p
+        await agent.update_instructions(render_prompt(p, session_kb.brief))
         session.tts.update_options(voice=p.voice_id)
         return "applied"
 
@@ -272,11 +297,14 @@ async def entrypoint(ctx: JobContext) -> None:
         "persona.update", handle_persona_update
     )
 
-    # --- KB ingest (Plan 04-01): upload → parse → gate → guard → kb.state -------
-    # Parse-only this plan: docs accumulate in worker memory and the indicator
-    # moves idle→uploading→parsing→ready(n)/error. Distillation + KB_SLOT injection
-    # are 04-02 (the `ready` step becomes distill→inject→ready there). KB is
-    # in-memory only (KB-06): no disk/db write anywhere in this path.
+    # --- KB ingest (Plan 04-01/04-02): upload → parse → distill → inject once -----
+    # The indicator moves idle→uploading→parsing→distilling→ready(n)/error. On a
+    # successful parse the docs are distilled (one off-hot-path Ollama call) into a
+    # compact brief that is injected ONCE into the frozen KB_SLOT via
+    # update_instructions(render_prompt(...)) — then frozen for the session (no
+    # per-turn re-distill / re-inject; the keystone constraint, Pitfall 7). KB is
+    # in-memory only (KB-06): no disk/db write anywhere in this path; teardown is
+    # implicit at job end.
     session_kb = _SessionKb()
     # GC guard: the byte-stream read runs in a background task. Keep a strong ref
     # in this list (docs-mandated) so the task is not garbage-collected mid-read.
@@ -293,10 +321,12 @@ async def entrypoint(ctx: JobContext) -> None:
         )
 
     async def ingest_kb(reader) -> None:
-        """Read one uploaded byte stream, parse it, update kb.state.
+        """Read one uploaded byte stream, parse it, distill it, inject ONCE.
 
         On a typed KbParseError the agent surfaces a clear error and RETURNS — the
         voice loop keeps running with the unchanged (empty KB_SLOT) prefix (REL-03).
+        On a distill failure the agent surfaces a clear error and RETURNS too, with
+        the prefix left unchanged (the session continues without the KB).
         """
         info = reader.info
         raw = bytes()
@@ -308,7 +338,37 @@ async def entrypoint(ctx: JobContext) -> None:
             await set_kb_state(status="error", docs=len(session_kb.docs), error=result.message)
             return
         session_kb.docs.append(result)
+
+        # Distill all docs into a compact brief (one off-hot-path Ollama call — the
+        # latency is invisible to the voice loop). A typed DistillError is surfaced
+        # as a clear kb.state error; the session continues with the prefix unchanged.
+        await set_kb_state(status="distilling", docs=len(session_kb.docs))
+        try:
+            brief = kb_distill(_concat_docs(session_kb.docs))
+        except DistillError:
+            await set_kb_state(
+                status="error",
+                docs=len(session_kb.docs),
+                error="Couldn't build the brief — continuing without KB",
+            )
+            return
+
+        # Inject the brief into the frozen KB_SLOT EXACTLY ONCE (the single sanctioned
+        # re-prefill, mirroring the persona hot-swap). render_prompt composes under the
+        # CURRENT persona so a prior persona edit is preserved. Then freeze: no
+        # per-turn re-distill / re-inject. The elevated llm_ttft_ms / over_budget on
+        # THIS one turn is expected (same as the persona-swap turn) — NOT "fixed".
+        session_kb.brief = brief
+        await agent.update_instructions(render_prompt(current_persona[0], brief))
         await set_kb_state(status="ready", docs=len(session_kb.docs))
+
+        # Priming turn (Pattern E, Pitfall 3): fire one internal reply so the KB
+        # prefill warms while the panel shows "ready" — the user's first REAL turn is
+        # cache-warm. The goal is the prefill, not a visible utterance (silent-vs-
+        # spoken is a [VM-INTROSPECT] operator gate).
+        await session.generate_reply(
+            instructions="(internal) acknowledge the loaded material briefly"
+        )
 
     def on_kb_stream(reader, participant_identity) -> None:
         task = asyncio.create_task(ingest_kb(reader))
