@@ -1,0 +1,10 @@
+# Secrets / local env
+.env
+
+# mkcert TLS material (per-deploy, LAN-only — never commit)
+certs/*.pem
+certs/*-key.pem
+
+# Web build artifacts
+web/node_modules
+web/.next

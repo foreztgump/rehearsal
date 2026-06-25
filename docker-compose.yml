@@ -1,0 +1,102 @@
+# Adept — single-stack Docker Compose (Phase 1 walking skeleton).
+# Six services boot from one `docker compose up`; the three model containers
+# reserve the GPU; every published port binds to the LAN/host interface only
+# (LAN_BIND_IP, default 127.0.0.1) — never 0.0.0.0 / WAN. See README.md GPU
+# passthrough + certs/README.md TLS procedure. Image tags are pinned (no :latest
+# except faster-whisper, which is pinned by digest below).
+
+services:
+  livekit-server:
+    image: livekit/livekit-server:v1.10.0
+    # --dev boots with a built-in devkey/secret so the stack comes up at this
+    # boundary; 01-03 replaces this with a real livekit.yaml + ICE config.
+    command: ["--dev", "--bind", "0.0.0.0"]
+    env_file: .env
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:7880:7880"
+      - "${LAN_BIND_IP:-127.0.0.1}:7881:7881/tcp"
+      - "${LAN_BIND_IP:-127.0.0.1}:7882:7882/udp"
+    networks:
+      - adept
+    restart: unless-stopped
+
+  agent:
+    # Minimal uv-based placeholder image (01-03 extends it with livekit-agents
+    # deps + turn-detector/VAD weights bake). Idles cleanly so the stack stays up.
+    build: ./agent
+    env_file: .env
+    networks:
+      - adept
+    depends_on:
+      - livekit-server
+      - ollama
+      - whisper
+      - kokoro
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:0.6.8
+    env_file: .env
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    networks:
+      - adept
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  whisper:
+    # Pinned by digest — fedirz/faster-whisper-server:latest-cuda as of 2026-06-25.
+    image: fedirz/faster-whisper-server@sha256:0b64050ad0b9244745746b652473ee42a8d5454d501877a252c3e65f631ffc99
+    env_file: .env
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:8000:8000"
+    networks:
+      - adept
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-gpu:v0.2.4
+    env_file: .env
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:8880:8880"
+    networks:
+      - adept
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    env_file: .env
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:3000:3000"
+    networks:
+      - adept
+    restart: unless-stopped
+
+networks:
+  adept:
+    driver: bridge
+
+volumes:
+  ollama-models:
