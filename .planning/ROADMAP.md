@@ -74,9 +74,16 @@ Plans:
 **Plans**: TBD
 
 Plans:
+**Wave 1**
 
 - [ ] 02-01: Browser SPA + LiveKit SDK media/data-channel + agent-state pill + two-sided transcript
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 02-02: AgentSession pipeline (VAD → turn-detect → STT → LLM → first-sentence TTS) with default trainer persona
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 02-03: Barge-in + open-mic AEC/noise-suppression + endpointing tuning + per-turn latency metrics
 
 ### Phase 3: Persona Layer

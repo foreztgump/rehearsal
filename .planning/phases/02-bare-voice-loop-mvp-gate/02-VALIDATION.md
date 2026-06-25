@@ -60,10 +60,12 @@ created: 2025-06-24
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| Open-mic VAD hands-free conversation | VOICE-01/02 | Requires real browser + mic + audio | Operator gate: load SPA, speak, confirm agent responds |
-| Instant barge-in | VOICE-05 | Requires live audio interruption timing | Operator gate: interrupt agent mid-speech, confirm immediate stop |
-| Browser-side AEC/noise suppression | VOICE-08 | Requires acoustic echo conditions | Operator gate: open-mic with speaker output, confirm no echo loop |
-| Voice-to-voice P50 < ~1.2s | PERF-01 | Requires end-to-end real-time measurement | Operator gate: run N turns, read instrumented per-turn metrics |
+| Speak → hear spoken response (full mic→STT→LLM→TTS loop) | VOICE-01 | Requires real browser + mic + audio | Operator gate: load SPA, speak, confirm agent responds |
+| Open-mic VAD hands-free (no push-to-talk) | VOICE-05 | Requires real browser + mic | Operator gate: confirm conversation runs hands-free via VAD |
+| Instant barge-in | VOICE-03 | Requires live audio interruption timing | Operator gate: interrupt agent mid-speech, confirm immediate stop |
+| Browser-side AEC/noise suppression | VOICE-05/PERF-03 | Requires acoustic echo conditions | Operator gate: open-mic with speaker output, confirm no echo loop |
+| Per-turn voice-to-voice latency instrumented & visible | VOICE-08 | Requires end-to-end real-time measurement | Operator gate: run N turns, read instrumented per-turn metrics |
+| Voice-to-voice P50 < ~1.2s (this phase) | PERF-01 | Requires end-to-end real-time measurement | Operator gate: run N turns, compute P50 from instrumented metrics |
 
 *Sandbox limitation (from RESEARCH.md): no Docker/browser in planning sandbox — these are operator-gated.*
 
