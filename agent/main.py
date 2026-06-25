@@ -24,6 +24,7 @@ from livekit.plugins import openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 import metrics
+from persona import DEFAULT_PERSONA, render_persona
 
 # In-stack model endpoints (Docker `adept` network — all LAN-local, no egress).
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://ollama:11434/v1")
@@ -38,7 +39,6 @@ WHISPER_MODEL = "Systran/faster-whisper-large-v3"
 # audio/mpeg instead of SSE deltas, so zero frames are pushed ("no audio frames
 # were pushed"). kokoro selects the voice via the `voice` param, not the model.
 KOKORO_MODEL = "tts-1"
-KOKORO_VOICE = "af_bella"
 
 # faster-whisper decode settings tuned for latency (forwarded to the server).
 # Greedy single-beam decode, no cross-segment conditioning, VAD pre-filter, en.
@@ -55,24 +55,11 @@ WARMUP_NUM_PREDICT = 16
 THINKING_ENABLED = False  # protect TTFT (see ollama/Modelfile)
 _MS_PER_SECOND = 1000.0
 
-# Default persona (PERS-01). Written as a STATIC top block with NO volatile /
-# runtime data so the Phase 3 frozen prefix ([persona] + [KB] + [history] +
-# [turn]) can slot a KB beneath it without a rewrite. Voice-friendly: concise and
-# conversational because TTS speaks it aloud.
-PERSONA_INSTRUCTIONS = (
-    "You are a Cybersecurity Trainer: a seasoned security practitioner who coaches "
-    "learners by voice. You cover the security domain broadly — threats and attacker "
-    "tradecraft, defenses and controls, network and application security, identity, "
-    "cryptography, incident response, and risk. "
-    "Hold a natural spoken conversation. Pull the learner into articulating the subject "
-    "out loud: ask focused questions, have them explain concepts back to you, and build on "
-    "their answers rather than lecturing. "
-    "When they use sloppy or imprecise terminology, gently correct it toward precise "
-    "practitioner phrasing — name the right term, say it plainly, and move on without "
-    "scolding. "
-    "Keep replies short and spoken-friendly: a sentence or two at a time, no bullet lists, "
-    "no markdown, no code blocks. You are a conversation partner, not a written document."
-)
+# Default persona (PERS-01) now lives in agent/persona.py as a structured config:
+# DEFAULT_PERSONA renders (via render_persona) to a byte-stable system prompt with
+# the frozen prefix layout ([persona] + [KB] + [history] + [turn]) so Phase 4 can
+# slot a KB beneath it without a rewrite. Voice-friendly: concise and conversational
+# because TTS speaks it aloud.
 
 
 def resolved_llm_tag() -> str:
@@ -143,7 +130,7 @@ def build_session(vad: silero.vad.VAD) -> AgentSession:
         tts=openai.TTS(
             base_url=KOKORO_BASE_URL,
             model=KOKORO_MODEL,
-            voice=KOKORO_VOICE,
+            voice=DEFAULT_PERSONA.voice_id,
             api_key="none",
         ),
         # Endpointing surface (Plan 02-03 BLOCKER — resolved by reading the real
@@ -234,10 +221,10 @@ async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
     session = build_session(ctx.proc.userdata["vad"])
     metrics.attach(session)
-    await session.start(
-        agent=Agent(instructions=PERSONA_INSTRUCTIONS),
-        room=ctx.room,
-    )
+    # Named local ref (was inline): 03-02's RPC handler will close over `agent` to
+    # hot-swap the persona via agent.update_instructions(...) without a restart.
+    agent = Agent(instructions=render_persona(DEFAULT_PERSONA))
+    await session.start(agent=agent, room=ctx.room)
     await session.generate_reply(instructions=GREETING_INSTRUCTIONS)
 
 
