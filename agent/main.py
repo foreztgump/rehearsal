@@ -14,9 +14,11 @@ a non-LAN endpoint at startup.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
+from dataclasses import dataclass, field
 
 import httpx
 from livekit.agents import Agent, AgentSession, JobContext, JobProcess, WorkerOptions, cli
@@ -24,6 +26,8 @@ from livekit.plugins import openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 import metrics
+from kb import KbParseError, ParsedDoc
+from kb import parse as kb_parse
 from persona import DEFAULT_PERSONA, Persona, render_persona
 
 # In-stack model endpoints (Docker `adept` network — all LAN-local, no egress).
@@ -207,6 +211,24 @@ GREETING_INSTRUCTIONS = (
     "Greet the user as the Cybersecurity Trainer and invite them to begin."
 )
 
+# Browser → agent transport contract (Plan 04-01): the file picker uploads each
+# file as its own byte stream on this topic; the agent publishes ingest status
+# back on the `kb.state` participant attribute (the read pattern AgentStatePill
+# uses for `lk.agent.state`).
+KB_UPLOAD_TOPIC = "kb.upload"
+KB_STATE_ATTRIBUTE = "kb.state"
+
+
+@dataclass
+class _SessionKb:
+    """In-memory, per-session KB state (KB-06 ephemeral — no disk/db).
+
+    Holds ONLY the parsed docs for the life of the job; it drops when the job ends.
+    04-02 adds a `brief: str` field (the distilled, injected-once brief).
+    """
+
+    docs: list[ParsedDoc] = field(default_factory=list)
+
 
 async def entrypoint(ctx: JobContext) -> None:
     """Per-job entrypoint: connect, build the session, drive the agent's first turn.
@@ -249,6 +271,51 @@ async def entrypoint(ctx: JobContext) -> None:
     ctx.room.local_participant.register_rpc_method(
         "persona.update", handle_persona_update
     )
+
+    # --- KB ingest (Plan 04-01): upload → parse → gate → guard → kb.state -------
+    # Parse-only this plan: docs accumulate in worker memory and the indicator
+    # moves idle→uploading→parsing→ready(n)/error. Distillation + KB_SLOT injection
+    # are 04-02 (the `ready` step becomes distill→inject→ready there). KB is
+    # in-memory only (KB-06): no disk/db write anywhere in this path.
+    session_kb = _SessionKb()
+    # GC guard: the byte-stream read runs in a background task. Keep a strong ref
+    # in this list (docs-mandated) so the task is not garbage-collected mid-read.
+    active_tasks: list[asyncio.Task] = []
+
+    async def set_kb_state(*, status: str, docs: int = 0, error: str = "") -> None:
+        """Publish the kb.state participant attribute as JSON {status, docs, error}.
+
+        Mirrors how `lk.agent.state` is read by AgentStatePill — the panel learns
+        ingest status from this attribute (byte streams are one-way).
+        """
+        await ctx.room.local_participant.set_attributes(
+            {KB_STATE_ATTRIBUTE: json.dumps({"status": status, "docs": docs, "error": error})}
+        )
+
+    async def ingest_kb(reader) -> None:
+        """Read one uploaded byte stream, parse it, update kb.state.
+
+        On a typed KbParseError the agent surfaces a clear error and RETURNS — the
+        voice loop keeps running with the unchanged (empty KB_SLOT) prefix (REL-03).
+        """
+        info = reader.info
+        raw = bytes()
+        async for chunk in reader:
+            raw += chunk
+        await set_kb_state(status="parsing", docs=len(session_kb.docs))
+        result = kb_parse(info.name, info.mimeType, raw)
+        if isinstance(result, KbParseError):
+            await set_kb_state(status="error", docs=len(session_kb.docs), error=result.message)
+            return
+        session_kb.docs.append(result)
+        await set_kb_state(status="ready", docs=len(session_kb.docs))
+
+    def on_kb_stream(reader, participant_identity) -> None:
+        task = asyncio.create_task(ingest_kb(reader))
+        active_tasks.append(task)
+        task.add_done_callback(active_tasks.remove)
+
+    ctx.room.register_byte_stream_handler(KB_UPLOAD_TOPIC, on_kb_stream)
 
     await session.generate_reply(instructions=GREETING_INSTRUCTIONS)
 
