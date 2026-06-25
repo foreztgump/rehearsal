@@ -37,12 +37,17 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. LiveKit is fully self-hosted including the local `MultilingualModel` turn detector — no call ever routes to LiveKit Cloud or any external network
   5. A per-stage metrics logging scaffold exists and emits VAD/STT/LLM/TTS timings, ready to instrument turns
 
-**Plans**: TBD
+**Plans**: 1/3 plans executed
 
 Plans:
+
+- [x] 01-01-PLAN.md
+- [ ] 01-02-PLAN.md
+- [ ] 01-03-PLAN.md
+
 **Wave 1**
 
-- [ ] 01-01: Docker Compose stack + GPU passthrough + HTTPS-on-LAN (mkcert) secure context
+- [x] 01-01: Docker Compose stack + GPU passthrough + HTTPS-on-LAN (mkcert) secure context
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -184,7 +189,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Infrastructure | 0/3 | Not started | - |
+| 1. Foundation & Infrastructure | 1/3 | In Progress|  |
 | 2. Bare Voice Loop (MVP Gate) | 0/3 | Not started | - |
 | 3. Persona Layer | 0/2 | Not started | - |
 | 4. Knowledge Base Layer | 0/3 | Not started | - |
