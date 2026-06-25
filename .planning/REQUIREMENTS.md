@@ -13,14 +13,14 @@ Requirements for the first complete release. Each maps to roadmap phases.
 - [ ] **VOICE-02**: Agent begins speaking on the first completed sentence of its response (sentence-chunked TTS streaming), not after the full response is generated
 - [ ] **VOICE-03**: Agent stops speaking instantly when the user starts talking (barge-in)
 - [ ] **VOICE-04**: Agent waits for the user to finish a thought before responding, using semantic endpointing (not a fixed silence timer), so it does not cut in on pauses
-- [ ] **VOICE-05**: User talks hands-free via open-mic VAD (no push-to-talk)
-- [ ] **VOICE-06**: User sees a visible agent-state indicator showing listening / thinking / speaking
-- [ ] **VOICE-07**: User sees a live two-sided transcript of both their speech and the agent's response as the conversation happens
+- [x] **VOICE-05**: User talks hands-free via open-mic VAD (no push-to-talk)
+- [x] **VOICE-06**: User sees a visible agent-state indicator showing listening / thinking / speaking
+- [x] **VOICE-07**: User sees a live two-sided transcript of both their speech and the agent's response as the conversation happens
 - [ ] **VOICE-08**: Voice-to-voice latency is instrumented per-turn (via LiveKit per-turn metrics) and visible for tuning
 
 ### Persona
 
-- [ ] **PERS-01**: A default Cybersecurity Trainer persona is available immediately on load (no setup required to start talking)
+- [x] **PERS-01**: A default Cybersecurity Trainer persona is available immediately on load (no setup required to start talking)
 - [ ] **PERS-02**: User can edit the persona's role and system instructions in a side panel
 - [ ] **PERS-03**: User can edit the persona's display name
 - [ ] **PERS-04**: User can adjust behavior knobs — difficulty, verbosity, correction-aggressiveness
@@ -68,7 +68,7 @@ Requirements for the first complete release. Each maps to roadmap phases.
 - [x] **PERF-03**: All inference runs locally — no audio, transcripts, or KB content leaves the local network
 - [x] **DEPLOY-01**: The entire system (LiveKit server, agent worker, Ollama, Whisper, Kokoro, web frontend) comes up from a single Docker Compose stack with GPU passthrough
 - [x] **DEPLOY-02**: LiveKit is self-hosted (no dependency on LiveKit Cloud) including the local turn-detection model
-- [ ] **DEPLOY-03**: A user can load the single-page UI and start talking to the default trainer within seconds, with configuration optional and tucked to the side
+- [x] **DEPLOY-03**: A user can load the single-page UI and start talking to the default trainer within seconds, with configuration optional and tucked to the side
 
 ## v2 Requirements
 
@@ -118,11 +118,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | VOICE-02 | Phase 2 | Pending |
 | VOICE-03 | Phase 2 | Pending |
 | VOICE-04 | Phase 2 | Pending |
-| VOICE-05 | Phase 2 | Pending |
-| VOICE-06 | Phase 2 | Pending |
-| VOICE-07 | Phase 2 | Pending |
+| VOICE-05 | Phase 2 | Complete |
+| VOICE-06 | Phase 2 | Complete |
+| VOICE-07 | Phase 2 | Complete |
 | VOICE-08 | Phase 2 | Pending |
-| PERS-01 | Phase 2 | Pending |
+| PERS-01 | Phase 2 | Complete |
 | PERS-02 | Phase 3 | Pending |
 | PERS-03 | Phase 3 | Pending |
 | PERS-04 | Phase 3 | Pending |
@@ -155,7 +155,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PERF-03 | Phase 1 | Complete |
 | DEPLOY-01 | Phase 1 | Complete |
 | DEPLOY-02 | Phase 1 | Complete |
-| DEPLOY-03 | Phase 2 | Pending |
+| DEPLOY-03 | Phase 2 | Complete |
 
 **Coverage:**
 
