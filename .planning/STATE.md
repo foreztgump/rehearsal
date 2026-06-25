@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 03
-current_phase_name: persona-layer
-status: verifying
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-06-25T20:40:43.193Z"
+current_phase: 4
+current_phase_name: Knowledge Base Layer
+status: ready_to_plan
+stopped_at: Phase 03-persona-layer complete (verified live via CDP), ready to plan Phase 4
+last_updated: "2026-06-25T21:24:55.176Z"
 last_activity: 2026-06-25
-last_activity_desc: Phase 03 execution started
+last_activity_desc: Phase 03-persona-layer complete, transitioned to Phase 4
 progress:
   total_phases: 7
   completed_phases: 3
@@ -21,25 +21,25 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-24)
+See: .planning/PROJECT.md (updated 2026-06-25)
 
 **Core value:** The user can hold a natural spoken conversation with a credible expert persona at voice-to-voice latency that feels live (P50 < 1.0s) — practicing speaking a domain out loud.
-**Current focus:** Phase 03 — persona-layer
+**Current focus:** Phase 4 — Knowledge Base Layer
 
 ## Current Position
 
-Phase: 03 (persona-layer) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Last activity: 2026-06-25 — Phase 03 execution started
+Phase: 4 — Knowledge Base Layer
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-06-25 — Phase 03-persona-layer complete (verified live via CDP), transitioned to Phase 4
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [████████████████████] 8/8 plans (100% of phases 1–3)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 6
+- Total plans completed: 8
 - Average duration: —
 - Total execution time: 0.0 hours
 
@@ -49,6 +49,7 @@ Progress: [░░░░░░░░░░] 0%
 |-------|-------|-------|----------|
 | 01 | 3 | - | - |
 | 2 | 3 | - | - |
+| 03-persona-layer | 2 | - | - |
 
 **Recent Trend:**
 
@@ -76,6 +77,8 @@ Recent decisions affecting current work:
 - [Phase 1 / 01-02]: Model-pin RESOLVED — fallback ladder rung 1 wins. `gemma4:e4b-it-q4_K_M` is a real published Ollama tag: `ollama pull` advanced past `pulling manifest` into the 9.6GB blob on the RTX 5090 host (a non-existent tag errors instantly at the manifest step). PERF-02's literal tag is CONFIRMED VERBATIM — not superseded. Pinned to `.env` OLLAMA_MODEL; `ollama/pull-and-pin.sh` encodes the ladder for the operator's container-side full pull.
 - [Phase 1]: Self-host LiveKit from day one including the local `MultilingualModel` turn detector (deprecated cloud path avoided)
 - [Phase 3]: Establish frozen-prefix prompt layout `[persona] + [KB] + [history] + [turn]` before KB depends on it
+- [Phase 3]: Persona knobs render fixed-string fragments (not interpolated numbers) → byte-stable frozen prefix for the Phase-4 KB cache; live hot-swap via `persona.update` RPC verified end-to-end via CDP
+- [Phase 3]: Stack runs from baked Docker images (no source mount) — a phase touching agent/web MUST `docker compose build web agent && up -d` before live verification (stale-deploy bug + missing `persona.py` in agent/Dockerfile COPY both surfaced during UAT, fixed in dd17ffa)
 - [Phase 4]: Inline-and-cache KB (distill once, inject once) — not per-turn RAG — to protect the flat-TTFT invariant
 - [Phase 01]: 01-03: LiveKit ICE pinned via node_ip + --node-ip flag (use_external_ip:false) — STUN discovery is WAN egress; udp mux 7882 single firewall rule. Keys via LIVEKIT_KEYS env, not committed. Turn detector = local MultilingualModel, weights baked offline. Metrics scaffold subscribes per-plugin metrics_collected (session-level deprecated); warmup LLM TTFT emitted in worker prewarm as the one real metric. — Local-first WebRTC requires pinning the advertised IP (node_ip) instead of STUN discovery; bake model weights at build for offline startup.
 - [Phase 02]: Phase 2 / 02-02: thinking-OFF on live LLM turns plumbed via with_ollama(reasoning_effort="none") — Ollama /v1 ignores native think but maps reasoning_effort=none to internal Think=false. Path (a) chosen over a Modelfile <think> strip: no Modelfile change, tag still resolves from OLLAMA_MODEL. preemptive_generation NOT passed (livekit not importable in sandbox — introspection deferred to VM). Greeting via session.generate_reply after session.start. — Keeps the no-second-hardcoded-LLM-tag prohibition; avoids unverified-kwarg risk per sandbox conservative-path guidance.
@@ -100,6 +103,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-25T20:40:43.189Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-06-25T21:30:00.000Z
+Stopped at: Phase 03 complete, verified live via CDP (03-UAT.md 5/5); ready to plan Phase 4
 Resume file: None

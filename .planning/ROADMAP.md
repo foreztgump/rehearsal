@@ -118,7 +118,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 03-02: Persona editor side panel (role, name, knobs, voice) + live update_instructions/voice swap
+- [x] 03-02: Persona editor side panel (role, name, knobs, voice) + live update_instructions/voice swap
 
 ### Phase 4: Knowledge Base Layer
 

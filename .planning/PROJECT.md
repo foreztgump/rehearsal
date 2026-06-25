@@ -27,6 +27,14 @@ The user can hold a natural spoken conversation with a credible expert persona a
 
 **Foundation laid in Phase 1: Foundation & Infrastructure** — self-hosted Docker Compose stack (LiveKit, agent worker, Ollama, Whisper, Kokoro, web) with GPU passthrough, pinned `gemma4:e4b-it-q4_K_M`, defended 16GB VRAM budget, and per-stage metrics scaffold. Requirements PERF-02, PERF-03, DEPLOY-01, DEPLOY-02 implemented (live Docker/GPU smoke tests operator-gated on the Proxmox VM).
 
+### Validated
+
+<!-- Shipped + verified. Moved out of Active as phases complete. -->
+
+- ✓ Default Cybersecurity Trainer persona (practitioner voice, pulls user into articulating, gently corrects terminology) — Phase 3
+- ✓ Persona editor: role/instructions, name, behavior knobs (difficulty, verbosity, correction-aggressiveness), applied in-session — Phase 3
+- ✓ Voice selection per persona (Kokoro preset voices) — Phase 3
+
 ### Active
 
 <!-- Current scope. Building toward these. -->
@@ -37,9 +45,6 @@ The user can hold a natural spoken conversation with a credible expert persona a
 - [ ] Open-mic VAD input mode (decided: VAD from the start, not push-to-talk)
 - [ ] Visible agent state indicator: listening / thinking / speaking
 - [ ] Live two-sided transcript
-- [ ] Default Cybersecurity Trainer persona (practitioner voice, pulls user into articulating, gently corrects terminology)
-- [ ] Persona editor: role/instructions, name, behavior knobs (difficulty, verbosity, correction-aggressiveness), applied in-session
-- [ ] Voice selection per persona (Kokoro preset voices)
 - [ ] Knowledge base: upload docs (PDF, TXT, MD, DOCX) at session start
 - [ ] KB distillation: parse + distill into a compact domain brief at upload time
 - [ ] KB loaded into session context once; rely on Ollama prefix/KV caching (no per-turn RAG)
@@ -107,6 +112,8 @@ The user can hold a natural spoken conversation with a credible expert persona a
 | `gemma4:e4b-it-q4_K_M` via Ollama as the brain | Smaller quant fits the 16GB VRAM floor; generates faster than speech is spoken | — Pending |
 | Disable Gemma thinking/reasoning mode | Thinking mode inflates TTFT and breaks first-sentence TTS streaming | — Pending |
 | Stream every stage; start TTS on first sentence | Only way to hit sub-second voice-to-voice latency | — Pending |
+| Persona knobs render fixed-string fragments, not interpolated numbers | Byte-stable frozen prefix the Phase-4 KB cache depends on; small models follow prose better than a bare dial | ✓ Phase 3 — byte-stability self-check green |
+| Live persona hot-swap via `persona.update` RPC (in-place `update_instructions`+`update_options`) | One-turn re-prefill with no session/agent/TTS teardown; native RPC return is the "applied" ack | ✓ Phase 3 — verified live via CDP |
 
 ## Evolution
 
@@ -126,4 +133,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-25 after Phase 1 (Foundation & Infrastructure) complete*
+*Last updated: 2026-06-25 after Phase 3 (Persona Layer) complete*

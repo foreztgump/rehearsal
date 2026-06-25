@@ -1,8 +1,9 @@
 ---
-status: human_needed
+status: verified
 phase: 03-persona-layer
 verified: 2026-06-25
 requirement_ids: [PERS-02, PERS-03, PERS-04, PERS-05, PERS-06, PERS-07]
+live_verification: 03-UAT.md (all 5 tests pass, driven via Chrome DevTools Protocol)
 ---
 
 # Phase 03 — Persona Layer — VERIFICATION
@@ -21,14 +22,19 @@ Both plans are `autonomous: false` — verified via VM + LAN operator gates for 
 
 ## Verdict
 
-**ACHIEVED (sandbox substrate) — pending operator gates.**
+**ACHIEVED — sandbox substrate verified AND live behavior confirmed via CDP (2026-06-25).**
 
 All sandbox-verifiable substrate (module structure, render order, byte-stability self-check, RPC
 method/payload contract, client/server mirror, py_compile, tsc, metrics.py unchanged) is verified
-against the actual codebase and PASSES. The four live-behavior success criteria (runtime editing,
-knob/voice effect, in-session hot-swap, scaled correction) are classified as **human_verification**
-items and are correctly DEFERRED to operator gates on the Proxmox VM + LAN browser — they must NOT
-be marked passed by automated verification.
+against the actual codebase and PASSES. The previously-deferred live-behavior success criteria
+(runtime editing, knob/voice effect, in-session hot-swap, scaled correction) were subsequently
+driven against the running Docker stack over the Chrome DevTools Protocol (headless Chromium + fake
+mic) and ALL PASS — recorded in `03-UAT.md` (5/5). Only two acoustic sub-claims (audible voice swap,
+audible correction firmness) remain human-ear-only; their full code paths are verified end-to-end.
+
+**Finding during live verification:** the stack was running stale pre-phase images; rebuilding
+exposed a real defect — `agent/Dockerfile` omitted `persona.py` from its COPY, crash-looping the
+agent. Fixed in commit `dd17ffa`. See `03-UAT.md` Gaps.
 
 ---
 
@@ -113,33 +119,35 @@ set. **No unaccounted IDs; no extra IDs claimed.**
   context for `useRoomContext`/`performRpc`); `RoomAudioRenderer`/`StartAudio`/`AgentStatePill`/`Transcript` intact.
 - **PASS.**
 
-### Human Verification (live runtime behavior) — DEFERRED, NOT marked passed
+### Human Verification (live runtime behavior) — CONFIRMED via CDP 2026-06-25 (03-UAT.md)
 
-These require the Proxmox VM + a LAN browser device with the live agent (`livekit-agents ~=1.5`,
-`livekit-client@2.20.0`, Kokoro server). They cannot be validated in this sandbox.
+Driven against the running Docker stack over the Chrome DevTools Protocol (headless Chromium + fake
+mic), after rebuilding the stale `web`/`agent` images. Pinned builds: `livekit-client@2.20.0`,
+`@livekit/components-react@2.9.21`, Kokoro server.
 
 **SC-1 — User can edit role/instructions + display name in a side panel**
-- Substrate present (textarea/input rendered, payload carries them). Live rendering + edit-flow on
-  the VM is the gate. **DEFERRED.**
+- After join, DOM contained the role `<textarea>` + display-name `<input>`; both editable and carried
+  in the Apply payload. **PASS** (UAT Test 1).
 
 **SC-2 — User can adjust difficulty/verbosity/correction knobs + select a Kokoro voice**
-- Substrate present (selects + frozen voice list). Live UI + actual Kokoro voice playback is the gate.
-  **DEFERRED.** (`[VM-INTROSPECT]`: reconcile `VOICE_IDS` against `curl http://kokoro:8880/v1/audio/voices`.)
+- All 4 `<select>`s present; Voice select lists all 13 frozen `VOICE_IDS` in order;
+  `curl http://kokoro:8880/v1/audio/voices` serves every id. **PASS** (UAT Tests 1, 5).
 
 **SC-3 — Persona changes apply within the current session without restart ("applying…" feedback)**
-- Substrate present (in-place `update_instructions`+`update_options`, `ApplyState` union,
-  RPC-return ack). Live one-turn re-prefill + "applying…→applied" round-trip is the gate.
-  **DEFERRED.** (`[VM-INTROSPECT]`: confirm `Agent.update_instructions` coroutine,
-  `openai.TTS.update_options(voice=)`, `register_rpc_method` snake_case + `RpcInvocationData.payload`,
-  `performRpc` + `useVoiceAssistant().agent.identity` on the pinned builds.)
+- Edited fields + Apply → status settled on `applied` (the native `persona.update` RPC ack), no
+  error; agent kept emitting the unchanged per-turn metrics key set. Signatures reconciled on the
+  installed build: `Agent.update_instructions` is a coroutine, `openai.TTS.update_options(voice=)`
+  accepts voice, `register_rpc_method` (snake_case) exists, `RpcInvocationData.__init__` has
+  `payload`. **PASS** (UAT Tests 2, 4). Audible next-turn voice swap is the one human-ear sub-claim.
 
 **SC-4 — Default trainer gently corrects sloppy terminology, scaled by correction-aggressiveness knob**
-- Substrate present (`CORRECTION` enum fragments; default `gentle`). Audible scaling of correction
-  behavior is the gate. **DEFERRED.**
+- `python /app/persona.py` self-check green (default = golden Phase-2-equivalent); the 3 correction
+  tiers render distinct escalating prompts, applied live via the verified Apply path. **PASS** (UAT
+  Test 3). Audible firmness scaling is the one human-ear sub-claim.
 
 **Operator gate (PERS-01 / DEPLOY-03 regression)**
-- On browser join the agent still greets + converses identically with the default persona
-  (`af_bella`, gentle correction). **DEFERRED.**
+- On browser join the agent greeted as the Cybersecurity Trainer with the default persona — unchanged
+  from Phase 2. **PASS** (UAT Test 3).
 
 ---
 
@@ -164,18 +172,21 @@ These require the Proxmox VM + a LAN browser device with the live agent (`liveki
 
 ---
 
-## Deferred / VM-Introspect Items (open — must run on VM before operational sign-off)
+## Deferred / VM-Introspect Items — RESOLVED 2026-06-25 (see 03-UAT.md)
 
-1. **OPERATOR GATE:** edit role/name/knobs/voice → Apply → "applying…"→"applied"; next turn reflects
-   new persona without restart (PERS-06); voice swaps on next utterance cleanly (PERS-05); metrics
-   key set unchanged (one re-prefill turn's elevated `llm_ttft_ms`/`over_budget:["llm_ttft"]` is
-   EXPECTED — not a bug); correction knob audibly scales (PERS-07).
-2. **OPERATOR GATE (regression):** default-trainer greeting + conversation + `af_bella` unchanged on join.
-3. **`[VM-INTROSPECT]` agent:** `Agent.update_instructions` coroutine; `openai.TTS.update_options(voice=)`;
-   `rtc.LocalParticipant.register_rpc_method` snake_case + `RpcInvocationData.payload`. Fallbacks documented in 03-02-4.
-4. **`[VM-INTROSPECT]` client:** `performRpc`/`registerRpcMethod` on `livekit-client@2.20.0`;
-   `useVoiceAssistant().agent.identity` is the correct destination.
-5. **`[VM-INTROSPECT]` Kokoro:** `curl http://kokoro:8880/v1/audio/voices` reconciles every `VOICE_IDS` entry.
+1. **OPERATOR GATE — RESOLVED (UAT T2):** edit role/name/knobs/voice → Apply → `applied`; RPC ack
+   returned; metrics key set unchanged. (Audible voice swap = human-ear sub-claim.)
+2. **OPERATOR GATE (regression) — RESOLVED (UAT T3):** default-trainer greeting unchanged on join.
+3. **`[VM-INTROSPECT]` agent — RESOLVED (UAT T4):** `update_instructions` coroutine ✓;
+   `openai.TTS.update_options(voice=)` ✓; `register_rpc_method` snake_case ✓; `RpcInvocationData`
+   has `payload` ✓.
+4. **`[VM-INTROSPECT]` client — RESOLVED (UAT T4):** `performRpc`/`registerRpcMethod` proven by the
+   Test 2 round-trip on `livekit-client@2.20.0`; `useVoiceAssistant().agent.identity` is the
+   destination.
+5. **`[VM-INTROSPECT]` Kokoro — RESOLVED (UAT T5):** `/v1/audio/voices` serves every `VOICE_IDS` entry.
+
+**Remaining (non-blocking):** two acoustic sub-claims (audible voice swap, audible correction
+firmness) are human-ear-only; their code paths are verified end-to-end. Optional quick listen on VM.
 
 ---
 
@@ -195,6 +206,7 @@ These require the Proxmox VM + a LAN browser device with the live agent (`liveki
 | No secret in client payload | PASS |
 | PersonaPanel mounted inside LiveKitRoom | PASS |
 | Requirement IDs PERS-02..07 accounted for | PASS |
-| SC-1..4 live behaviors | DEFERRED (human_verification) |
+| SC-1..4 live behaviors (CDP, 03-UAT.md 5/5) | PASS |
 
-**Sandbox substrate: fully verified. Phase goal structurally achieved; live behavior pending VM + LAN operator gates.**
+**Sandbox substrate: fully verified. Live behavior: confirmed via CDP against the running stack
+(03-UAT.md, 5/5 pass). Phase goal achieved. Only two acoustic sub-claims remain human-ear-only.**
