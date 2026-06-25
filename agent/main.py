@@ -166,9 +166,32 @@ def build_session(vad: silero.vad.VAD) -> AgentSession:
         # VM-introspection-pending: confirm the installed signature with
         #   python -c "import inspect, livekit.agents as a; print(inspect.signature(a.AgentSession.__init__))"
         # (sandbox cannot import livekit — grounded on tagged source instead).
+        # Barge-in / interruption gate (Plan 02-03-2). Barge-in is built in:
+        # AgentSession cancels TTS + rolls back the turn on user speech and
+        # `interruption.enabled` defaults True (verified in voice/turn.py
+        # _INTERRUPTION_DEFAULTS) — we DO NOT disable it (allow_interruptions
+        # stays on). On the dict surface the deprecated direct kwargs map as:
+        #   min_interruption_duration   -> interruption["min_duration"]
+        #   false_interruption_timeout  -> interruption["false_interruption_timeout"]
+        #   resume_false_interruption   -> interruption["resume_false_interruption"]
+        # All three keys are verified present on InterruptionOptions across
+        # livekit-agents@1.5.0..@1.6.4 (voice/turn.py). min_duration 0.3s
+        # requires ~300ms of real speech before cancel — defends against the
+        # agent's own echo tail and "mm-hmm" backchannels. resume_false_int +
+        # a 2.0s timeout make a no-transcript noise-blip barge-in resume the
+        # agent instead of dropping the turn (open-mic win).
+        # VM-introspection-pending: confirm the installed InterruptionOptions
+        # accepts these keys (sandbox cannot import livekit — grounded on tagged
+        # source). If a future version renames a key, the dict degrades by
+        # ignoring unknown keys at _resolve_interruption (TypedDict, total=False).
         turn_handling={
             "turn_detection": MultilingualModel(),
             "endpointing": {"mode": "dynamic", "min_delay": 0.3, "max_delay": 3.0},
+            "interruption": {
+                "min_duration": 0.3,
+                "resume_false_interruption": True,
+                "false_interruption_timeout": 2.0,
+            },
         },
     )
 
@@ -180,7 +203,15 @@ def prewarm(proc: JobProcess) -> None:
     walking-skeleton gate (exactly one real llm_ttft_ms line) is satisfied at
     startup without a participant. The VAD is cached for reuse in the entrypoint.
     """
-    proc.userdata["vad"] = silero.VAD.load()
+    # Raise Silero VAD activation_threshold 0.5 -> 0.65 (Plan 02-03-2, Pitfall 4):
+    # a higher bar to register speech reduces open-mic false triggers from the
+    # agent's own playout + room noise. `activation_threshold` is verified
+    # present on silero.VAD.load (livekit-plugins-silero vad.py: default 0.5,
+    # alongside min_speech_duration/min_silence_duration/deactivation_threshold).
+    # VM-introspection-pending: confirm the installed silero.VAD.load signature
+    #   python -c "import inspect; from livekit.plugins import silero; print(inspect.signature(silero.VAD.load))"
+    # (sandbox cannot import livekit — grounded on tagged source).
+    proc.userdata["vad"] = silero.VAD.load(activation_threshold=0.65)
     ttft_ms = _warmup_llm_ttft_ms(resolved_llm_tag())
     metrics.emit_warmup_metric(ttft_ms)
 
