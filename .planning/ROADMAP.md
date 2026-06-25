@@ -55,7 +55,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-03: Self-hosted LiveKit server + ICE/node_ip config + local turn-detector + per-stage metrics scaffold
+- [x] 01-03: Self-hosted LiveKit server + ICE/node_ip config + local turn-detector + per-stage metrics scaffold
 
 ### Phase 2: Bare Voice Loop (MVP Gate)
 
@@ -189,7 +189,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Infrastructure | 3/3 | Complete   | 2026-06-25 |
+| 1. Foundation & Infrastructure | 3/3 | Complete    | 2026-06-25 |
 | 2. Bare Voice Loop (MVP Gate) | 0/3 | Not started | - |
 | 3. Persona Layer | 0/2 | Not started | - |
 | 4. Knowledge Base Layer | 0/3 | Not started | - |
