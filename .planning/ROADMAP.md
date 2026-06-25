@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Foundation & Infrastructure** - Self-hosted, GPU-passthrough Docker Compose stack with pinned models, VRAM budget, and per-stage metrics scaffold (completed 2026-06-25)
 - [x] **Phase 2: Bare Voice Loop (MVP Gate)** - End-to-end streamed voice-to-voice conversation with the default trainer, barge-in, and instrumented latency (completed 2026-06-25)
 - [x] **Phase 3: Persona Layer** - Live-editable expert persona (role, name, knobs, voice) over the frozen-prefix prompt layout (completed 2026-06-25)
-- [x] **Phase 4: Knowledge Base Layer** - Upload → distill → inline-and-cache ephemeral docs while preserving the flat-TTFT invariant (completed 2026-06-25)
+- [ ] **Phase 4: Knowledge Base Layer** - Upload → distill → inline-and-cache ephemeral docs while preserving the flat-TTFT invariant (sandbox layer complete; awaiting operator UAT)
 - [ ] **Phase 5: History Management** - Sliding-window / summarization behind the frozen prefix so long sessions keep flat TTFT
 - [ ] **Phase 6: Interview Mode** - One-question-at-a-time role-play interview with critique and model answer
 - [ ] **Phase 7: Polish & Reliability** - Session controls, transcript export, and graceful failure handling
@@ -152,7 +152,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 04-03: Prefix-cache invalidation verification (turn-2 TTFT ≪ turn-1) + KB-load VRAM re-check
+- [x] 04-03: Prefix-cache invalidation verification (turn-2 TTFT ≪ turn-1) + KB-load VRAM re-check
 
 ### Phase 5: History Management
 
