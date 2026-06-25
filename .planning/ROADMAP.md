@@ -134,12 +134,17 @@ Plans:
   4. KB is ephemeral (cleared at session end); a KB-active indicator shows doc count and an upload-size guard warns/distills harder on oversize uploads
   5. A failed KB upload (parse error, oversize) surfaces a clear error and the session continues without the KB
 
-**Plans**: TBD
+**Plans**: 1/3 plans executed
 
 Plans:
+
+- [x] 04-01-PLAN.md
+- [ ] 04-02-PLAN.md
+- [ ] 04-03-PLAN.md
+
 **Wave 1**
 
-- [ ] 04-01: Upload + parser (pymupdf4llm/python-docx) + size guard + parse-failure handling
+- [x] 04-01: Upload + parser (pymupdf4llm/python-docx) + size guard + parse-failure handling
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -219,7 +224,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 1. Foundation & Infrastructure | 3/3 | Complete    | 2026-06-25 |
 | 2. Bare Voice Loop (MVP Gate) | 3/3 | Complete    | 2026-06-25 |
 | 3. Persona Layer | 2/2 | Complete   | 2026-06-25 |
-| 4. Knowledge Base Layer | 0/3 | Not started | - |
+| 4. Knowledge Base Layer | 1/3 | In Progress|  |
 | 5. History Management | 0/1 | Not started | - |
 | 6. Interview Mode | 0/2 | Not started | - |
 | 7. Polish & Reliability | 0/2 | Not started | - |

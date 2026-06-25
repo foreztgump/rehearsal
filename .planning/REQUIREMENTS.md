@@ -30,14 +30,14 @@ Requirements for the first complete release. Each maps to roadmap phases.
 
 ### Knowledge Base
 
-- [ ] **KB-01**: User can upload documents (PDF, TXT, MD, DOCX) at session start
+- [x] **KB-01**: User can upload documents (PDF, TXT, MD, DOCX) at session start
 - [ ] **KB-02**: Uploaded documents are parsed and distilled into a compact domain brief at upload time
 - [ ] **KB-03**: The domain brief is loaded into the session context once and held in the model's prefix/KV cache (no per-turn retrieval)
 - [ ] **KB-04**: With a KB loaded, the agent's answers demonstrably reference the user's material; with no KB, they do not
 - [ ] **KB-05**: Per-turn time-to-first-token stays flat whether or not a KB is loaded (the flat-TTFT invariant — KB cost is paid once at session start)
 - [ ] **KB-06**: KB is ephemeral — cleared at session end (privacy + simplicity)
-- [ ] **KB-07**: User sees an indicator showing the KB is active and how many docs are loaded
-- [ ] **KB-08**: An upload-size guard warns or distills more aggressively when an upload is large enough to bloat the cached prefix / KV-cache VRAM
+- [x] **KB-07**: User sees an indicator showing the KB is active and how many docs are loaded
+- [x] **KB-08**: An upload-size guard warns or distills more aggressively when an upload is large enough to bloat the cached prefix / KV-cache VRAM
 
 ### Modes
 
@@ -59,7 +59,7 @@ Requirements for the first complete release. Each maps to roadmap phases.
 
 - [ ] **REL-01**: When mic permission is denied, the user sees a clear prompt explaining how to grant it (not a silent failure)
 - [ ] **REL-02**: When transcription is empty or garbled, the agent reprompts ("didn't catch that") rather than responding to noise
-- [ ] **REL-03**: When a KB upload fails (parse error, oversize), the user sees a clear error and the session continues without the KB
+- [x] **REL-03**: When a KB upload fails (parse error, oversize), the user sees a clear error and the session continues without the KB
 
 ### Performance & Deployment
 
@@ -129,14 +129,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PERS-05 | Phase 3 | Complete |
 | PERS-06 | Phase 3 | Complete |
 | PERS-07 | Phase 3 | Complete |
-| KB-01 | Phase 4 | Pending |
+| KB-01 | Phase 4 | Complete |
 | KB-02 | Phase 4 | Pending |
 | KB-03 | Phase 4 | Pending |
 | KB-04 | Phase 4 | Pending |
 | KB-05 | Phase 4 | Pending |
 | KB-06 | Phase 4 | Pending |
-| KB-07 | Phase 4 | Pending |
-| KB-08 | Phase 4 | Pending |
+| KB-07 | Phase 4 | Complete |
+| KB-08 | Phase 4 | Complete |
 | MODE-01 | Phase 6 | Pending |
 | MODE-02 | Phase 6 | Pending |
 | MODE-03 | Phase 6 | Pending |
@@ -149,7 +149,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SESS-05 | Phase 5 | Pending |
 | REL-01 | Phase 7 | Pending |
 | REL-02 | Phase 7 | Pending |
-| REL-03 | Phase 4 | Pending |
+| REL-03 | Phase 4 | Complete |
 | PERF-01 | Phase 2 | Complete |
 | PERF-02 | Phase 1 | Complete (tag `gemma4:e4b-it-q4_K_M` confirmed verbatim in 01-02 — ladder rung 1; target tag == resolved tag) |
 | PERF-03 | Phase 1 | Complete |
