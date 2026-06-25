@@ -1,0 +1,37 @@
+# Adept — self-hosted LiveKit server config (Plan 01-03).
+#
+# Local-first / no-egress design (PERF-03, DEPLOY-02):
+#   We set rtc.node_ip (LAN VM IP) with use_external_ip:false rather than
+#   use_external_ip:true. use_external_ip:true makes LiveKit reach out to a
+#   public STUN server to discover its mapped IP — that is outbound WAN traffic
+#   at startup, which violates the "nothing leaves the LAN" invariant the
+#   01-03-4 egress check enforces. node_ip pins the ICE host candidate to the
+#   LAN-reachable address with zero egress.
+#
+# node_ip is overridden at runtime by the `--node-ip` flag in docker-compose.yml
+# (sourced from LIVEKIT_NODE_IP in .env). The CLI flag takes precedence over this
+# file's value, and only works because use_external_ip is false (livekit#4049).
+# The value below is the safe local default; the operator sets LIVEKIT_NODE_IP to
+# the VM's LAN IP (e.g. 192.168.1.50) so real LAN devices can reach the media.
+#
+# Keys are NOT stored here — they are injected via the LIVEKIT_KEYS env var
+# (built from LIVEKIT_API_KEY/LIVEKIT_API_SECRET in the gitignored .env) so no
+# secret is committed.
+
+# Main TCP port: RoomService / RTC signaling (WS + API). Fronted by Caddy TLS
+# (proxy :7443 -> livekit-server:7880) for wss:// in Phase 2.
+port: 7880
+
+rtc:
+  # ICE over TCP fallback when UDP is unavailable. Must be reachable on the node.
+  tcp_port: 7881
+  # UDP mux: ALL client UDP media flows over this single port — one firewall
+  # rule instead of a 10k range. port_range_start/end are intentionally OMITTED
+  # (setting them disables the mux).
+  udp_port: 7882
+  # Pin the advertised ICE host candidate to the LAN IP via node_ip (below) — do
+  # NOT discover it via STUN (would be WAN egress). Override at runtime with the
+  # --node-ip flag from docker-compose.yml.
+  use_external_ip: false
+  node_ip: 127.0.0.1
+  # use_ice_lite left off (default) for the initial single-node homelab deploy.

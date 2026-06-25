@@ -8,10 +8,17 @@
 services:
   livekit-server:
     image: livekit/livekit-server:v1.10.0
-    # --dev boots with a built-in devkey/secret so the stack comes up at this
-    # boundary; 01-03 replaces this with a real livekit.yaml + ICE config.
-    command: ["--dev", "--bind", "0.0.0.0"]
+    # Real self-host config (01-03): LAN-correct ICE via udp mux 7882 + node_ip.
+    # --config loads livekit.yaml; --node-ip pins the advertised ICE host
+    # candidate to the LAN VM IP (LIVEKIT_NODE_IP) with no STUN/WAN egress. Keys
+    # come from LIVEKIT_KEYS (built from .env) — never committed in the yaml.
+    command: ["--config", "/etc/livekit.yaml", "--node-ip", "${LIVEKIT_NODE_IP:-127.0.0.1}"]
     env_file: .env
+    environment:
+      # LiveKit reads its API key/secret pair from LIVEKIT_KEYS ("key: secret").
+      - "LIVEKIT_KEYS=${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:7880:7880"
       - "${LAN_BIND_IP:-127.0.0.1}:7881:7881/tcp"

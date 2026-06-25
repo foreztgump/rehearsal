@@ -67,6 +67,33 @@ are good and `docker compose up` will give the model services the GPU via the
 > toolkit install in Layer 2 are operator steps; the compose manifest only *reserves*
 > the GPU once both layers are in place.
 
+## LiveKit self-host networking (ICE / firewall)
+
+LiveKit runs fully self-hosted (no LiveKit Cloud, ever). Its config lives in
+[`livekit.yaml`](livekit.yaml): the server signals on TCP **7880** (fronted by
+Caddy TLS on 7443 for `wss://`), accepts ICE/TCP fallback on **7881**, and muxes
+**all** WebRTC media UDP over a single port **7882** (udp mux — one firewall rule
+instead of a 10k range).
+
+**Advertised IP (critical):** WebRTC only works if the server advertises a
+LAN-reachable IP as its ICE host candidate. We pin it explicitly with
+`--node-ip` (sourced from `LIVEKIT_NODE_IP` in `.env`) rather than
+`use_external_ip: true`, because the latter reaches out to a public STUN server
+to discover its IP — outbound WAN traffic that violates the local-first
+invariant. Set `LIVEKIT_NODE_IP` to the VM's LAN IP (e.g. `192.168.1.50`); the
+default `127.0.0.1` is local-only and media will not reach other LAN devices.
+
+**Firewall (open inbound on the VM, LAN-only — no WAN forward):**
+
+| Port | Proto | Purpose |
+|------|-------|---------|
+| 7882 | UDP   | WebRTC media (udp mux) — required for audio to flow |
+| 7881 | TCP   | ICE/TCP fallback when UDP is blocked |
+| 7443 | TCP   | LiveKit signaling over TLS (Caddy → 7880) |
+
+Open these for LAN sources only. Do **not** port-forward any of them from the
+WAN — all traffic stays on the local network.
+
 ## HTTPS on the LAN (secure context for the mic)
 
 `navigator.mediaDevices` is only defined in a secure context. The Caddy proxy
