@@ -92,6 +92,29 @@ export default function PersonaPanel() {
 
   async function apply() {
     setStatus("applying");
+    // Target the agent participant (the RPC destination). Prefer the identity
+    // surfaced by useVoiceAssistant().agent; fall back to the first non-local
+    // remote participant. Guard: no agent joined yet → error.
+    const fallback = Array.from(room.remoteParticipants.values())[0];
+    const agentIdentity = agent?.identity ?? fallback?.identity;
+    if (!agentIdentity) {
+      setStatus("error");
+      return;
+    }
+    try {
+      // Payload keys MUST match the agent's Persona(**snapshot):
+      // role_text, display_name, difficulty, verbosity, correction, voice_id.
+      // Payload carries persona text/enums/voice id only — no credentials. The
+      // native RPC return value IS the "applying…→applied" ack (no custom protocol).
+      await room.localParticipant.performRpc({
+        destinationIdentity: agentIdentity,
+        method: "persona.update",
+        payload: JSON.stringify(persona),
+      });
+      setStatus("applied");
+    } catch {
+      setStatus("error");
+    }
   }
 
   return (
