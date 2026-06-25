@@ -8,3 +8,4 @@ certs/*-key.pem
 # Web build artifacts
 web/node_modules
 web/.next
+web/next-env.d.ts
