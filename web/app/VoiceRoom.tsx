@@ -55,6 +55,10 @@ export default function VoiceRoom() {
         >
           Start talking
         </button>
+        <p style={{ color: "#8b949e", marginTop: "0.75rem", fontSize: "0.9rem" }}>
+          Tip: use headphones for the cleanest experience — they stop the agent
+          from hearing (and interrupting) itself through your speakers.
+        </p>
         {error && (
           <p style={{ color: "#f85149", marginTop: "0.75rem" }}>{error}</p>
         )}
