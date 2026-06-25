@@ -31,11 +31,11 @@ Requirements for the first complete release. Each maps to roadmap phases.
 ### Knowledge Base
 
 - [x] **KB-01**: User can upload documents (PDF, TXT, MD, DOCX) at session start
-- [ ] **KB-02**: Uploaded documents are parsed and distilled into a compact domain brief at upload time
-- [ ] **KB-03**: The domain brief is loaded into the session context once and held in the model's prefix/KV cache (no per-turn retrieval)
-- [ ] **KB-04**: With a KB loaded, the agent's answers demonstrably reference the user's material; with no KB, they do not
+- [x] **KB-02**: Uploaded documents are parsed and distilled into a compact domain brief at upload time
+- [x] **KB-03**: The domain brief is loaded into the session context once and held in the model's prefix/KV cache (no per-turn retrieval)
+- [x] **KB-04**: With a KB loaded, the agent's answers demonstrably reference the user's material; with no KB, they do not
 - [ ] **KB-05**: Per-turn time-to-first-token stays flat whether or not a KB is loaded (the flat-TTFT invariant — KB cost is paid once at session start)
-- [ ] **KB-06**: KB is ephemeral — cleared at session end (privacy + simplicity)
+- [x] **KB-06**: KB is ephemeral — cleared at session end (privacy + simplicity)
 - [x] **KB-07**: User sees an indicator showing the KB is active and how many docs are loaded
 - [x] **KB-08**: An upload-size guard warns or distills more aggressively when an upload is large enough to bloat the cached prefix / KV-cache VRAM
 
@@ -130,11 +130,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PERS-06 | Phase 3 | Complete |
 | PERS-07 | Phase 3 | Complete |
 | KB-01 | Phase 4 | Complete |
-| KB-02 | Phase 4 | Pending |
-| KB-03 | Phase 4 | Pending |
-| KB-04 | Phase 4 | Pending |
+| KB-02 | Phase 4 | Complete |
+| KB-03 | Phase 4 | Complete |
+| KB-04 | Phase 4 | Complete |
 | KB-05 | Phase 4 | Pending |
-| KB-06 | Phase 4 | Pending |
+| KB-06 | Phase 4 | Complete |
 | KB-07 | Phase 4 | Complete |
 | KB-08 | Phase 4 | Complete |
 | MODE-01 | Phase 6 | Pending |
