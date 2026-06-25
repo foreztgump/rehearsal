@@ -89,7 +89,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 02-03: Barge-in + open-mic AEC/noise-suppression + endpointing tuning + per-turn latency metrics
+- [x] 02-03: Barge-in + open-mic AEC/noise-suppression + endpointing tuning + per-turn latency metrics
 
 ### Phase 3: Persona Layer
 
@@ -108,8 +108,12 @@ Plans:
 **Plans**: TBD
 
 Plans:
+**Wave 1**
 
 - [ ] 03-01: Persona config → system prompt + voice id; frozen-prefix prompt layout
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 03-02: Persona editor side panel (role, name, knobs, voice) + live update_instructions/voice swap
 
 ### Phase 4: Knowledge Base Layer
@@ -202,7 +206,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation & Infrastructure | 3/3 | Complete    | 2026-06-25 |
-| 2. Bare Voice Loop (MVP Gate) | 3/3 | Complete   | 2026-06-25 |
+| 2. Bare Voice Loop (MVP Gate) | 3/3 | Complete    | 2026-06-25 |
 | 3. Persona Layer | 0/2 | Not started | - |
 | 4. Knowledge Base Layer | 0/3 | Not started | - |
 | 5. History Management | 0/1 | Not started | - |
