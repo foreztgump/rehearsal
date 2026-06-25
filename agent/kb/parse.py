@@ -1,0 +1,256 @@
+"""Pure KB parser + extraction gate + size guard for the Adept trainer (Plan 04-01).
+
+Livekit-free module mirroring ``agent/metrics.py`` / ``agent/persona.py``: frozen
+module-level constants, ``@dataclass`` results, a ``_self_check()`` guarded by
+``if __name__ == "__main__":`` (``python3 agent/kb/parse.py``). The whole
+dispatch → normalize → extraction-gate → size-guard path is testable over fixture
+bytes with NO livekit import — exactly like the metrics/persona pure cores.
+
+Design rules baked in (CODE_PRINCIPLES + 04-PATTERNS Pattern A):
+  * Boundary discipline (§4): ``parse`` is a named boundary — NO bare except, NO
+    silent swallow. Every failure returns a typed ``KbParseError`` (the four
+    ``reason`` values map 1:1 to a ``kb.state`` message); it NEVER raises across
+    the boundary, so the agent's voice loop keeps running on a bad upload.
+  * No magic values (§2): the gate/guard thresholds are named module constants.
+  * The size guard measures EXTRACTED TOKENS, not file bytes — a scanned 200-page
+    PDF is ~0 useful tokens, and a small text file can still distill-bust the
+    frozen prefix budget. Tokens are the unit that couples to ``num_ctx``.
+  * DOCX uses ``python-docx`` only — pymupdf4llm's Office support needs the paid
+    PyMuPDF Pro (04-RESEARCH §3.2). PDF/TXT/MD are free via pymupdf4llm/stdlib.
+  * No volatile data (no wall-clock reads, counters, or unique ids) so the module
+    stays a pure, deterministic function of its inputs.
+
+Heavy parser deps (``pymupdf4llm``, ``fitz``/``pymupdf``, ``python-docx``) are
+imported LAZILY inside ``_extract`` so the pure dispatch/gate/guard path (and the
+``.txt``/``.md`` stdlib path the self-check exercises) imports without them.
+"""
+from __future__ import annotations
+
+import io
+import sys
+from dataclasses import dataclass
+
+# Supported upload kinds (KB-01). Anything outside this set is an "unsupported"
+# typed error — never a raise.
+SUPPORTED: tuple[str, ...] = ("pdf", "txt", "md", "docx")
+
+# Extraction-quality gate thresholds (Pattern A2 — detect empty/scanned/garbage
+# BEFORE distillation). A scanned PDF extracts ~0 useful text or a low ratio of
+# alphabetic characters.
+ALPHA_RATIO_FLOOR: float = 0.50
+MIN_USEFUL_CHARS: int = 32
+
+# Size-guard thresholds, measured in ESTIMATED EXTRACTED TOKENS (Pattern A3).
+# CHARS_PER_TOKEN is a cheap estimate (a real tokenizer is optional). These three
+# are COUPLED to the distilled-brief budget + ``num_ctx`` pinned in 04-02/04-03:
+# raising KB_MAX_TOKENS without bumping num_ctx would blow the frozen-prefix
+# budget. Keep them in lockstep with BRIEF_TOKEN_BUDGET (04-02) and the Modelfile
+# num_ctx (04-03).
+CHARS_PER_TOKEN: int = 4
+KB_WARN_TOKENS: int = 6000      # over → distill harder (KB-08 oversize_warn signal for 04-02)
+KB_MAX_TOKENS: int = 24000      # over → reject this doc with a clear error (REL-03)
+
+# Extension → kind map for the few cases where the name is authoritative.
+_EXT_KIND: dict[str, str] = {
+    "pdf": "pdf",
+    "txt": "txt",
+    "md": "md",
+    "markdown": "md",
+    "docx": "docx",
+}
+
+# MIME → kind map (fallback when the extension is missing/ambiguous).
+_MIME_KIND: dict[str, str] = {
+    "application/pdf": "pdf",
+    "text/plain": "txt",
+    "text/markdown": "md",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+}
+
+
+@dataclass
+class ParsedDoc:
+    """A successfully parsed document. ``text`` is normalized UTF-8 (BOM/smart-quote
+    cleaned). ``oversize_warn`` is True when the token estimate is over
+    ``KB_WARN_TOKENS`` but within ``KB_MAX_TOKENS`` — the KB-08 "distill harder"
+    signal that 04-02's distiller reads.
+    """
+
+    name: str
+    text: str
+    token_estimate: int
+    oversize_warn: bool
+
+
+@dataclass
+class KbParseError:
+    """A typed parse failure. ``reason`` is one of the four matrix values; ``message``
+    is the user-facing clear error surfaced via the ``kb.state`` attribute (REL-03).
+    Returned, never raised across the parse boundary.
+    """
+
+    name: str
+    reason: str        # "unsupported" | "scanned" | "corrupt" | "oversize"
+    message: str
+
+
+def parse(name: str, mime: str, raw: bytes) -> ParsedDoc | KbParseError:
+    """Dispatch by type, normalize, run the extraction gate, then the size guard.
+
+    Returns a ``ParsedDoc`` on success or a typed ``KbParseError`` for any of
+    unsupported / scanned / corrupt / oversize. NEVER raises across this boundary
+    (the parser-exception path is caught and converted to a ``corrupt`` error).
+    """
+    kind = _kind(name, mime)
+    if kind not in SUPPORTED:
+        return KbParseError(name, "unsupported", "Unsupported file type — use PDF/TXT/MD/DOCX")
+    try:
+        text = _extract(kind, raw)
+    except Exception:
+        # Named boundary (CODE_PRINCIPLES §4): any parser exception becomes a typed
+        # error so the voice loop keeps running. No bare except, no silent swallow.
+        return KbParseError(name, "corrupt", "Couldn't read this file")
+    text = _normalize(text)
+    gate = _extraction_gate(text)
+    if gate is not None:
+        gate.name = name
+        return gate
+    token_estimate = _estimate_tokens(text)
+    if token_estimate > KB_MAX_TOKENS:
+        return KbParseError(name, "oversize", "Too large for inline KB — trimmed/skipped")
+    return ParsedDoc(
+        name=name,
+        text=text,
+        token_estimate=token_estimate,
+        oversize_warn=token_estimate > KB_WARN_TOKENS,
+    )
+
+
+def _kind(name: str, mime: str) -> str:
+    """Resolve the document kind from the file extension, then the MIME type."""
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    if ext in _EXT_KIND:
+        return _EXT_KIND[ext]
+    return _MIME_KIND.get((mime or "").strip().lower(), "")
+
+
+def _extract(kind: str, raw: bytes) -> str:
+    """Extract raw text per kind. Heavy parser deps are imported lazily so the pure
+    dispatch/gate/guard path imports without pymupdf4llm/python-docx.
+    """
+    if kind == "pdf":
+        return _extract_pdf(raw)
+    if kind == "docx":
+        return _extract_docx(raw)
+    # txt / md: decode bytes directly (errors replaced so a stray byte never raises).
+    return raw.decode("utf-8", errors="replace")
+
+
+def _extract_pdf(raw: bytes) -> str:
+    """PDF → markdown via pymupdf4llm over an in-memory PyMuPDF document (no temp file)."""
+    import fitz  # PyMuPDF; lazy so the pure path imports without it
+    import pymupdf4llm
+
+    doc = fitz.open(stream=raw, filetype="pdf")
+    try:
+        return pymupdf4llm.to_markdown(doc)
+    finally:
+        # PyMuPDF holds an open handle on the in-memory stream; close it so no
+        # resource lingers (KB-06 ephemerality — nothing persists).
+        doc.close()
+
+
+def _extract_docx(raw: bytes) -> str:
+    """DOCX → text via python-docx (NOT pymupdf4llm — Office needs paid PyMuPDF Pro).
+
+    Joins paragraph text AND explicitly iterates table cells: tables extract out
+    of order if ignored (Pitfall 14), so they are walked separately and appended.
+    """
+    from docx import Document  # python-docx; lazy import
+
+    doc = Document(io.BytesIO(raw))
+    parts: list[str] = [p.text for p in doc.paragraphs if p.text]
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                if cell.text:
+                    parts.append(cell.text)
+    return "\n".join(parts)
+
+
+def _normalize(text: str) -> str:
+    """Strip the BOM and normalize common smart-quote/dash artifacts to ASCII.
+
+    Cheap, deterministic, no volatile data. Ensures a clean UTF-8 ``str`` for the
+    gate and the (later) byte-stable distilled brief.
+    """
+    cleaned = text.lstrip("\ufeff")
+    for src, dst in _SMART_QUOTE_MAP.items():
+        cleaned = cleaned.replace(src, dst)
+    return cleaned
+
+
+# Common Unicode punctuation → ASCII (BOM handled separately in _normalize).
+_SMART_QUOTE_MAP: dict[str, str] = {
+    "\u2018": "'", "\u2019": "'",      # single curly quotes
+    "\u201c": '"', "\u201d": '"',      # double curly quotes
+    "\u2013": "-", "\u2014": "-",      # en/em dash
+    "\u2026": "...",                    # ellipsis
+}
+
+
+def _extraction_gate(text: str) -> KbParseError | None:
+    """Detect empty/scanned/garbage extraction (Pattern A2). Returns a ``scanned``
+    error (with an empty ``name`` for the caller to fill) or ``None`` when the text
+    looks like real prose.
+    """
+    stripped = text.strip()
+    if len(stripped) < MIN_USEFUL_CHARS:
+        return KbParseError("", "scanned", "Couldn't extract text (looks scanned)")
+    alpha_ratio = sum(c.isalpha() for c in stripped) / len(stripped)
+    if alpha_ratio < ALPHA_RATIO_FLOOR:
+        return KbParseError("", "scanned", "Couldn't extract text (looks scanned)")
+    return None
+
+
+def _estimate_tokens(text: str) -> int:
+    """Cheap token estimate over EXTRACTED text (not file bytes): chars // CHARS_PER_TOKEN."""
+    return len(text) // CHARS_PER_TOKEN
+
+
+def _self_check() -> None:
+    """Pure-stdlib check over fixture bytes (``python3 agent/kb/parse.py``).
+
+    Exercises the full dispatch + extraction gate + size guard + oversize_warn path
+    using only the txt/md stdlib branch (no pymupdf4llm/python-docx needed), mirror-
+    ing ``metrics.py``/``persona.py``. Asserts the four typed-error reasons and the
+    oversize_warn signal. Not part of the runtime path.
+    """
+    prose = b"The quick brown fox jumps over the lazy dog. " * 4
+    ok = parse("notes.txt", "text/plain", prose)
+    assert isinstance(ok, ParsedDoc), f"expected ParsedDoc, got {ok!r}"
+    assert ok.name == "notes.txt" and ok.token_estimate > 0
+    assert ok.oversize_warn is False, "small prose should not warn"
+
+    unsupported = parse("archive.bin", "application/octet-stream", b"\x7fELF")
+    assert isinstance(unsupported, KbParseError) and unsupported.reason == "unsupported"
+
+    scanned = parse("scan.txt", "text/plain", b"\x00\x01\x02")
+    assert isinstance(scanned, KbParseError) and scanned.reason == "scanned"
+    assert scanned.name == "scan.txt", "gate error must carry the file name"
+
+    oversize_raw = ("word " * (KB_MAX_TOKENS * CHARS_PER_TOKEN)).encode("utf-8")
+    oversize = parse("huge.txt", "text/plain", oversize_raw)
+    assert isinstance(oversize, KbParseError) and oversize.reason == "oversize"
+
+    # Mid-size text: tokens between WARN and MAX → ParsedDoc with oversize_warn True.
+    warn_chars = (KB_WARN_TOKENS + (KB_MAX_TOKENS - KB_WARN_TOKENS) // 2) * CHARS_PER_TOKEN
+    warn_raw = ("a" * warn_chars).encode("utf-8")
+    warn = parse("mid.txt", "text/plain", warn_raw)
+    assert isinstance(warn, ParsedDoc) and warn.oversize_warn is True, "mid-size should warn"
+
+    print("kb.parse _self_check OK", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    _self_check()
