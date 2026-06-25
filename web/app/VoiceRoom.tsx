@@ -3,6 +3,7 @@
 import { LiveKitRoom, RoomAudioRenderer, StartAudio } from "@livekit/components-react";
 import { useState } from "react";
 import AgentStatePill from "./AgentStatePill";
+import PersonaPanel from "./PersonaPanel";
 import Transcript from "./Transcript";
 
 // Browser-visible LiveKit WS endpoint (Caddy 7443 vhost → livekit-server:7880).
@@ -78,7 +79,10 @@ export default function VoiceRoom() {
       <RoomAudioRenderer />
       <StartAudio label="Click to enable audio" />
       <AgentStatePill />
-      <Transcript />
+      <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start", marginTop: "1rem" }}>
+        <PersonaPanel />
+        <Transcript />
+      </div>
     </LiveKitRoom>
   );
 }
