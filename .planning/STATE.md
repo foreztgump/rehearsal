@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 1
-current_phase_name: Foundation & Infrastructure
+current_phase: 01
+current_phase_name: foundation-infrastructure
 status: executing
-stopped_at: ROADMAP.md, STATE.md, and REQUIREMENTS.md traceability created and committed
-last_updated: "2026-06-25T03:46:11.421Z"
-last_activity: 2026-06-24
-last_activity_desc: Roadmap created; all 42 v1 requirements mapped across 7 phases
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-06-25T04:04:07.956Z"
+last_activity: 2026-06-25
+last_activity_desc: Phase 01 execution started
 progress:
   total_phases: 7
   completed_phases: 0
-  total_plans: 16
-  completed_plans: 0
+  total_plans: 3
+  completed_plans: 1
   percent: 0
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-24)
 
 **Core value:** The user can hold a natural spoken conversation with a credible expert persona at voice-to-voice latency that feels live (P50 < 1.0s) — practicing speaking a domain out loud.
-**Current focus:** Phase 1 — Foundation & Infrastructure
+**Current focus:** Phase 01 — foundation-infrastructure
 
 ## Current Position
 
-Phase: 1 of 7 (Foundation & Infrastructure)
-Plan: 0 of 3 in current phase
+Phase: 01 (foundation-infrastructure) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-06-24 — Roadmap created; all 42 v1 requirements mapped across 7 phases
+Last activity: 2026-06-25 — Phase 01 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -55,6 +55,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 01 P01-01 | 22 min | 4 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -64,6 +65,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
 - [Phase 1]: Pin `gemma4:e4b-it-q4_K_M` (smaller quant for the tight 16GB floor) with thinking/reasoning mode OFF
+- [Phase 1 / 01-02]: Model-pin RESOLVED — fallback ladder rung 1 wins. `gemma4:e4b-it-q4_K_M` is a real published Ollama tag: `ollama pull` advanced past `pulling manifest` into the 9.6GB blob on the RTX 5090 host (a non-existent tag errors instantly at the manifest step). PERF-02's literal tag is CONFIRMED VERBATIM — not superseded. Pinned to `.env` OLLAMA_MODEL; `ollama/pull-and-pin.sh` encodes the ladder for the operator's container-side full pull.
 - [Phase 1]: Self-host LiveKit from day one including the local `MultilingualModel` turn detector (deprecated cloud path avoided)
 - [Phase 3]: Establish frozen-prefix prompt layout `[persona] + [KB] + [history] + [turn]` before KB depends on it
 - [Phase 4]: Inline-and-cache KB (distill once, inject once) — not per-turn RAG — to protect the flat-TTFT invariant
@@ -87,6 +89,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-24
-Stopped at: ROADMAP.md, STATE.md, and REQUIREMENTS.md traceability created and committed
+Last session: 2026-06-25T04:04:07.952Z
+Stopped at: Completed 01-01-PLAN.md
 Resume file: None

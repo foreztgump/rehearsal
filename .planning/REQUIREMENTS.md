@@ -64,9 +64,9 @@ Requirements for the first complete release. Each maps to roadmap phases.
 ### Performance & Deployment
 
 - [ ] **PERF-01**: Voice-to-voice latency meets P50 < 1.0s and P95 < 1.5s on the target hardware
-- [ ] **PERF-02**: The full stack runs within the 16GB VRAM floor (STT + LLM + TTS co-resident, no embedder or vector store), with the LLM served as `gemma4:e4b-it-q4_K_M` and thinking/reasoning mode disabled
-- [ ] **PERF-03**: All inference runs locally — no audio, transcripts, or KB content leaves the local network
-- [ ] **DEPLOY-01**: The entire system (LiveKit server, agent worker, Ollama, Whisper, Kokoro, web frontend) comes up from a single Docker Compose stack with GPU passthrough
+- [x] **PERF-02**: The full stack runs within the 16GB VRAM floor (STT + LLM + TTS co-resident, no embedder or vector store), with the LLM served as `gemma4:e4b-it-q4_K_M` and thinking/reasoning mode disabled
+- [x] **PERF-03**: All inference runs locally — no audio, transcripts, or KB content leaves the local network
+- [x] **DEPLOY-01**: The entire system (LiveKit server, agent worker, Ollama, Whisper, Kokoro, web frontend) comes up from a single Docker Compose stack with GPU passthrough
 - [ ] **DEPLOY-02**: LiveKit is self-hosted (no dependency on LiveKit Cloud) including the local turn-detection model
 - [ ] **DEPLOY-03**: A user can load the single-page UI and start talking to the default trainer within seconds, with configuration optional and tucked to the side
 
@@ -151,13 +151,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REL-02 | Phase 7 | Pending |
 | REL-03 | Phase 4 | Pending |
 | PERF-01 | Phase 2 | Pending |
-| PERF-02 | Phase 1 | Pending |
-| PERF-03 | Phase 1 | Pending |
-| DEPLOY-01 | Phase 1 | Pending |
+| PERF-02 | Phase 1 | Complete (tag `gemma4:e4b-it-q4_K_M` confirmed verbatim in 01-02 — ladder rung 1; target tag == resolved tag) |
+| PERF-03 | Phase 1 | Complete |
+| DEPLOY-01 | Phase 1 | Complete |
 | DEPLOY-02 | Phase 1 | Pending |
 | DEPLOY-03 | Phase 2 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 42 total
 - Mapped to phases: 42
 - Unmapped: 0
