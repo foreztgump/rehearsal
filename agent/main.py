@@ -153,12 +153,20 @@ def prewarm(proc: JobProcess) -> None:
     metrics.emit_warmup_metric(ttft_ms)
 
 
-async def entrypoint(ctx: JobContext) -> None:
-    """Per-job entrypoint: connect, build the session, attach per-plugin metrics.
+GREETING_INSTRUCTIONS = (
+    "Greet the user as the Cybersecurity Trainer and invite them to begin."
+)
 
-    Phase 1 does NOT start a live voice turn — no generate_reply / no agent
-    speech. The session is constructed and metrics are wired so Phase 2 can
-    enable the loop without re-plumbing.
+
+async def entrypoint(ctx: JobContext) -> None:
+    """Per-job entrypoint: connect, build the session, drive the agent's first turn.
+
+    After session.start(...) the agent speaks first via generate_reply so the
+    learner immediately has a partner (PERS-01 "talking within seconds"). The
+    greeting instruction drives the full LLM->TTS path — no second hardcoded
+    greeting string. Per-turn replies after this need no manual glue: with VAD +
+    turn detector + STT + LLM + TTS all wired, AgentSession runs a turn
+    automatically when the user finishes speaking.
     """
     await ctx.connect()
     session = build_session(ctx.proc.userdata["vad"])
@@ -167,6 +175,7 @@ async def entrypoint(ctx: JobContext) -> None:
         agent=Agent(instructions=PERSONA_INSTRUCTIONS),
         room=ctx.room,
     )
+    await session.generate_reply(instructions=GREETING_INSTRUCTIONS)
 
 
 if __name__ == "__main__":
