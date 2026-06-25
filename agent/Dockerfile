@@ -23,7 +23,9 @@ RUN uv venv /app/.venv \
 RUN python -m livekit.agents download-files
 
 # Worker entrypoint + metrics scaffold (main.py reuses the warmup logic inline).
-COPY metrics.py main.py ./
+# persona.py provides the persona model + render_persona used by the runtime
+# persona.update RPC handler.
+COPY metrics.py persona.py main.py ./
 
 # Run the LiveKit worker. `start` connects to livekit-server, runs the startup
 # warmup, emits the one real metric, and registers — no live voice turn yet.
