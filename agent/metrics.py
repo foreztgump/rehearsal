@@ -18,26 +18,102 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from collections import defaultdict, deque
+from dataclasses import dataclass
 from statistics import quantiles
 from typing import Any
 
 # Per-stage latency budgets (milliseconds). These encode the flat-TTFT
 # invariant: each stage must stay under budget for voice-to-voice P50 < 1.0s.
+# `e2e` is the phase-2 voice-to-voice gate (P50 < ~1.2s this phase).
 BUDGET_MS: dict[str, int] = {
     "eou": 300,         # end-of-utterance / turn-detection decision
     "stt": 150,         # speech-to-text transcription
     "llm_ttft": 300,    # LLM time-to-first-token
     "tts_ttfb": 150,    # TTS time-to-first-byte
     "playout": 100,     # audio playout scheduling
+    "e2e": 1200,        # end-to-end voice-to-voice (Phase 2 gate: P50 < ~1.2s)
 }
 
 # Rolling window size for the P50/P95 aggregation stub.
 ROLLING_WINDOW = 100
 _MS_PER_SECOND = 1000.0
 
-# Per-stage rolling samples for the P50/P95 aggregation stub.
+# Per-stage rolling samples for the P50/P95 aggregation.
 _samples: dict[str, deque[float]] = defaultdict(lambda: deque(maxlen=ROLLING_WINDOW))
+
+# Emit a rolling P50/P95 summary line once every N consolidated turns.
+SUMMARY_EVERY_TURNS = 10
+
+
+# --- Per-turn consolidation (Plan 02-03-4, option (a): turn-keyed buffer) ----
+# The per-plugin handlers each fire with ONE stage populated, so without a
+# buffer there is no single per-turn record and nowhere to anchor a real
+# `e2e_ms`. We buffer each stage by the LiveKit `speech_id` (present on the
+# EOU/LLM/TTS metric objects — verified in metrics/base.py) and flush ONE
+# consolidated emit_turn() per turn when the TTS stage fires (the last stage of
+# the voice-to-voice span). e2e_ms is sourced from THIS buffer's handler
+# timestamps, NOT a LiveKit field: source introspection (metrics/base.py across
+# livekit-agents@1.5.0..@1.6.4) shows NO single end-to-end v2v field on
+# MetricsReport/EOUMetrics — only per-stage timings — so we compute
+# e2e_ms = agent_audio_start - user_audio_end from monotonic timestamps captured
+# when the EOU handler (user finished) and the first TTS handler (agent starts
+# speaking) fire. STTMetrics carries NO speech_id (only request_id), so its
+# duration is attached to the most-recently-touched open buffer (documented
+# limitation; STT is a small, bounded stage).
+@dataclass
+class _TurnBuffer:
+    eou_ms: float | None = None
+    stt_ms: float | None = None
+    llm_ttft_ms: float | None = None
+    tts_ttfb_ms: float | None = None
+    user_audio_end: float | None = None     # monotonic ts at EOU handler
+    agent_audio_start: float | None = None   # monotonic ts at first TTS handler
+
+
+_PENDING_KEY = "_pending"
+_turns: dict[str, _TurnBuffer] = {}
+_last_turn_key: str = _PENDING_KEY
+_turns_emitted = 0
+
+
+def _turn_key(metric: Any) -> str:
+    """Resolve a turn key from the metric's speech_id (falls back to pending)."""
+    return getattr(metric, "speech_id", None) or _PENDING_KEY
+
+
+def _buffer_for(metric: Any) -> _TurnBuffer:
+    """Get-or-create the turn buffer for a metric, tracking the active key."""
+    global _last_turn_key
+    key = _turn_key(metric)
+    buffer = _turns.get(key)
+    if buffer is None:
+        buffer = _TurnBuffer()
+        _turns[key] = buffer
+    _last_turn_key = key
+    return buffer
+
+
+def _flush_turn(key: str) -> None:
+    """Flush ONE consolidated emit_turn() for a completed turn + periodic P50/P95."""
+    global _turns_emitted
+    buffer = _turns.pop(key, None)
+    if buffer is None:
+        return
+    e2e_ms: float | None = None
+    if buffer.user_audio_end is not None and buffer.agent_audio_start is not None:
+        e2e_ms = round((buffer.agent_audio_start - buffer.user_audio_end) * _MS_PER_SECOND, 1)
+    emit_turn(
+        eou_ms=buffer.eou_ms,
+        stt_ms=buffer.stt_ms,
+        llm_ttft_ms=buffer.llm_ttft_ms,
+        tts_ttfb_ms=buffer.tts_ttfb_ms,
+        e2e_ms=e2e_ms,
+    )
+    _turns_emitted += 1
+    if _turns_emitted % SUMMARY_EVERY_TURNS == 0:
+        emit_rolling_summary()
 
 
 def _seconds_to_ms(value: float | None) -> float | None:
@@ -88,6 +164,9 @@ def emit_turn(
         "stt": stt_ms,
         "llm_ttft": llm_ttft_ms,
         "tts_ttfb": tts_ttfb_ms,
+        # e2e is now recorded into its rolling window so rolling_percentiles("e2e")
+        # works — it was previously excluded (Pattern E3 fix).
+        "e2e": e2e_ms,
     }
     for stage, value in stages.items():
         _record(stage, value)
@@ -103,6 +182,23 @@ def emit_turn(
     return record
 
 
+def emit_rolling_summary() -> dict[str, Any]:
+    """Emit ONE periodic P50/P95 summary line over the rolling windows.
+
+    Local stdout only (PERF-03 — no external telemetry export of any kind).
+    The `e2e` percentiles are the Phase-2 voice-to-voice gate (P50 < ~1.2s).
+    """
+    summary = {
+        "rolling_summary": {
+            stage: rolling_percentiles(stage)
+            for stage in ("eou", "stt", "llm_ttft", "tts_ttfb", "e2e")
+        },
+        "window": ROLLING_WINDOW,
+    }
+    print(json.dumps(summary), file=sys.stdout, flush=True)
+    return summary
+
+
 def emit_warmup_metric(ttft_ms: float) -> dict[str, Any]:
     """Walking-skeleton gate: route the startup warmup LLM TTFT through the
     scaffold as the first real metric line — proves emission without a voice
@@ -112,24 +208,43 @@ def emit_warmup_metric(ttft_ms: float) -> dict[str, Any]:
 
 
 def _on_llm_metrics(metric: Any) -> None:
-    """Per-plugin LLM handler: emit the real TTFT (LiveKit reports seconds)."""
-    emit_turn(llm_ttft_ms=_seconds_to_ms(getattr(metric, "ttft", None)))
+    """Per-plugin LLM handler: buffer the real TTFT (LiveKit reports seconds)."""
+    _buffer_for(metric).llm_ttft_ms = _seconds_to_ms(getattr(metric, "ttft", None))
 
 
 def _on_stt_metrics(metric: Any) -> None:
-    """Per-plugin STT handler: record transcription duration."""
-    emit_turn(stt_ms=_seconds_to_ms(getattr(metric, "duration", None)))
+    """Per-plugin STT handler: buffer transcription duration on the active turn.
+
+    STTMetrics has no speech_id, so attach to the most-recently-touched buffer.
+    """
+    buffer = _turns.get(_last_turn_key)
+    if buffer is not None:
+        buffer.stt_ms = _seconds_to_ms(getattr(metric, "duration", None))
 
 
 def _on_tts_metrics(metric: Any) -> None:
-    """Per-plugin TTS handler: record time-to-first-byte."""
-    emit_turn(tts_ttfb_ms=_seconds_to_ms(getattr(metric, "ttfb", None)))
+    """Per-plugin TTS handler: buffer TTFB, anchor agent-audio-start, flush turn.
+
+    TTS is the last stage of the voice-to-voice span — the first agent audio
+    frame — so we stamp agent_audio_start here and flush the consolidated turn.
+    """
+    buffer = _buffer_for(metric)
+    buffer.tts_ttfb_ms = _seconds_to_ms(getattr(metric, "ttfb", None))
+    if buffer.agent_audio_start is None:
+        buffer.agent_audio_start = time.monotonic()
+    _flush_turn(_turn_key(metric))
 
 
 def _on_vad_metrics(metric: Any) -> None:
-    """Per-plugin VAD/EOU handler: record the end-of-utterance delay."""
-    delay = getattr(metric, "end_of_utterance_delay", None)
-    emit_turn(eou_ms=_seconds_to_ms(delay))
+    """Per-plugin EOU handler: buffer the delay + anchor user-audio-end.
+
+    The EOU decision marks the last user audio frame — the start of the
+    voice-to-voice span — so we stamp user_audio_end here.
+    """
+    buffer = _buffer_for(metric)
+    buffer.eou_ms = _seconds_to_ms(getattr(metric, "end_of_utterance_delay", None))
+    if buffer.user_audio_end is None:
+        buffer.user_audio_end = time.monotonic()
 
 
 def attach(session: Any) -> None:
@@ -149,3 +264,28 @@ def attach(session: Any) -> None:
         plugin = getattr(session, plugin_name, None)
         if plugin is not None:
             plugin.on("metrics_collected", handler)
+
+
+def _self_check() -> None:
+    """Pure-stdlib unit-style check: feed >=2 samples, assert P50/P95 numeric.
+
+    Runnable here without livekit (`python3 agent/metrics.py`) — proves the
+    rolling percentile math, the e2e rolling window, and the consolidated
+    emit_turn record shape. Not part of the runtime path.
+    """
+    for e2e in (900.0, 1100.0, 1000.0, 1300.0):
+        emit_turn(eou_ms=200.0, stt_ms=120.0, llm_ttft_ms=250.0,
+                  tts_ttfb_ms=130.0, e2e_ms=e2e)
+    pct = rolling_percentiles("e2e")
+    assert isinstance(pct["p50"], (int, float)), f"p50 not numeric: {pct}"
+    assert isinstance(pct["p95"], (int, float)), f"p95 not numeric: {pct}"
+    # Key-name / shape contract (flat-TTFT for Phase 4/5): keys must be exact.
+    rec = emit_turn(eou_ms=1.0, stt_ms=2.0, llm_ttft_ms=3.0, tts_ttfb_ms=4.0, e2e_ms=5.0)
+    expected = {"eou_ms", "stt_ms", "llm_ttft_ms", "tts_ttfb_ms", "e2e_ms", "over_budget"}
+    assert set(rec) == expected, f"per-turn keys drifted: {set(rec)}"
+    emit_rolling_summary()
+    print(f"_self_check OK: e2e p50={pct['p50']} p95={pct['p95']}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    _self_check()
