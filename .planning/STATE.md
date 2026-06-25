@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 02
 current_phase_name: bare-voice-loop-mvp-gate
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-06-25T15:28:19.348Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-06-25T15:40:54.653Z"
 last_activity: 2026-06-25
 last_activity_desc: Phase 02 execution started
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 5
   percent: 14
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-24)
 ## Current Position
 
 Phase: 02 (bare-voice-loop-mvp-gate) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-06-25 — Phase 02 execution started
 
@@ -59,6 +59,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P01-02 | 18 min | 4 tasks | 6 files |
 | Phase 01 P01-03 | 7 min | 4 tasks | 13 files |
 | Phase 02 P01 | 12 min | 5 tasks | 8 files |
+| Phase 02 P02-02 | 9 min | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,7 @@ Recent decisions affecting current work:
 - [Phase 3]: Establish frozen-prefix prompt layout `[persona] + [KB] + [history] + [turn]` before KB depends on it
 - [Phase 4]: Inline-and-cache KB (distill once, inject once) — not per-turn RAG — to protect the flat-TTFT invariant
 - [Phase 01]: 01-03: LiveKit ICE pinned via node_ip + --node-ip flag (use_external_ip:false) — STUN discovery is WAN egress; udp mux 7882 single firewall rule. Keys via LIVEKIT_KEYS env, not committed. Turn detector = local MultilingualModel, weights baked offline. Metrics scaffold subscribes per-plugin metrics_collected (session-level deprecated); warmup LLM TTFT emitted in worker prewarm as the one real metric. — Local-first WebRTC requires pinning the advertised IP (node_ip) instead of STUN discovery; bake model weights at build for offline startup.
+- [Phase 02]: Phase 2 / 02-02: thinking-OFF on live LLM turns plumbed via with_ollama(reasoning_effort="none") — Ollama /v1 ignores native think but maps reasoning_effort=none to internal Think=false. Path (a) chosen over a Modelfile <think> strip: no Modelfile change, tag still resolves from OLLAMA_MODEL. preemptive_generation NOT passed (livekit not importable in sandbox — introspection deferred to VM). Greeting via session.generate_reply after session.start. — Keeps the no-second-hardcoded-LLM-tag prohibition; avoids unverified-kwarg risk per sandbox conservative-path guidance.
 
 ### Pending Todos
 
@@ -93,6 +95,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-25T15:28:19.345Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-06-25T15:40:47.790Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None

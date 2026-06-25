@@ -71,12 +71,12 @@ Plans:
   4. User sees a live listening/thinking/speaking state indicator and a live two-sided transcript
   5. Voice-to-voice latency is instrumented per-turn and meets P50 < ~1.2s in this phase (tightening toward < 1.0s by polish)
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 
 Plans:
 
 - [x] 02-01-PLAN.md
-- [ ] 02-02-PLAN.md
+- [x] 02-02-PLAN.md
 - [ ] 02-03-PLAN.md
 
 **Wave 1**
@@ -202,7 +202,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation & Infrastructure | 3/3 | Complete    | 2026-06-25 |
-| 2. Bare Voice Loop (MVP Gate) | 1/3 | In Progress|  |
+| 2. Bare Voice Loop (MVP Gate) | 2/3 | In Progress|  |
 | 3. Persona Layer | 0/2 | Not started | - |
 | 4. Knowledge Base Layer | 0/3 | Not started | - |
 | 5. History Management | 0/1 | Not started | - |

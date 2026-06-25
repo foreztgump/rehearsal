@@ -9,8 +9,8 @@ Requirements for the first complete release. Each maps to roadmap phases.
 
 ### Conversation Core
 
-- [ ] **VOICE-01**: User can speak into the mic and hear a spoken response from the agent (full streamed mic → STT → LLM → TTS loop)
-- [ ] **VOICE-02**: Agent begins speaking on the first completed sentence of its response (sentence-chunked TTS streaming), not after the full response is generated
+- [x] **VOICE-01**: User can speak into the mic and hear a spoken response from the agent (full streamed mic → STT → LLM → TTS loop)
+- [x] **VOICE-02**: Agent begins speaking on the first completed sentence of its response (sentence-chunked TTS streaming), not after the full response is generated
 - [ ] **VOICE-03**: Agent stops speaking instantly when the user starts talking (barge-in)
 - [ ] **VOICE-04**: Agent waits for the user to finish a thought before responding, using semantic endpointing (not a fixed silence timer), so it does not cut in on pauses
 - [x] **VOICE-05**: User talks hands-free via open-mic VAD (no push-to-talk)
@@ -114,8 +114,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| VOICE-01 | Phase 2 | Pending |
-| VOICE-02 | Phase 2 | Pending |
+| VOICE-01 | Phase 2 | Complete |
+| VOICE-02 | Phase 2 | Complete |
 | VOICE-03 | Phase 2 | Pending |
 | VOICE-04 | Phase 2 | Pending |
 | VOICE-05 | Phase 2 | Complete |
