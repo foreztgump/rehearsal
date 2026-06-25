@@ -73,7 +73,8 @@ The user can hold a natural spoken conversation with a credible expert persona a
 
 ## Context
 
-- **Stack converged during planning:** LiveKit Agents (orchestration/transport/turn-detection/barge-in), faster-whisper turbo int8 (STT), Gemma 4 E4B Q4 via Ollama with keep-alive + flash attention (LLM), Kokoro via OpenAI-compatible server (TTS).
+- **Stack converged during planning:** LiveKit Agents (orchestration/transport/turn-detection/barge-in), faster-whisper turbo int8 (STT), Gemma 4 E4B via Ollama with keep-alive + flash attention (LLM), Kokoro via OpenAI-compatible server (TTS).
+- **LLM model (decided):** `gemma4:e4b-it-q4_K_M` served by Ollama, with the model's **thinking/reasoning mode turned OFF** (it inflates TTFT and breaks first-sentence TTS streaming — a research-flagged correction). Note: research found the default `gemma4:e4b` is ~9.6GB; the q4_K_M quant is the smaller-footprint choice for the 16GB VRAM floor.
 - **Latency is the headline metric.** Design optimizes time-to-first-token and first-sentence streaming, NOT throughput — E4B generates far faster than speech is spoken. Start TTS on the first completed sentence rather than waiting for the full LLM response.
 - **KB is inline + cached, not RAG.** Documents distilled to a compact domain brief at upload (setup-time work where latency is invisible), loaded into context once, held in prefix/KV cache so it costs prefill only on turn one and is effectively free afterward.
 - **Hardware:** 16GB VRAM floor (E4B Q4 ~5GB + faster-whisper turbo int8 ~2GB + Kokoro ~2–3GB; no embedder or vector store in v1). 24GB recommended for headroom and an optional larger model (Gemma 4 26B-A4B MoE or Qwen3 8B fallback).
@@ -101,7 +102,8 @@ The user can hold a natural spoken conversation with a credible expert persona a
 | KB ephemeral per-session for v1 | Privacy + simplicity | — Pending |
 | Interview role picked at mode entry | Flexibility across SOC analyst / security engineer / GRC etc. | — Pending |
 | Inline-and-cache KB, not per-turn RAG | Avoids inflating TTFT — the metric the design depends on | — Pending |
-| Gemma 4 E4B Q4 via Ollama as the brain | Fits 16GB VRAM; generates faster than speech is spoken | — Pending |
+| `gemma4:e4b-it-q4_K_M` via Ollama as the brain | Smaller quant fits the 16GB VRAM floor; generates faster than speech is spoken | — Pending |
+| Disable Gemma thinking/reasoning mode | Thinking mode inflates TTFT and breaks first-sentence TTS streaming | — Pending |
 | Stream every stage; start TTS on first sentence | Only way to hit sub-second voice-to-voice latency | — Pending |
 
 ## Evolution

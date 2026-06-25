@@ -64,7 +64,7 @@ Requirements for the first complete release. Each maps to roadmap phases.
 ### Performance & Deployment
 
 - [ ] **PERF-01**: Voice-to-voice latency meets P50 < 1.0s and P95 < 1.5s on the target hardware
-- [ ] **PERF-02**: The full stack runs within the 16GB VRAM floor (STT + LLM + TTS co-resident, no embedder or vector store)
+- [ ] **PERF-02**: The full stack runs within the 16GB VRAM floor (STT + LLM + TTS co-resident, no embedder or vector store), with the LLM served as `gemma4:e4b-it-q4_K_M` and thinking/reasoning mode disabled
 - [ ] **PERF-03**: All inference runs locally — no audio, transcripts, or KB content leaves the local network
 - [ ] **DEPLOY-01**: The entire system (LiveKit server, agent worker, Ollama, Whisper, Kokoro, web frontend) comes up from a single Docker Compose stack with GPU passthrough
 - [ ] **DEPLOY-02**: LiveKit is self-hosted (no dependency on LiveKit Cloud) including the local turn-detection model
@@ -117,9 +117,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | (populated during roadmap creation) | | |
 
 **Coverage:**
-- v1 requirements: 35 total
+- v1 requirements: 42 total
 - Mapped to phases: 0 (pending roadmap)
-- Unmapped: 35 ⚠️
+- Unmapped: 42 ⚠️
 
 ---
 *Requirements defined: 2026-06-24*
