@@ -28,8 +28,10 @@ services:
     restart: unless-stopped
 
   agent:
-    # Minimal uv-based placeholder image (01-03 extends it with livekit-agents
-    # deps + turn-detector/VAD weights bake). Idles cleanly so the stack stays up.
+    # LiveKit agent worker (01-03): uv-installed livekit-agents + plugins with
+    # Silero VAD / MultilingualModel turn-detector weights baked at build time.
+    # Constructs the AgentSession against the three local model endpoints, runs
+    # the startup warmup, emits the one real metric, and registers as a worker.
     build: ./agent
     env_file: .env
     networks:

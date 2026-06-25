@@ -1,11 +1,30 @@
-# Minimal uv-based placeholder for the LiveKit agent worker.
-# 01-03 extends this with `uv pip install`/`uv sync` of livekit-agents and a
-# `python -m livekit.agents download-files` weights bake. For now it only proves
-# the build context resolves and the service boots cleanly at this boundary.
+# Adept LiveKit agent worker image (Plan 01-03).
+#
+# Extends the 01-01 uv-based placeholder: installs the pinned deps with uv (NOT
+# pip — AGENTS.md mandates the Python agent runs via uv) and bakes the Silero VAD
+# + MultilingualModel turn-detector weights into the image at build time with
+# `download-files`, so the container starts fully offline-capable (no weight
+# download at runtime, no network egress — PERF-03 / DEPLOY-02).
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 WORKDIR /app
 
-# Idle cleanly so `docker compose up` keeps the placeholder service running
-# until 01-03 gives it a real worker entrypoint.
-CMD ["python", "-c", "print('agent placeholder — fleshed out in 01-03', flush=True); import time; time.sleep(2**31)"]
+# Install pinned deps into a uv-managed virtualenv at /app/.venv and put it on
+# PATH so `python` resolves to the env interpreter for the bake + runtime.
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv
+ENV VIRTUAL_ENV=/app/.venv
+ENV PATH="/app/.venv/bin:${PATH}"
+
+COPY requirements.txt ./
+RUN uv venv /app/.venv \
+    && uv pip install --python /app/.venv/bin/python -r requirements.txt
+
+# Pre-fetch VAD + turn-detector weights into the image (offline-capable).
+RUN python -m livekit.agents download-files
+
+# Worker entrypoint + metrics scaffold (main.py reuses the warmup logic inline).
+COPY metrics.py main.py ./
+
+# Run the LiveKit worker. `start` connects to livekit-server, runs the startup
+# warmup, emits the one real metric, and registers — no live voice turn yet.
+CMD ["python", "main.py", "start"]

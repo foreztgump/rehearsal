@@ -1,0 +1,12 @@
+# Adept LiveKit agent — pinned Python deps (Plan 01-03).
+# Installed into the image via uv (AGENTS.md mandates the agent runs via uv).
+# livekit-agents ~=1.5 is the verified line; the three plugins provide the
+# OpenAI-compatible STT/LLM/TTS clients, Silero VAD, and the LOCAL
+# MultilingualModel turn detector (no LiveKit Cloud).
+livekit-agents~=1.5
+livekit-plugins-openai
+livekit-plugins-silero
+livekit-plugins-turn-detector
+
+# Host-side warmup client (ollama/warmup.py logic reused at agent startup).
+httpx
