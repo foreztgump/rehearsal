@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 01
 current_phase_name: foundation-infrastructure
-status: executing
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-06-25T04:32:36.170Z"
+status: verifying
+stopped_at: Completed 01-03-PLAN.md
+last_updated: "2026-06-25T04:45:39.339Z"
 last_activity: 2026-06-25
 last_activity_desc: Phase 01 execution started
 progress:
   total_phases: 7
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
-  percent: 0
+  completed_plans: 3
+  percent: 14
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-24)
 
 Phase: 01 (foundation-infrastructure) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-25 — Phase 01 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -57,6 +57,7 @@ Progress: [░░░░░░░░░░] 0%
 *Updated after each plan completion*
 | Phase 01 P01-01 | 22 min | 4 tasks | 17 files |
 | Phase 01 P01-02 | 18 min | 4 tasks | 6 files |
+| Phase 01 P01-03 | 7 min | 4 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -70,6 +71,7 @@ Recent decisions affecting current work:
 - [Phase 1]: Self-host LiveKit from day one including the local `MultilingualModel` turn detector (deprecated cloud path avoided)
 - [Phase 3]: Establish frozen-prefix prompt layout `[persona] + [KB] + [history] + [turn]` before KB depends on it
 - [Phase 4]: Inline-and-cache KB (distill once, inject once) — not per-turn RAG — to protect the flat-TTFT invariant
+- [Phase 01]: 01-03: LiveKit ICE pinned via node_ip + --node-ip flag (use_external_ip:false) — STUN discovery is WAN egress; udp mux 7882 single firewall rule. Keys via LIVEKIT_KEYS env, not committed. Turn detector = local MultilingualModel, weights baked offline. Metrics scaffold subscribes per-plugin metrics_collected (session-level deprecated); warmup LLM TTFT emitted in worker prewarm as the one real metric. — Local-first WebRTC requires pinning the advertised IP (node_ip) instead of STUN discovery; bake model weights at build for offline startup.
 
 ### Pending Todos
 
@@ -90,6 +92,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-25T04:31:21.418Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-06-25T04:45:39.336Z
+Stopped at: Completed 01-03-PLAN.md
 Resume file: None

@@ -13,7 +13,7 @@ Adept is built as a strict downward dependency chain dictated by the research bu
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation & Infrastructure** - Self-hosted, GPU-passthrough Docker Compose stack with pinned models, VRAM budget, and per-stage metrics scaffold
+- [x] **Phase 1: Foundation & Infrastructure** - Self-hosted, GPU-passthrough Docker Compose stack with pinned models, VRAM budget, and per-stage metrics scaffold (completed 2026-06-25)
 - [ ] **Phase 2: Bare Voice Loop (MVP Gate)** - End-to-end streamed voice-to-voice conversation with the default trainer, barge-in, and instrumented latency
 - [ ] **Phase 3: Persona Layer** - Live-editable expert persona (role, name, knobs, voice) over the frozen-prefix prompt layout
 - [ ] **Phase 4: Knowledge Base Layer** - Upload → distill → inline-and-cache ephemeral docs while preserving the flat-TTFT invariant
@@ -37,13 +37,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. LiveKit is fully self-hosted including the local `MultilingualModel` turn detector — no call ever routes to LiveKit Cloud or any external network
   5. A per-stage metrics logging scaffold exists and emits VAD/STT/LLM/TTS timings, ready to instrument turns
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 
 Plans:
 
 - [x] 01-01-PLAN.md
 - [x] 01-02-PLAN.md
-- [ ] 01-03-PLAN.md
+- [x] 01-03-PLAN.md
 
 **Wave 1**
 
@@ -51,7 +51,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-02: Ollama model pin (q4_K_M, thinking off) + flash-attn/KV-quant env + VRAM validation under load
+- [x] 01-02: Ollama model pin (q4_K_M, thinking off) + flash-attn/KV-quant env + VRAM validation under load
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -189,7 +189,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Infrastructure | 2/3 | In Progress|  |
+| 1. Foundation & Infrastructure | 3/3 | Complete   | 2026-06-25 |
 | 2. Bare Voice Loop (MVP Gate) | 0/3 | Not started | - |
 | 3. Persona Layer | 0/2 | Not started | - |
 | 4. Knowledge Base Layer | 0/3 | Not started | - |
