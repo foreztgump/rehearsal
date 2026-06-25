@@ -11,10 +11,25 @@
 # (OLLAMA_MODEL is resolved by ollama/pull-and-pin.sh; rung 1 = gemma4:e4b-it-q4_K_M.)
 FROM ${OLLAMA_MODEL}
 
-# Tight Phase-1 context window. Ollama PRE-ALLOCATES the full num_ctx KV cache
-# upfront, so every extra 1k is reserved VRAM against the 16GB floor. 8192 is
-# ample for Phase 1 (no KB yet); this grows in Phase 4 when the distilled KB
-# brief lands in the frozen prefix.
+# Context window pinned to the measured Phase-4 worst case. Ollama PRE-ALLOCATES
+# the full num_ctx KV cache upfront, so every extra 1k is reserved VRAM against
+# the 16GB floor — num_ctx is a DIRECT VRAM cost, not a free ceiling.
+#
+# Phase-4 accounting (the frozen prefix is [persona] + [KB brief] + [history] + [turn]):
+#   persona            ~250 tok   (render_prompt base, agent/persona.py)
+#   KB brief budget    ~1500 tok  (BRIEF_TOKEN_BUDGET, agent/kb/distill.py)
+#   max history window ~5000 tok  (multi-turn spoken context)
+#   headroom           ~1440 tok  (turn tokens + slack)
+#   ----------------------------------------------------------------
+#   total              ~8190 tok  → 8192 covers the worst case; KEPT (not inflated).
+#
+# These are COUPLED constants — num_ctx tracks BRIEF_TOKEN_BUDGET (distill.py) and
+# KB_MAX_TOKENS/KB_WARN_TOKENS (parse.py); raising one without the others either
+# wastes VRAM or busts the frozen-prefix budget. q8_0 KV quant + flash-attn (the
+# compose env OLLAMA_KV_CACHE_TYPE=q8_0 / OLLAMA_FLASH_ATTENTION=1) HALVE the KV
+# memory, which is what makes this num_ctx affordable inside the 16GB floor.
+# The operator confirms the REAL distilled-brief token count via Proof C in
+# 04-KB-VERIFY.md and bumps this only to a measured value if 8192 ever overflows.
 PARAMETER num_ctx 8192
 
 # Gemma 4 recommended sampling (steady trainer voice tuned later).
