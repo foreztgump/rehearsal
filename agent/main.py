@@ -127,9 +127,18 @@ def build_session(vad: silero.vad.VAD) -> AgentSession:
                 "vad_filter": WHISPER_PARAMS["vad_filter"],
             },
         ),
+        # Thinking-OFF on the hot path (a <think> preamble destroys TTFT and
+        # breaks first-sentence TTS). with_ollama connects over Ollama's
+        # OpenAI-compat /v1 endpoint, which IGNORES the native `think` field but
+        # DOES honor `reasoning_effort` — Ollama maps "none" to its internal
+        # Think=false (see Ollama OpenAI-compatibility docs). with_ollama exposes
+        # `reasoning_effort` directly (livekit-plugins-openai reference), so this
+        # forwards think-off over /v1 WITHOUT a Modelfile change or repointing the
+        # model (the tag still resolves from OLLAMA_MODEL via resolved_llm_tag()).
         llm=openai.LLM.with_ollama(
             model=resolved_llm_tag(),
             base_url=OLLAMA_BASE_URL,
+            reasoning_effort="none",
         ),
         tts=openai.TTS(
             base_url=KOKORO_BASE_URL,
@@ -161,8 +170,8 @@ GREETING_INSTRUCTIONS = (
 async def entrypoint(ctx: JobContext) -> None:
     """Per-job entrypoint: connect, build the session, drive the agent's first turn.
 
-    After session.start(...) the agent speaks first via generate_reply so the
-    learner immediately has a partner (PERS-01 "talking within seconds"). The
+    After session.start(...) the agent speaks first (the greeting call below) so
+    the learner immediately has a partner (PERS-01 "talking within seconds"). The
     greeting instruction drives the full LLM->TTS path — no second hardcoded
     greeting string. Per-turn replies after this need no manual glue: with VAD +
     turn detector + STT + LLM + TTS all wired, AgentSession runs a turn
