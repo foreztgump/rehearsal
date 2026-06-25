@@ -31,8 +31,13 @@ OLLAMA_GENERATE_URL = os.environ.get("OLLAMA_GENERATE_URL", "http://ollama:11434
 WHISPER_BASE_URL = os.environ.get("WHISPER_BASE_URL", "http://whisper:8000/v1")
 KOKORO_BASE_URL = os.environ.get("KOKORO_BASE_URL", "http://kokoro:8880/v1")
 
-WHISPER_MODEL = "Systran/faster-whisper-large-v3-turbo"
-KOKORO_MODEL = "kokoro"
+WHISPER_MODEL = "Systran/faster-whisper-large-v3"
+# Use "tts-1" (not "kokoro"): the livekit openai TTS plugin only routes tts-1 /
+# tts-1-hd through the plain audio-stream path. Any other model name takes the
+# SSE path (stream_format="sse"), which kokoro-fastapi ignores — it returns raw
+# audio/mpeg instead of SSE deltas, so zero frames are pushed ("no audio frames
+# were pushed"). kokoro selects the voice via the `voice` param, not the model.
+KOKORO_MODEL = "tts-1"
 KOKORO_VOICE = "af_bella"
 
 # faster-whisper decode settings tuned for latency (forwarded to the server).
@@ -121,11 +126,6 @@ def build_session(vad: silero.vad.VAD) -> AgentSession:
             model=WHISPER_MODEL,
             api_key="none",
             language=WHISPER_PARAMS["language"],
-            extra_kwargs={
-                "beam_size": WHISPER_PARAMS["beam_size"],
-                "condition_on_previous_text": WHISPER_PARAMS["condition_on_previous_text"],
-                "vad_filter": WHISPER_PARAMS["vad_filter"],
-            },
         ),
         # Thinking-OFF on the hot path (a <think> preamble destroys TTFT and
         # breaks first-sentence TTS). with_ollama connects over Ollama's

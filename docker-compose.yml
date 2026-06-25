@@ -88,7 +88,10 @@ services:
     restart: unless-stopped
 
   kokoro:
-    image: ghcr.io/remsky/kokoro-fastapi-gpu:v0.2.4
+    # CUDA 12.8 build — required for Blackwell (RTX 50-series, sm_120). The
+    # v0.2.4 image bundles PyTorch for sm_50..sm_90 only and crashes at startup
+    # with "no kernel image is available for execution on the device".
+    image: ghcr.io/remsky/kokoro-fastapi-gpu:v0.5.0-cu128
     env_file: .env
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:8880:8880"
@@ -104,7 +107,11 @@ services:
     restart: unless-stopped
 
   web:
-    build: ./web
+    build:
+      context: ./web
+      args:
+        # Bake the browser-facing LiveKit WS URL into the client bundle.
+        NEXT_PUBLIC_LIVEKIT_URL: ${NEXT_PUBLIC_LIVEKIT_URL}
     env_file: .env
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:3000:3000"

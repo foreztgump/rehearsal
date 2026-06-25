@@ -22,6 +22,15 @@
 # (proxy :7443 -> livekit-server:7880) for wss:// in Phase 2.
 port: 7880
 
+# Room lifecycle: close empty rooms quickly so a re-join always creates a fresh
+# room — which re-triggers agent dispatch (JT_ROOM jobs fire on room creation,
+# NOT on join into an existing room). The default empty_timeout (300s) leaves a
+# stale, agent-less room alive for 5 min after an agent restart, so a re-join
+# lands in a "ghost" room with no agent. Short timeouts avoid that in dev.
+room:
+  empty_timeout: 10
+  departure_timeout: 10
+
 rtc:
   # ICE over TCP fallback when UDP is unavailable. Must be reachable on the node.
   tcp_port: 7881
