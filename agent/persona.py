@@ -101,12 +101,20 @@ class Persona:
     voice_id: str        # Kokoro voice id (PERS-05)
 
 
-def render_persona(p: Persona) -> str:
-    """Deterministic, byte-stable system prompt. Same ``p`` -> identical bytes, always.
+def render_prompt(p: Persona, kb_brief: str = "") -> str:
+    """Deterministic, byte-stable system prompt with the KB seam filled (Plan 04-02).
 
-    Joins FROZEN CONSTANTS in a FIXED tuple order with a single space. The KB slot
-    is the empty trailing segment (the Phase-4 seam). No interpolation on runtime
-    values, no dict iteration, no volatile data.
+    Identical to ``render_persona`` except the trailing ``KB_SLOT`` segment is
+    replaced by ``kb_brief or KB_SLOT``: the distilled, session-frozen brief lands
+    at the SAME slot position (persona -> KB -> history -> turn order preserved).
+
+    The empty case is byte-identical to today's golden: ``kb_brief=""`` yields
+    ``"" or KB_SLOT`` == ``KB_SLOT`` == ``""``, the same trailing join as before — so
+    ``render_prompt(p, "") == render_persona(p)`` (the golden regression stays green).
+
+    Joins FROZEN CONSTANTS in a FIXED tuple order with a single space. The brief is
+    treated as an OPAQUE frozen string — no interpolation on runtime values, no dict
+    iteration, no volatile data (the keystone byte-stability constraint, Pitfall 7).
     """
     return " ".join((
         p.role_text or ROLE_PREAMBLE,   # editable base; default falls back to frozen preamble
@@ -114,8 +122,16 @@ def render_persona(p: Persona) -> str:
         VERBOSITY[p.verbosity],
         CORRECTION[p.correction],
         SPOKEN_STYLE_FOOTER,
-        KB_SLOT,                        # "" in Phase 3 — seam, do not reorder
+        kb_brief or KB_SLOT,            # injected-once brief; "" -> KB_SLOT (golden seam)
     ))
+
+
+def render_persona(p: Persona) -> str:
+    """Deterministic, byte-stable system prompt (empty-KB case). Delegates to
+    ``render_prompt(p, "")`` so the join logic lives in one place and the golden
+    output stays byte-identical. Same ``p`` -> identical bytes, always.
+    """
+    return render_prompt(p, "")
 
 
 # Default persona (PERS-01 / DEPLOY-03): reproduces today's Cybersecurity Trainer.
@@ -163,6 +179,16 @@ def _self_check() -> None:
     assert a == b, "render_persona is not deterministic"
     assert a == EXPECTED_DEFAULT, "default persona text drifted from golden"
     assert "{" not in a and "}" not in a, "format placeholder leaked into prefix"
+
+    # Plan 04-02 KB-seam assertions (Pattern C2): the empty-brief render is
+    # byte-identical to the golden, a fixed non-empty brief renders deterministically,
+    # and that brief actually lands in the rendered prefix.
+    assert render_prompt(DEFAULT_PERSONA, "") == EXPECTED_DEFAULT, "empty-KB render drifted"
+    FIXED = "DOMAIN BRIEF: ... FACTS: CVE-2021-1234, --flag, port 8443."
+    assert render_prompt(DEFAULT_PERSONA, FIXED) == render_prompt(DEFAULT_PERSONA, FIXED), (
+        "render_prompt is not deterministic for a fixed brief"
+    )
+    assert FIXED in render_prompt(DEFAULT_PERSONA, FIXED), "brief did not land in the prefix"
 
     # Knob-permutation byte-stability: for every key in each table, a persona using
     # that knob renders identical bytes across repeated calls.
