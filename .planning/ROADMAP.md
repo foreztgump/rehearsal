@@ -201,7 +201,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 06-02: Rubric-structured critique prompts + slow-speech endpointing re-tune + 24GB fallback documented
+- [x] 06-02: Rubric-structured critique prompts + slow-speech endpointing re-tune + 24GB fallback documented
 
 ### Phase 7: Polish & Reliability
 
@@ -236,5 +236,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. Persona Layer | 2/2 | Complete   | 2026-06-25 |
 | 4. Knowledge Base Layer | 4/4 | Complete   | 2026-06-25 |
 | 5. History Management | 1/1 | Complete    | 2026-06-26 |
-| 6. Interview Mode | 2/2 | Complete   | 2026-06-26 |
+| 6. Interview Mode | 2/2 | Complete    | 2026-06-26 |
 | 7. Polish & Reliability | 0/2 | Not started | - |
