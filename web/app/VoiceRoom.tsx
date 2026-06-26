@@ -5,6 +5,7 @@ import { useState } from "react";
 import AgentStatePill from "./AgentStatePill";
 import InterviewPanel from "./InterviewPanel";
 import KbPanel from "./KbPanel";
+import ModelPanel from "./ModelPanel";
 import PersonaPanel from "./PersonaPanel";
 import Transcript from "./Transcript";
 
@@ -84,6 +85,7 @@ export default function VoiceRoom() {
       <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start", marginTop: "1rem" }}>
         <PersonaPanel />
         <InterviewPanel />
+        <ModelPanel />
         <KbPanel />
         <Transcript />
       </div>
