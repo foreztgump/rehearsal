@@ -227,6 +227,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2. Bare Voice Loop (MVP Gate) | 3/3 | Complete    | 2026-06-25 |
 | 3. Persona Layer | 2/2 | Complete   | 2026-06-25 |
 | 4. Knowledge Base Layer | 4/4 | Complete   | 2026-06-25 |
-| 5. History Management | 1/1 | Complete   | 2026-06-26 |
+| 5. History Management | 1/1 | Complete    | 2026-06-26 |
 | 6. Interview Mode | 0/2 | Not started | - |
 | 7. Polish & Reliability | 0/2 | Not started | - |
