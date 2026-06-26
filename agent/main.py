@@ -32,7 +32,16 @@ import metrics
 from kb import DistillError, KbParseError, ParsedDoc
 from kb import distill as kb_distill
 from kb import parse as kb_parse
-from persona import DEFAULT_PERSONA, KB_CITE_NUDGE, Persona, render_prompt
+from persona import (
+    CORRECTION,
+    DEFAULT_PERSONA,
+    DIFFICULTY,
+    KB_CITE_NUDGE,
+    Persona,
+    VERBOSITY,
+    VOICE_IDS,
+    render_prompt,
+)
 
 logger = logging.getLogger("adept.agent")
 
@@ -387,11 +396,33 @@ async def entrypoint(ctx: JobContext) -> None:
     # clobbers the grounding. current_persona is updated so a later KB inject re-emits
     # under this persona — both are one-time, user-initiated re-prefills that compose.
     async def handle_persona_update(data):
-        snapshot = json.loads(data.payload)
-        p = Persona(**snapshot)
-        current_persona[0] = p
+        # persona.update is the UNTRUSTED RPC boundary (any room participant can send
+        # an arbitrary payload). Persona(**snapshot) is a plain @dataclass: it rejects
+        # missing/extra KEYS (TypeError) but performs NO VALUE validation — an unknown
+        # knob value with valid keys (e.g. difficulty="Expert") constructs fine, and if
+        # we committed current_persona[0] before rendering it would poison the shared
+        # persona/KB/mode holder, then compose_instructions() (also used by
+        # handle_mode_update / ingest_kb) would raise KeyError on DIFFICULTY[...] for the
+        # REST of the session, wedging every later persona edit / KB load / mode toggle.
+        # This is the persona-handler twin of the Phase-06 mode.update fix. VALIDATE the
+        # knob values + voice_id and render BEFORE mutating the holder; commit only on
+        # success so a malformed RPC cannot wedge the shared epoch state.
+        try:
+            snapshot = json.loads(data.payload)
+            p = Persona(**snapshot)
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.warning("persona.update rejected: malformed payload (%s)", exc)
+            return "error"
+        if (p.difficulty not in DIFFICULTY or p.verbosity not in VERBOSITY
+                or p.correction not in CORRECTION):
+            logger.warning("persona.update rejected: unknown knob value %r", snapshot)
+            return "error"
+        if p.voice_id not in VOICE_IDS:
+            logger.warning("persona.update rejected: unknown voice_id %r", p.voice_id)
+            return "error"
         # Route through compose_instructions so a persona edit while in Interview mode
         # re-emits the INTERVIEW block (not the Learn block) — the renders compose.
+        current_persona[0] = p
         await agent.update_instructions(compose_instructions())
         session.tts.update_options(voice=p.voice_id)
         return "applied"
