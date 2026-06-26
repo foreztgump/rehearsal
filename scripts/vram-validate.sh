@@ -10,10 +10,24 @@
 #   3. assert peak used-VRAM < 16384 MB with headroom
 #   4. inspect ollama logs for flash-attn / KV-quant engagement; FAIL LOUDLY if
 #      q8_0 silently fell back to F16 (the STATE.md blocker)
-#   5. assert exactly the 3 GPU processes (ollama, nemo-stt, kokoro) — NO
-#      embedder / vector-store process (PERF-02)
+#   5. assert exactly the expected GPU processes — NO embedder / vector-store
+#      process (PERF-02)
 #
 # Run from the host against the running stack:  ./scripts/vram-validate.sh
+#
+# Phase-10 (10-02) 4-cell co-residency matrix {E2B,E4B}×{GPU-NeMo,CPU-ONNX}: STT can
+# run GPU (nemo-stt, STT_RUNTIME=gpu) or off-GPU (nemo-stt-cpu, STT_RUNTIME=cpu). The
+# operator runs ONE cell per invocation, sweeping OLLAMA_MODEL over the Fast (E2B) and
+# Better (E4B) tags × --stt-runtime gpu|cpu, restarting ollama between tags to clear
+# keep_alive=-1 (Gate D). EXPECTED_GPU_PROCS is 3 for GPU-STT (ollama, nemo-stt,
+# kokoro) or 2 for CPU-STT (ollama, kokoro — nemo-stt-cpu runs OFF-GPU and is NOT a GPU
+# process). The CPU-STT cells show a LOWER peak (no +2.4 GB STT on GPU) — that is the
+# headroom the placement table banks on. The GPU-STT × E4B cell is LOAD-BEARING: if its
+# peak >= ceiling, the safe default stays STT_FORCE_CPU=1 and the resolver returns CPU
+# for E4B. The per-cell peak < total − 1 GB assertion is unchanged.
+#
+#   ./scripts/vram-validate.sh --stt-runtime gpu --with-kb   # GPU-STT cell (3 procs)
+#   ./scripts/vram-validate.sh --stt-runtime cpu --with-kb   # CPU-STT cell (2 procs)
 #
 # Phase-4 (04-03) KB-loaded re-check (PERF-02 re-validation): KB load is the
 # peak-memory moment (the distilled brief lands in the frozen prefix and inflates
@@ -41,8 +55,8 @@ readonly CONCURRENT_LLM="${CONCURRENT_LLM:-3}"
 readonly OLLAMA_CONTAINER="${OLLAMA_CONTAINER:-ollama}"
 readonly OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
 readonly NEMO_STT_BASE_URL="${NEMO_STT_BASE_URL:-http://127.0.0.1:8000}"
+readonly NEMO_STT_CPU_BASE_URL="${NEMO_STT_CPU_BASE_URL:-http://127.0.0.1:8001}"
 readonly KOKORO_BASE_URL="${KOKORO_BASE_URL:-http://127.0.0.1:8880}"
-readonly EXPECTED_GPU_PROCS=3
 readonly SAMPLE_INTERVAL_SECONDS=0.3
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -54,6 +68,14 @@ readonly BRIEF_TOKEN_BUDGET="${BRIEF_TOKEN_BUDGET:-1500}"
 readonly CHARS_PER_TOKEN="${CHARS_PER_TOKEN:-4}"
 KB_MODE=false
 KB_FIXTURE="${KB_FIXTURE:-}"
+
+# STT runtime under test (10-02 4-cell matrix). gpu → 3 GPU procs (ollama, nemo-stt,
+# kokoro); cpu → 2 GPU procs (ollama, kokoro — nemo-stt-cpu runs OFF-GPU). Default gpu
+# for back-compat with the Phase-9 invocation. Set via --stt-runtime; EXPECTED_GPU_PROCS
+# and the STT health-probe base URL are derived from it AFTER parse_args.
+STT_RUNTIME_UNDER_TEST="${STT_RUNTIME_UNDER_TEST:-gpu}"
+EXPECTED_GPU_PROCS=3
+STT_BASE_URL="${NEMO_STT_BASE_URL}"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -155,12 +177,23 @@ assert_kv_quant_engaged() {
   fail "could not confirm q8_0 KV engaged in ollama logs (no positive flash-attn/q8_0 marker found)"
 }
 
-assert_three_gpu_procs() {
-  local proc_count
+# Per-cell GPU-process names: GPU-STT counts nemo-stt, CPU-STT does not (nemo-stt-cpu
+# runs off-GPU). The message + EXPECTED_GPU_PROCS are dynamic per --stt-runtime.
+expected_proc_names() {
+  if [ "${STT_RUNTIME_UNDER_TEST}" = "gpu" ]; then
+    echo "ollama, nemo-stt, kokoro"
+  else
+    echo "ollama, kokoro"
+  fi
+}
+
+assert_gpu_proc_count() {
+  local proc_count names
+  names="$(expected_proc_names)"
   proc_count="$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | grep -c . || true)"
   [ "${proc_count}" -eq "${EXPECTED_GPU_PROCS}" ] \
-    || fail "expected ${EXPECTED_GPU_PROCS} GPU processes (ollama, nemo-stt, kokoro), found ${proc_count} — an embedder/vector-store process may be present (PERF-02 violation)"
-  echo "GPU processes: ${proc_count} (ollama, nemo-stt, kokoro — no embedder/vector store)" >&2
+    || fail "expected ${EXPECTED_GPU_PROCS} GPU processes (${names}), found ${proc_count} — an embedder/vector-store process may be present (PERF-02 violation)"
+  echo "GPU processes: ${proc_count} (${names} — no embedder/vector store)" >&2
 }
 
 record_state() {
@@ -174,13 +207,27 @@ parse_args() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --with-kb) KB_MODE=true ;;
-      *) fail "unknown argument: $1 (supported: --with-kb)" ;;
+      --stt-runtime)
+        shift
+        [ "$#" -gt 0 ] || fail "--stt-runtime requires a value (gpu|cpu)"
+        STT_RUNTIME_UNDER_TEST="$1"
+        ;;
+      *) fail "unknown argument: $1 (supported: --with-kb, --stt-runtime gpu|cpu)" ;;
     esac
     shift
   done
   # KB_FIXTURE implies KB mode even without the flag.
   [ -n "${KB_FIXTURE}" ] && KB_MODE=true
   readonly KB_MODE
+  # Derive the per-cell expected GPU-proc count + STT health-probe base URL from the
+  # runtime under test: gpu → 3 procs / nemo-stt (8000); cpu → 2 procs / nemo-stt-cpu
+  # (host 8001, OFF-GPU so NOT counted as a GPU process).
+  case "${STT_RUNTIME_UNDER_TEST}" in
+    gpu) EXPECTED_GPU_PROCS=3; STT_BASE_URL="${NEMO_STT_BASE_URL}" ;;
+    cpu) EXPECTED_GPU_PROCS=2; STT_BASE_URL="${NEMO_STT_CPU_BASE_URL}" ;;
+    *) fail "--stt-runtime must be gpu|cpu, got '${STT_RUNTIME_UNDER_TEST}'" ;;
+  esac
+  readonly STT_RUNTIME_UNDER_TEST EXPECTED_GPU_PROCS STT_BASE_URL
 }
 
 main() {
@@ -190,10 +237,11 @@ main() {
   if [ "${KB_MODE}" = "true" ]; then
     echo "KB-loaded mode: sampling peak VRAM with a ${BRIEF_TOKEN_BUDGET}-token brief-sized prefix resident (04-03 peak-memory re-check)." >&2
   fi
+  echo "STT runtime under test: ${STT_RUNTIME_UNDER_TEST} (expect ${EXPECTED_GPU_PROCS} GPU procs; STT probe ${STT_BASE_URL})" >&2
   warm_models
 
   assert_kv_quant_engaged
-  assert_three_gpu_procs
+  assert_gpu_proc_count
 
   local peak
   peak="$(peak_vram_during_load)"
