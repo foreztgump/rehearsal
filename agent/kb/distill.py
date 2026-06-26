@@ -44,12 +44,28 @@ OLLAMA_GENERATE_URL = os.environ.get("OLLAMA_GENERATE_URL", "http://ollama:11434
 DISTILL_INSTRUCTION: str = (
     "You are preparing reference material for a spoken coaching session. Read the "
     "source material below and produce TWO sections, plain text only (no markdown, "
-    "no JSON, no code fences):\n"
+    "no JSON, no code fences).\n"
+    "Do NOT evaluate, critique, summarize your opinion of, or comment on the quality "
+    "of the material (no 'this is a good/comprehensive specification', no 'Strengths:'). "
+    "Output ONLY the two sections below, nothing before section 1.\n"
     "1. A compact prose DOMAIN BRIEF (a few short paragraphs) a voice coach can use "
     "to ground a spoken conversation in this material. Spoken-friendly, no lists.\n"
     "2. A line that begins with 'FACTS:' followed by the EXACT terms, numbers, "
     "commands, identifiers, and proper nouns from the source — copied VERBATIM, not "
-    "paraphrased. These are the anchors the coach must reference precisely."
+    "paraphrased. These are the anchors the coach must reference precisely.\n"
+    "Example output (shape only — use the real source's facts, not these):\n"
+    "Acme onboarding covers field-tech provisioning and rollback drills.\n"
+    "FACTS: ACME-CORP, CVE-2021-1234, port 8443, --no-verify"
+)
+
+# Repair-pass instruction (Finding 2): used ONLY when the first distill pass omitted
+# the FACTS: anchor. Asks for the single anchor line and nothing else, so the small
+# instruct model has the narrowest possible task.
+FACTS_INSTRUCTION: str = (
+    "From the source material below, output ONE line and nothing else. The line MUST "
+    "begin with 'FACTS:' followed by the EXACT terms, numbers, commands, identifiers, "
+    "and proper nouns from the source — copied VERBATIM, comma-separated. No prose, no "
+    "explanation, no other lines."
 )
 
 # Off-hot-path generation budget: far larger than the warmup's 16 because this call
@@ -89,22 +105,37 @@ def build_distill_prompt(text: str) -> str:
     return f"{DISTILL_INSTRUCTION}\n\n---\n{text}\n---"
 
 
-def distill(text: str) -> str:
-    """One off-hot-path Ollama call: source text -> compact brief + FACTS anchors.
+def build_facts_prompt(source_text: str) -> str:
+    """PURE, deterministic repair prompt: the static FACTS instruction + the source.
 
-    Streams from ``OLLAMA_GENERATE_URL`` with ``think=false`` and a generous
-    ``num_predict`` (off the voice loop). Accumulates ``response`` chunks until
-    ``done``. Requests no structured-output schema (Ollama #15260). Raises
-    ``DistillError`` on any network/timeout failure or empty output.
+    Used only when the first pass omitted the anchor. Same interpolation discipline
+    as ``build_distill_prompt`` — a frozen constant + the input text, no volatile data.
+    """
+    return f"{FACTS_INSTRUCTION}\n\n---\n{source_text}\n---"
+
+
+def _has_facts_anchor(brief: str) -> bool:
+    """PURE: True iff some line, after left-stripping, begins with the literal
+    ``FACTS:`` prefix (the case-sensitive contract the downstream coach parses).
+    """
+    return any(line.lstrip().startswith("FACTS:") for line in brief.splitlines())
+
+
+def _generate(prompt: str) -> str:
+    """Stream one off-hot-path ``/api/generate`` completion and return the accumulated
+    text. Maps any ``httpx.HTTPError`` to ``DistillError`` so EVERY network call in
+    this module stays inside the typed boundary (Finding 1: ``main.ingest_kb`` catches
+    only ``DistillError``; a raw httpx error would escape the background task and break
+    the REL-03 continue-without-KB guarantee).
     """
     payload = {
         "model": _resolved_llm_tag(),
-        "prompt": build_distill_prompt(text),
+        "prompt": prompt,
         "stream": True,
         "think": False,
         "options": {"num_predict": BRIEF_NUM_PREDICT},
     }
-    brief_parts: list[str] = []
+    parts: list[str] = []
     try:
         with httpx.Client(timeout=None) as client:
             with client.stream("POST", OLLAMA_GENERATE_URL, json=payload) as response:
@@ -115,12 +146,42 @@ def distill(text: str) -> str:
                     chunk = json.loads(line)
                     piece = chunk.get("response")
                     if piece:
-                        brief_parts.append(piece)
+                        parts.append(piece)
                     if chunk.get("done"):
                         break
     except httpx.HTTPError as exc:
         raise DistillError(f"distill request failed: {exc}") from exc
-    brief = "".join(brief_parts).strip()
+    return "".join(parts).strip()
+
+
+def distill(text: str) -> str:
+    """One off-hot-path Ollama call: source text -> compact brief + FACTS anchors.
+
+    Streams from ``OLLAMA_GENERATE_URL`` with ``think=false`` and a generous
+    ``num_predict`` (off the voice loop). Requests no structured-output schema
+    (Ollama #15260). If the first pass omits the ``FACTS:`` anchor (small instruct
+    models sometimes do), runs ONE focused repair call for the anchor line and
+    appends it. Raises ``DistillError`` on any network/timeout failure, empty output,
+    or a still-missing anchor — the typed boundary ``main.ingest_kb`` surfaces so the
+    session continues without the KB (REL-03).
+    """
+    brief = _generate(build_distill_prompt(text))
     if not brief:
         raise DistillError("distill produced no output")
+    if _has_facts_anchor(brief):
+        return brief
+
+    # Repair pass (Finding 2): the first pass lacked the anchor. Ask for ONLY the
+    # FACTS: line. Append it ONLY if it carries real verbatim content — never fabricate
+    # a bare/empty anchor, so the hard-fail branch below stays reachable.
+    repair = _generate(build_facts_prompt(text))
+    facts_line = next(
+        (line.strip() for line in repair.splitlines()
+         if line.lstrip().startswith("FACTS:") and line.split("FACTS:", 1)[1].strip()),
+        "",
+    )
+    if facts_line:
+        brief = f"{brief}\n{facts_line}"
+    if not _has_facts_anchor(brief):
+        raise DistillError("distill did not produce a FACTS: anchor")
     return brief
