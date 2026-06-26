@@ -7,12 +7,15 @@
 # scripts/vram-validate.sh operator-gate shape (set -euo pipefail, a fail() helper,
 # a main() that runs each check and prints one PASS line). Two checks:
 #
-#   Check A — chat-template STRUCTURAL sanity. Heretic/abliterated community builds
-#     most commonly fail with a malformed/missing chat template (RESEARCH §6). A
-#     non-empty-only test would PASS a malformed-but-nonempty template, so assert the
-#     Gemma role-turn markers (<start_of_turn>/<end_of_turn> + user/model) are present
-#     AND diff the build's template against the stock Gemma fallback rung to surface
-#     structural drift.
+#   Check A — chat-template BEHAVIORAL sanity. Heretic/abliterated community builds
+#     most commonly fail with a malformed/missing chat template (RESEARCH §6). The
+#     original structural scrape (`ollama show --template` for <start_of_turn> etc.)
+#     is OBSOLETE on Ollama 0.30: the engine applies the template internally
+#     (`--chat-template chatml --no-jinja`), so `show --template` returns a bare
+#     `{{ .Prompt }}` for EVERY gemma4 tag incl. official stock — it would false-FAIL
+#     all of them (Phase-8 Gate A finding). Check A now probes the BEHAVIOR instead:
+#     a deterministic 3-turn /v1 conversation that must recall a fact from an earlier
+#     user turn. Broken role-turn rendering => failed recall => FAIL.
 #   Check B — thinking-off artifact scan. Drive a streamed /api/generate with
 #     "think":false on a reasoning-bait prompt; FAIL on ANY reasoning marker in the
 #     accumulated stream. A leaked marker would otherwise be SPOKEN ALOUD via TTS.
@@ -45,32 +48,55 @@ ollama_exec() {
   docker compose exec -T "${OLLAMA_CONTAINER}" ollama "$@"
 }
 
-# Check A — chat-template STRUCTURAL sanity (role-turn markers + diff vs stock).
+# Check A — chat-template BEHAVIORAL sanity (multi-turn role tracking over /v1).
+#
+# WHY BEHAVIORAL, NOT `ollama show --template` (Phase-8 Gate A finding, Ollama
+# 0.30.10): the structural scrape this check USED to do is OBSOLETE for gemma4.
+# Ollama 0.30 applies the chat template INTERNALLY (the runner launches with
+# `--chat-template chatml --no-jinja`), so `ollama show --template` returns a bare
+# `{{ .Prompt }}` passthrough with NO `<start_of_turn>`/`<end_of_turn>` markers —
+# for EVERY gemma4 tag, INCLUDING the official stock `gemma4:e2b`. The old scrape
+# would therefore false-FAIL every gemma4 build. The malformed-template failure
+# mode this check defends against (RESEARCH §6) now manifests as BROKEN ROLE
+# TRACKING at inference, which a passthrough-template scrape cannot see anyway.
+#
+# Instead, drive a deterministic 3-turn conversation through the SAME /v1 chat path
+# the live agent uses and assert the model recalls a fact stated in an earlier USER
+# turn. A build whose role-turn rendering is broken (turns smeared together / roles
+# not delimited) cannot reliably attribute and recall that fact.
 check_template() {
-  local tag="$1" stock="$2" tmpl
-  echo "Check A: chat-template structural sanity for ${tag}..." >&2
-  tmpl="$(ollama_exec show --template "${tag}")" \
-    || fail "could not read chat template for ${tag} (ollama show --template failed)"
+  local tag="$1" stock="${2:-}"   # stock arg accepted for call-site compat; unused now
+  echo "Check A: behavioral role-tracking probe for ${tag} (multi-turn /v1 recall)..." >&2
+  [ -n "${stock}" ] && echo "Check A: (note) stock-template diff retired — see header; ${stock} ignored." >&2
 
-  # (1) Assert the Gemma role-turn structure is present. A malformed-but-nonempty
-  # template is the documented abliterated-build failure mode (RESEARCH §6) — a
-  # non-empty-only test would let it pass.
-  printf '%s' "${tmpl}" | grep -q '<start_of_turn>' \
-    && printf '%s' "${tmpl}" | grep -q '<end_of_turn>' \
-    && printf '%s' "${tmpl}" | grep -qE 'user|model' \
-    || fail "malformed/missing chat template for ${tag} — no role-turn structure (<start_of_turn>/<end_of_turn>/user/model)"
-
-  # (2) Diff against the stock Gemma template (when a stock rung is supplied) so
-  # structural drift is visible. A drift that drops the role-turn structure already
-  # failed above; a benign diff is surfaced for operator review.
-  if [ -n "${stock}" ]; then
-    echo "Check A: diffing ${tag} chat template against stock ${stock}..." >&2
-    if diff <(printf '%s' "${tmpl}") <(ollama_exec show --template "${stock}"); then
-      echo "Check A: ${tag} chat template identical to stock ${stock}" >&2
-    else
-      echo "NOTE: ${tag} chat-template diff vs stock ${stock} (review above) — role-turn structure intact" >&2
-    fi
-  fi
+  # Distinctive recall token so a generic answer cannot accidentally pass.
+  curl -s "${OLLAMA_BASE_URL}/v1/chat/completions" \
+    -H "Content-Type: application/json" \
+    -d "{\"model\":\"${tag}\",\"messages\":[
+          {\"role\":\"system\",\"content\":\"You are a terse assistant. Answer in five words or fewer.\"},
+          {\"role\":\"user\",\"content\":\"My access code is ZEBRA-7. Remember it.\"},
+          {\"role\":\"assistant\",\"content\":\"Understood.\"},
+          {\"role\":\"user\",\"content\":\"What is my access code?\"}
+        ],\"max_tokens\":400,\"temperature\":0,\"reasoning_effort\":\"none\"}" \
+    | python3 -c '
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception as e:
+    sys.stderr.write("no JSON from /v1 (model failed to load / serve?): " + str(e) + "\n")
+    sys.exit(1)
+if "choices" not in d:
+    sys.stderr.write("/v1 returned an error, not a completion: " + repr(d)[:200] + "\n")
+    sys.exit(1)
+msg = d["choices"][0]["message"]
+out = (msg.get("content") or "") + " " + (msg.get("reasoning") or "")
+if "ZEBRA-7" not in out.upper():
+    sys.stderr.write("role tracking FAILED — model did not recall the earlier-turn fact; "
+                     "got: " + repr((msg.get("content") or "")[:160]) + "\n")
+    sys.exit(1)
+' \
+    || fail "broken role-turn rendering for ${tag} — multi-turn recall failed (chat template not applied correctly). Fall back to the stock rung."
+  echo "Check A: ${tag} role tracking OK (recalled the earlier-turn fact)" >&2
 }
 
 # Check B — thinking-off artifact scan over the accumulated streamed output.
