@@ -119,7 +119,15 @@ class NemoSpeechStream(stt.RecognizeStream):
     async def _recv_loop(self, ws) -> None:
         """Map server messages → INTERIM (delta) / FINAL (final) SpeechEvents."""
         async for msg in ws:
-            evt = json.loads(msg.data)
+            if msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSING,
+                            aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                break
+            if msg.type is not aiohttp.WSMsgType.TEXT:
+                continue  # ignore PING/PONG/BINARY — only TEXT carries our JSON
+            try:
+                evt = json.loads(msg.data)
+            except (json.JSONDecodeError, ValueError):
+                continue
             kind = evt.get("type")
             if kind == "delta":
                 # Cumulative growing interim; native PnC passed through as-is.
