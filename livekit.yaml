@@ -18,8 +18,9 @@
 # (built from LIVEKIT_API_KEY/LIVEKIT_API_SECRET in the gitignored .env) so no
 # secret is committed.
 
-# Main TCP port: RoomService / RTC signaling (WS + API). Fronted by Caddy TLS
-# (proxy :7443 -> livekit-server:7880) for wss:// in Phase 2.
+# Main TCP port: RoomService / RTC signaling (WS + API). For a local install the
+# browser connects here directly over ws://localhost:7880. For LAN devices, front
+# it with a TLS proxy (wss://<lan-ip>:7443 -> 7880) — see README.md.
 port: 7880
 
 # Room lifecycle: close empty rooms quickly so a re-join always creates a fresh

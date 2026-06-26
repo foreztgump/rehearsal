@@ -7,12 +7,28 @@ persona. Self-hosted on a single 16GB-VRAM GPU via Docker Compose. See
 ## Quick start
 
 ```bash
-cp .env.example .env          # then edit secrets / LAN_BIND_IP
-docker compose up             # builds + boots all six services
+cp .env.example .env          # then set a LIVEKIT_API_SECRET
+docker compose up             # builds + boots all services
 ```
 
-All published ports bind to `LAN_BIND_IP` (default `127.0.0.1`) — set it to the
-VM's LAN IP to serve real LAN devices. Nothing is forwarded to the WAN.
+Then open **http://localhost:3000** in **Chromium/Chrome** and click *Start
+talking*. That's it — no certs, no TLS, no browser config.
+
+Why it just works: `localhost` is a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts),
+so the microphone and WebRTC are available over plain HTTP — no TLS needed for a
+local install. The browser talks to the web shell (`http://localhost:3000`) and
+LiveKit (`ws://localhost:7880`) directly.
+
+> **Browser note:** Chromium/Chrome is recommended. Firefox blocks loopback
+> (`127.0.0.1`) WebRTC candidates by default, so an on-box Firefox call to a
+> localhost server fails ("could not establish pc connection") unless you set
+> `media.peerconnection.ice.loopback=true` in `about:config` — a profile-wide
+> change we don't recommend. Just use Chromium for the local install.
+
+All published ports bind to `LAN_BIND_IP` (default `127.0.0.1`) — nothing is
+forwarded to the WAN. To serve **other LAN devices** (not the same machine), see
+[Serving other LAN devices (optional TLS)](#serving-other-lan-devices-optional-tls)
+below.
 
 ## GPU passthrough
 
@@ -70,32 +86,34 @@ are good and `docker compose up` will give the model services the GPU via the
 ## LiveKit self-host networking (ICE / firewall)
 
 LiveKit runs fully self-hosted (no LiveKit Cloud, ever). Its config lives in
-[`livekit.yaml`](livekit.yaml): the server signals on TCP **7880** (fronted by
-Caddy TLS on 7443 for `wss://`), accepts ICE/TCP fallback on **7881**, and muxes
-**all** WebRTC media UDP over a single port **7882** (udp mux — one firewall rule
-instead of a 10k range).
+[`livekit.yaml`](livekit.yaml): the server signals on TCP **7880**, accepts
+ICE/TCP fallback on **7881**, and muxes **all** WebRTC media UDP over a single
+port **7882** (udp mux — one firewall rule instead of a 10k range). For a local
+install the browser reaches all of this over `localhost`; no firewall changes are
+needed.
 
-**Advertised IP (critical):** WebRTC only works if the server advertises a
-LAN-reachable IP as its ICE host candidate. We pin it explicitly with
-`--node-ip` (sourced from `LIVEKIT_NODE_IP` in `.env`) rather than
-`use_external_ip: true`, because the latter reaches out to a public STUN server
-to discover its IP — outbound WAN traffic that violates the local-first
-invariant. Set `LIVEKIT_NODE_IP` to the VM's LAN IP (e.g. `192.168.1.50`); the
-default `127.0.0.1` is local-only and media will not reach other LAN devices.
+**Advertised IP:** WebRTC only works if the server advertises a browser-reachable
+IP as its ICE host candidate. We pin it explicitly with `--node-ip` (sourced from
+`LIVEKIT_NODE_IP` in `.env`) rather than `use_external_ip: true`, because the
+latter reaches out to a public STUN server to discover its IP — outbound WAN
+traffic that violates the local-first invariant. The default `127.0.0.1` is
+correct for a local install; set it to the host's LAN IP only when serving other
+LAN devices (next section).
 
-**Firewall (open inbound on the VM, LAN-only — no WAN forward):**
+## Serving other LAN devices (optional TLS)
 
-| Port | Proto | Purpose |
-|------|-------|---------|
-| 7882 | UDP   | WebRTC media (udp mux) — required for audio to flow |
-| 7881 | TCP   | ICE/TCP fallback when UDP is blocked |
-| 7443 | TCP   | LiveKit signaling over TLS (Caddy → 7880) |
+Everything above is for a **local install** (browser on the same machine). To use
+the app from **other devices on your LAN** (a phone, a second laptop), those
+browsers reach the server over `https://<lan-ip>` — and unlike `localhost`, a raw
+LAN IP is **not** a secure context, so the mic (`navigator.mediaDevices`) is
+unavailable without TLS. This is the only scenario that needs certificates.
 
-Open these for LAN sources only. Do **not** port-forward any of them from the
-WAN — all traffic stays on the local network.
+To set it up:
 
-## HTTPS on the LAN (secure context for the mic)
-
-`navigator.mediaDevices` is only defined in a secure context. The Caddy proxy
-terminates a mkcert-minted LAN-trusted TLS cert — see [`certs/README.md`](certs/README.md)
-for the CA-trust + cert-mint procedure.
+1. Set `LAN_BIND_IP`, `LIVEKIT_NODE_IP`, and `NEXT_PUBLIC_LIVEKIT_URL` in `.env`
+   to the host's LAN IP (e.g. `192.168.1.50` / `wss://192.168.1.50:7443`).
+2. Mint a LAN-trusted cert and trust the CA on every client device — see
+   [`certs/README.md`](certs/README.md).
+3. Add a TLS reverse proxy (e.g. Caddy) terminating `:443 → web:3000` and
+   `:7443 → livekit-server:7880`, and open inbound LAN-only ports **7882/udp**,
+   **7881/tcp**, **7443/tcp** (never port-forward any from the WAN).

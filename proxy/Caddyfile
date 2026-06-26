@@ -1,7 +1,17 @@
+# OPTIONAL — only needed to serve OTHER LAN devices over https://<lan-ip>.
+# A local install (browser on the same machine) does NOT use this: localhost is
+# a secure context, so the browser talks to web:3000 / livekit-server:7880
+# directly over plain HTTP/WS with no TLS. See README.md "Serving other LAN
+# devices (optional TLS)".
+#
+# To enable: mint a LAN cert (certs/README.md), then add a `proxy` service to
+# docker-compose.yml using image caddy:2.8, mounting this file at
+# /etc/caddy/Caddyfile and ./certs at /certs (read-only), publishing 443 + 7443.
+#
 # Adept TLS reverse proxy (Caddy). Terminates the mkcert-minted LAN cert and
 # fronts the web shell; a second TLS vhost passes the LiveKit WS endpoint
-# through so wss:// works on the LAN in Phase 2. The cert/key are mounted
-# read-only at /certs (see certs/README.md for how to mint them).
+# through so wss:// works on the LAN. The cert/key are mounted read-only at
+# /certs (see certs/README.md for how to mint them).
 
 # Web shell on 443.
 :443 {

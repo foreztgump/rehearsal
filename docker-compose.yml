@@ -1,8 +1,11 @@
-# Adept — single-stack Docker Compose (Phase 1 walking skeleton).
+# Adept — single-stack Docker Compose.
 # Six services boot from one `docker compose up`; the three model containers
 # reserve the GPU; every published port binds to the LAN/host interface only
-# (LAN_BIND_IP, default 127.0.0.1) — never 0.0.0.0 / WAN. See README.md GPU
-# passthrough + certs/README.md TLS procedure. Image tags are pinned (no :latest
+# (LAN_BIND_IP, default 127.0.0.1) — never 0.0.0.0 / WAN. The browser talks to
+# the web shell (http://localhost:3000) and LiveKit (ws://localhost:7880)
+# directly: localhost is a secure context, so the mic/WebRTC work over plain
+# HTTP with no TLS. To serve other LAN devices over https://<lan-ip> instead,
+# see README.md (optional TLS reverse-proxy). Image tags are pinned (no :latest
 # except faster-whisper, which is pinned by digest below).
 
 services:
@@ -131,32 +134,14 @@ services:
     build:
       context: ./web
       args:
-        # Bake the browser-facing LiveKit WS URL into the client bundle.
-        NEXT_PUBLIC_LIVEKIT_URL: ${NEXT_PUBLIC_LIVEKIT_URL}
+        # Bake the browser-facing LiveKit WS URL into the client bundle. Defaults
+        # to ws://localhost:7880 (direct to livekit-server) for the local install.
+        NEXT_PUBLIC_LIVEKIT_URL: ${NEXT_PUBLIC_LIVEKIT_URL:-ws://localhost:7880}
     env_file: .env
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:3000:3000"
     networks:
       - adept
-    restart: unless-stopped
-
-  proxy:
-    # mkcert-trusted TLS termination on 443 → web:3000, plus a TLS vhost passing
-    # through the LiveKit WS endpoint (livekit-server:7880) so wss:// works in
-    # Phase 2. Certs are mounted read-only from ./certs (see certs/README.md).
-    image: caddy:2.8
-    env_file: .env
-    ports:
-      - "${LAN_BIND_IP:-127.0.0.1}:443:443"
-      - "${LAN_BIND_IP:-127.0.0.1}:7443:7443"
-    volumes:
-      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./certs:/certs:ro
-    networks:
-      - adept
-    depends_on:
-      - web
-      - livekit-server
     restart: unless-stopped
 
 networks:

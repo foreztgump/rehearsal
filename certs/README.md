@@ -1,10 +1,15 @@
-# LAN TLS certificates (mkcert)
+# LAN TLS certificates (mkcert) — OPTIONAL
 
-`navigator.mediaDevices` — and therefore the microphone — is only available in a
-**secure context** (HTTPS or `localhost`). Serving the web UI over plain
-`http://192.168.x.x` leaves `navigator.mediaDevices === undefined` and the mic can
-never be requested. This directory holds the per-deployment, LAN-only TLS material
-the Caddy proxy uses to provide that secure context.
+**You do not need any of this for a local install.** `localhost` is already a
+secure context, so the mic and WebRTC work over plain `http://localhost:3000` with
+no certificates. See the Quick start in the top-level [`README.md`](../README.md).
+
+This directory only matters when you want to serve the app to **other devices on
+your LAN** (a phone, a second laptop). Those browsers reach the server over
+`https://192.168.x.x`, and a raw LAN IP is **not** a secure context — so
+`navigator.mediaDevices === undefined` and the mic can never be requested without
+TLS. The steps below provide that secure context via a per-deployment, LAN-only
+mkcert cert fronted by a TLS reverse proxy (see [`../proxy/Caddyfile`](../proxy/Caddyfile)).
 
 The cert/key are **gitignored** (`certs/*.pem`, `certs/*-key.pem`) — they are
 per-deployment and must never be committed or reused across deployments (a leaked
