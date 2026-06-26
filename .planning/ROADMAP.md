@@ -41,7 +41,7 @@ Phase 7 was defined in the v1.0 plan but **never started** (0/2 plans). Its scop
 - [x] **Phase 8: LLM Speed Selector (Part A)** — Two user-selectable Ollama models with per-build verification and the sole-guardrail persona check
 - [x] **Phase 9: Nemotron Streaming ASR (Part B)** — Replace faster-whisper with NeMo streaming STT behind a local server *(code-complete; GPU gate pending-operator)*
 - [x] **Phase 10: VRAM-Aware STT Placement (Part C)** — GPU-NeMo vs CPU-ONNX resolved once at session start, with global-CPU-ONNX fallback *(code-complete; GPU gate pending-operator)*
-- [ ] **Phase 11: Consumer-GPU Deployment (Part E)** — `docker compose up` on the user's machine with GPU detection/preflight doctor
+- [x] **Phase 11: Consumer-GPU Deployment (Part E)** — `docker compose up` on the user's machine with GPU detection/preflight doctor *(code-complete; GPU gate pending-operator)*
 - [ ] **Phase 12: Optional 3D Avatar (Part D, frontend-only)** — TalkingHead Path-A avatar that must not touch the server pipeline
 - [ ] **Phase 13: Deferred v1.0 Polish (rolled in)** — Session lifecycle, graceful failure, and final latency tuning for both LLMs
 
@@ -159,6 +159,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → ~~7 (supers
 | 8. LLM Speed Selector (Part A) | v1.1 | 2/2 | Complete | 2026-06-26 |
 | 9. Nemotron Streaming ASR (Part B) | v1.1 | 2/2 | Code-complete (GPU gate pending) | 2026-06-26 |
 | 10. VRAM-Aware STT Placement (Part C) | v1.1 | 2/2 | Code-complete (GPU gate pending) | 2026-06-26 |
-| 11. Consumer-GPU Deployment (Part E) | v1.1 | 0/2 | Planned (ready to execute) | 2026-06-26 |
+| 11. Consumer-GPU Deployment (Part E) | v1.1 | 2/2 | Code-complete (GPU gate pending-operator) | 2026-06-26 |
 | 12. Optional 3D Avatar (Part D) | v1.1 | 0/? | Not started | - |
 | 13. Deferred v1.0 Polish (rolled in) | v1.1 | 0/? | Not started | - |

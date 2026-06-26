@@ -4,17 +4,17 @@ milestone: v1.1
 milestone_name: Local-First Pipeline Swap + Avatar
 current_phase: 11
 current_phase_name: consumer-gpu-deployment-part-e
-status: planned-ready-to-execute
-stopped_at: Phase 11 discussed + planned (11-01 gpu-doctor+up.sh, 11-02 README rewrite + compose verify + DEPLOY-VERIFY); not yet executed
-last_updated: "2026-06-26T22:15:00.000Z"
+status: code-complete-operator-gate-pending
+stopped_at: Phase 11 executed (11-01 + 11-02), reviewed, 11-VERIFICATION written; operator GPU gate pending in 11-DEPLOY-VERIFY.md
+last_updated: "2026-06-26T23:30:00.000Z"
 last_activity: 2026-06-26
-last_activity_desc: "Phase 11 (Consumer-GPU Deployment / Part E) DISCUSSED (4 grey areas all Accept-Recommended) + PLANNED. 11-CONTEXT.md + 2 plans written: 11-01 = scripts/gpu-doctor.sh (ordered nvidia-smi→toolkit→CUDA12.8-floor→16GB-VRAM-floor chain, non-blocking ADVISE, copyable env snippet, never mutates .env) + thin ./up.sh wrapper (doctor→docker compose up, SKIP_DOCTOR=1) + scripts/test_gpu_doctor.sh PATH-shim harness; 11-02 = README rewrite DELETING all Proxmox/VM/vfio content→one docker-compose-only NVIDIA-Container-Toolkit GPU section (NO VM note) + scripts/test_compose_topology.sh (docker compose config default vs --profile stt-gpu) + 11-DEPLOY-VERIFY.md (7 unsigned operator gates, no Proxmox language). docker compose on the user's machine is the ONLY supported deploy. Default up stays CPU-ONNX-safe; ollama/kokoro GPU-required (documented limitation). Next: execute 11-01 then 11-02."
+last_activity_desc: "Phase 11 (Consumer-GPU Deployment / Part E) EXECUTED + CODE-COMPLETE. 11-01 (commit feat(11-01)): scripts/gpu-doctor.sh (ordered nvidia-smi→toolkit→CUDA12.8-floor→16GB-VRAM-floor chain, advise-only always-exit-0, never mutates .env, GPU-ready vs degraded env snippet) + thin ./up.sh wrapper (doctor→docker compose up, SKIP_DOCTOR=1) + scripts/test_gpu_doctor.sh PATH-shim harness 5/5 PASS; real RTX 5090 run RC=0. 11-02 (commit 21361d1): README Proxmox two-layer-passthrough section DELETED→single 'GPU setup (NVIDIA Container Toolkit)' section (toolkit install, docker run --gpus all proof, ./up.sh preflight, default CPU-ONNX vs opt-in --profile stt-gpu, degraded path, no-hung-up note); Quick start now ./up.sh; scripts/test_compose_topology.sh (9 assertions, default vs --profile stt-gpu, 9/9 PASS); 11-DEPLOY-VERIFY.md (7 unsigned operator gates). Repo-wide grep proxmox|vfio|pcie|two-layer|inside-the-vm = empty. 11-VERIFICATION.md verdict: CODE-COMPLETE, operator gate pending (DEPLOY-04/05 satisfied-in-code). Next: v1.1 Phase 12 (Part D avatar, frontend-only)."
 progress:
   total_phases: 6
-  completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
-  percent: 33
+  completed_phases: 3
+  total_plans: 8
+  completed_plans: 8
+  percent: 50
 ---
 
 # Project State
@@ -24,12 +24,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-25)
 
 **Core value:** The user can hold a natural spoken conversation with a credible expert persona at voice-to-voice latency that feels live (P50 < 1.0s) — practicing speaking a domain out loud.
-**Current focus:** Phase 11 — consumer-gpu-deployment-part-e (PLANNED, ready to execute)
+**Current focus:** Phase 11 — consumer-gpu-deployment-part-e (CODE-COMPLETE, operator GPU gate pending) → next Phase 12 (Part D avatar)
 
 ## Current Position
 
-Phase: 11 (consumer-gpu-deployment-part-e) — DISCUSSED + PLANNED, not yet executed
-Plan: 0 of 2 executed (11-01 gpu-doctor.sh + ./up.sh wrapper + test harness, 11-02 README Consumer-GPU rewrite + compose-topology verify + 11-DEPLOY-VERIFY.md). All 4 discuss grey areas = Accept-Recommended. Next: execute 11-01 → 11-02.
+Phase: 11 (consumer-gpu-deployment-part-e) — CODE-COMPLETE, operator GPU gate pending
+Plan: 2 of 2 executed (11-01 gpu-doctor.sh + ./up.sh wrapper + test harness; 11-02 README Consumer-GPU rewrite + compose-topology verify + 11-DEPLOY-VERIFY.md) — both committed, reviewed, 11-VERIFICATION written. All sandbox checks green (bash -n clean; gpu-doctor harness 5/5; compose topology 9/9; README+verify grep proxmox|vfio|pcie clean). 7 GPU gates UNSIGNED in 11-DEPLOY-VERIFY.md. Next: discuss+plan+execute Phase 12 (Part D — avatar, frontend-only).
+
+### (prior) Phase 11 — consumer-gpu-deployment-part-e — CODE-COMPLETE, operator GPU gate pending
+Plan: 2 of 2 (11-01 gpu-doctor.sh + ./up.sh wrapper + test harness, 11-02 README Consumer-GPU rewrite + compose-topology verify + 11-DEPLOY-VERIFY.md) — both executed, reviewed, verified.
+Status: CODE-COMPLETE. `docker compose up` on the user's own machine is the SOLE supported deployment — all Proxmox/VM/vfio/PCIe content deleted (README two-layer-passthrough section → single 'GPU setup (NVIDIA Container Toolkit)' section; repo-wide grep clean). `scripts/gpu-doctor.sh` = advise-only preflight (ordered nvidia-smi→`docker run --gpus all` toolkit→CUDA≥12.8→VRAM≥16384MB, single-sourced readonly floors, `|| true` + `case`-sanitize on nvidia-smi queries, always exit 0, never mutates .env, never switches runtime); emits GPU-ready `--profile stt-gpu` snippet or degraded `STT_FORCE_CPU=1`+Fast-model snippet. `./up.sh` = thin wrapper (cd dirname, doctor unless SKIP_DOCTOR=1, exec docker compose up "$@"). Default boot stays CPU-ONNX-safe (`nemo-stt-cpu`, no GPU reservation, no `nemo-stt`); GPU STT opt-in behind `--profile stt-gpu`. ollama/kokoro stay GPU-required (documented v1.1 limitation). docker-compose.yml UNCHANGED (P10 topology only verified). Sandbox: bash -n clean (4 scripts); scripts/test_gpu_doctor.sh 5/5 PASS (PATH-shim isolation); scripts/test_compose_topology.sh 9/9 PASS (docker compose config default vs --profile stt-gpu); real RTX 5090 doctor run RC=0 (CUDA 13.2 / 24463MB, live --gpus all probe OK). 11-VERIFICATION.md verdict: code-complete with operator gate pending. DEPLOY-04/05 satisfied-in-code. 7 GPU gates UNSIGNED in 11-DEPLOY-VERIFY.md.
+Last activity: 2026-06-26 — Phase 11 executed (commits feat(11-01)..21361d1). Next: discuss+plan+execute Phase 12 (Part D — avatar, frontend-only).
 
 ### (prior) Phase 10 — vram-aware-stt-placement-part-c — CODE-COMPLETE, operator GPU gate pending
 Plan: 2 of 2 (10-01 ONNX CPU backend + runtime switch + nemo-stt-cpu service, 10-02 placement resolver + agent wiring) — both executed, reviewed, fixed, verified
