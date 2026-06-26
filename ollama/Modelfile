@@ -30,6 +30,13 @@ FROM ${OLLAMA_MODEL}
 # memory, which is what makes this num_ctx affordable inside the 16GB floor.
 # The operator confirms the REAL distilled-brief token count via Proof C in
 # 04-KB-VERIFY.md and bumps this only to a measured value if 8192 ever overflows.
+# HOT-PATH NOTE (04-04): the agent (`/v1/chat` via with_ollama) and the distiller
+# (`/api/generate`) load the BASE tag ${OLLAMA_MODEL}, NOT this `adept-gemma` model,
+# so this PARAMETER does NOT reach the runtime on the hot path. The effective
+# context there is enforced by the compose `ollama` service env
+# (OLLAMA_CONTEXT_LENGTH=8192 + OLLAMA_NUM_PARALLEL=1). This PARAMETER documents the
+# same budget and governs `adept-gemma` only if it is ever created (e.g. for the
+# VRAM validator).
 PARAMETER num_ctx 8192
 
 # Gemma 4 recommended sampling (steady trainer voice tuned later).

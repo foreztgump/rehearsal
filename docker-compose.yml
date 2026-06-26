@@ -55,6 +55,18 @@ services:
       - OLLAMA_FLASH_ATTENTION=1
       - OLLAMA_KV_CACHE_TYPE=q8_0
       - OLLAMA_KEEP_ALIVE=-1
+      # Effective context = ctx-size / num_parallel. With num_parallel defaulting
+      # to 2, the pinned 8192 was silently HALVED to 4096 per slot, truncating real
+      # KB prompts (`truncating input prompt limit=4096` — UAT 04-04 GAP-1). MVP is
+      # single-session, so one request slot is correct AND VRAM-neutral: 8192 ctx x
+      # 1 slot pre-allocates the SAME total KV as 4096 x 2 slots.
+      - OLLAMA_NUM_PARALLEL=1
+      # SINGLE SOURCE OF TRUTH for the hot-path context. The agent (`/v1/chat` via
+      # with_ollama) and the distiller (`/api/generate`) both load the BASE tag
+      # gemma3:4b-it-qat, NOT the `adept-gemma` pinned model, so the Modelfile
+      # `num_ctx 8192` never reaches the runtime — this env is what actually pins
+      # the effective context to 8192 for every model loaded over either endpoint.
+      - OLLAMA_CONTEXT_LENGTH=8192
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:11434:11434"
     volumes:
