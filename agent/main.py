@@ -30,6 +30,7 @@ import history
 import interview
 import metrics
 from nemo_stt import NemoSTT
+from placement import resolve_stt_placement
 from kb import KB_AGGREGATE_MAX_TOKENS, DistillError, KbParseError, ParsedDoc
 from kb import distill as kb_distill
 from kb import parse as kb_parse
@@ -53,6 +54,11 @@ OLLAMA_GENERATE_URL = os.environ.get("OLLAMA_GENERATE_URL", "http://ollama:11434
 # Wave-1 (09-01) server route on the `nemo-stt` service. The STT model itself is
 # single-sourced server-side via STT_MODEL (no model tag in agent code).
 NEMO_STT_URL = os.environ.get("NEMO_STT_URL", "ws://nemo-stt:8000/v1/audio/stream")
+# The CPU-ONNX STT route on the `nemo-stt-cpu` service (Wave-1 10-01, STT_RUNTIME=cpu).
+# Same internal port 8000 as the GPU service — reached by a different service-DNS host
+# (the host-side 8001:8000 mapping is for debugging only). placement.resolve_stt_placement
+# picks between this and NEMO_STT_URL ONCE at session start (build_session).
+NEMO_STT_CPU_URL = os.environ.get("NEMO_STT_CPU_URL", "ws://nemo-stt-cpu:8000/v1/audio/stream")
 KOKORO_BASE_URL = os.environ.get("KOKORO_BASE_URL", "http://kokoro:8880/v1")
 
 # Use "tts-1" (not "kokoro"): the livekit openai TTS plugin only routes tts-1 /
@@ -195,9 +201,17 @@ def build_session(vad: silero.vad.VAD) -> AgentSession:
     """Construct the AgentSession against the three local endpoints + local turn
     detector. Used by the entrypoint; metrics are attached per-plugin after.
     """
+    # STT placement is resolved EXACTLY ONCE here at session start from the worst-case
+    # LLM (E4B/Better) — so a mid-session Fast↔Better swap is always VRAM-safe and STT
+    # is NEVER re-placed (STT-06; handle_model_update stays LLM-only). The resolver
+    # checks STT_FORCE_CPU first (STT-07) and defaults CPU until the operator sets the
+    # STT_HEADROOM_MEASURED flag. DEFAULT_MODEL_CHOICE suffices (the worst-case math is
+    # what makes a later swap safe — the resolver need not see the live current_model).
+    placement = resolve_stt_placement(DEFAULT_MODEL_CHOICE, os.environ)
+    stt_url = NEMO_STT_URL if placement == "gpu" else NEMO_STT_CPU_URL
     return AgentSession(
         vad=vad,
-        stt=NemoSTT(ws_url=NEMO_STT_URL, language="en"),
+        stt=NemoSTT(ws_url=stt_url, language="en"),
         # Thinking-OFF on the hot path (a <think> preamble destroys TTFT and
         # breaks first-sentence TTS). with_ollama connects over Ollama's
         # OpenAI-compat /v1 endpoint, which IGNORES the native `think` field but
