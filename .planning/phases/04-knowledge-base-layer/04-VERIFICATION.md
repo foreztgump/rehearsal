@@ -1,24 +1,34 @@
 ---
 phase: 04-knowledge-base-layer
-status: human_needed
-verified: 2026-06-25
+status: passed
+verified: 2026-06-26
 verifier: gsd-verify-work
 sandbox_layer: passed
-operator_gates: pending
+operator_gates: resolved-proxy
+closure_plan: 04-04
 ---
 
 # Phase 04 — Knowledge Base Layer: VERIFICATION
 
-**Status: HUMAN_NEEDED** — the sandbox-verifiable code-and-artifact layer is **complete and
-correct** (all three plans implemented as written, all self-checks green, all prohibitions
-honored). The phase goal's **live proofs** (Ollama distill grounding KB-04, and the entire
-flat-TTFT/cache-hit/VRAM keystone KB-05) are **legitimately deferred VM/operator gates**, not
-implementation gaps. They are captured as a runnable operator runbook in `04-KB-VERIFY.md` and
-require the Proxmox VM (Docker + RTX 5090 + Ollama + browser + LAN device) the sandbox does not
-have.
+**Status: PASSED** — the sandbox-verifiable code-and-artifact layer was complete and correct, and
+the live keystone proofs were subsequently closed by **plan 04-04** (gap-closure). Conversational
+UAT against the live RTX 5090 stack surfaced 2 HIGH gaps (GAP-1 effective context 4096 vs pinned
+8192; GAP-2 distill not emitting the FACTS anchor → KB-04 grounding miss). Plan 04-04 fixed both
+with targeted edits and re-ran the UAT proxies on the rebuilt stack:
 
-This is the expected terminal state for an MVP phase with heavy operator/VM-gated verification.
-No genuine implementation gaps were found.
+- **GAP-1 RESOLVED** — runner now `ctx-size 8192 --parallel 1` (8192 effective); 0 `truncating
+  input prompt` lines (was 2). (`04-04-1`)
+- **GAP-2 RESOLVED** — brief emits a verbatim `FACTS:` anchor; trainer cites supplied facts 3/3;
+  no-KB path does not invent. KB-04 grounding demonstrated. (`04-04-2`, `04-04-3`)
+- **Proof A (KB-05 flat-TTFT):** turn-2 222.7ms ≪ turn-1 394.5ms; KB/no-KB turn-2 ratio 0.95.
+- **Proof C:** worst_total 6713 ≤ 8192, FACTS anchor present.
+- **Proof D (PERF-02 VRAM):** KB-loaded peak 10070MB < 15360, q8_0 engaged, 3 GPU procs.
+
+Closure recorded in `04-UAT.md` (`status: gaps_resolved`) and `04-KB-VERIFY.md`
+(`status: verified-proxy`). Remaining gate: live-mic STT items (headless fake-media yields no
+transcript) — voice-I/O proxy limitation, not an implementation gap.
+
+The original sandbox-layer assessment is retained below for traceability.
 
 ---
 

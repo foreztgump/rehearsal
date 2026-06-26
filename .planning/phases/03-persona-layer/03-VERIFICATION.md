@@ -1,5 +1,5 @@
 ---
-status: verified
+status: passed
 phase: 03-persona-layer
 verified: 2026-06-25
 requirement_ids: [PERS-02, PERS-03, PERS-04, PERS-05, PERS-06, PERS-07]
