@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 
 import aiohttp
@@ -37,6 +38,8 @@ from livekit.agents import (
 )
 from livekit.agents.metrics import STTMetrics
 from livekit.agents.types import NOT_GIVEN
+
+logger = logging.getLogger("nemo-stt")
 
 
 class NemoSTT(stt.STT):
@@ -152,7 +155,7 @@ class NemoSpeechStream(stt.RecognizeStream):
                 self._emit_final(evt["text"])
             elif kind == "error":
                 # Log only; do NOT synthesize a transcript event on error.
-                print(f"nemo-stt error: {evt.get('message', '')}", flush=True)
+                logger.error("nemo-stt error: %s", evt.get("message", ""))
 
     def _emit_final(self, text: str) -> None:
         """Emit FINAL_TRANSCRIPT, then an explicit STTMetrics with finalize dur.
