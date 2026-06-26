@@ -45,12 +45,17 @@ services:
     # session — forcing the GPU STT healthy would boot/wait on an image a CPU-default
     # deploy never uses. The NemoSTT plugin's WS connect-retry is the readiness point;
     # only the placement-resolved STT service need actually be up (RESEARCH §4).
+    # M5: depends_on points at nemo-stt-cpu (the DEFAULT, always-on CPU STT) — NOT the
+    # GPU nemo-stt, which is now behind the `stt-gpu` profile (opt-in). Referencing the
+    # profiled GPU service here would drag it into the default `up` and re-resident its
+    # ~2.4 GB on the GPU, defeating the headroom the placement table banks on. When the
+    # operator runs the GPU cell (`--profile stt-gpu`), the GPU STT comes up alongside.
     depends_on:
       livekit-server:
         condition: service_started
       ollama:
         condition: service_started
-      nemo-stt:
+      nemo-stt-cpu:
         condition: service_started
       kokoro:
         condition: service_started
@@ -113,6 +118,14 @@ services:
       context: ./stt
       args:
         STT_MODEL: ${STT_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b}
+    # M5: opt-in profile so the GPU STT (which loads ~2.4 GB RESIDENT on the GPU,
+    # keep-forever) is NOT brought up by the DEFAULT `docker compose up`. The shipped
+    # default (STT_FORCE_CPU=1) routes every session to the always-on nemo-stt-cpu, so
+    # an always-on GPU STT would silently consume the exact VRAM the placement math
+    # assumes CPU-STT frees (STT_GPU_MB=2400). The operator opts into the GPU cell with
+    # `docker compose --profile stt-gpu up` (paired with STT_FORCE_CPU=0 +
+    # STT_HEADROOM_MEASURED=1 after the co-residency matrix passes — see .env.example).
+    profiles: ["stt-gpu"]
     # No env_file (M3): the STT server takes its model/params via build-ARG + env;
     # it needs none of .env — and must not carry the LiveKit secret.
     environment:
@@ -151,6 +164,9 @@ services:
     # NeMo/torch) and routed to backend_onnx via STT_RUNTIME=cpu. ~0.88 GB int8-dynamic
     # default / ~0.67 GB int4-kquant operator stretch (RESEARCH §1.1). Both STT services
     # are defined; only the placement-resolved one (Wave 2) need be healthy per session.
+    # M5: this CPU service is ALWAYS-ON (no profile) — it is the shipped default
+    # (STT_FORCE_CPU=1) and uses NO VRAM, so the default `docker compose up` brings up
+    # ONLY the CPU STT. The GPU nemo-stt is opt-in behind the `stt-gpu` profile.
     # Single-sourced ONNX tag: the default literal lives ONLY here (build.args +
     # environment) — Dockerfile.cpu body + server.py + backend_onnx carry it via
     # STT_ONNX_MODEL env/ARG (no hardcoded tag, AGENTS.md).
