@@ -62,6 +62,45 @@ WARMUP_NUM_PREDICT = 16
 THINKING_ENABLED = False  # protect TTFT (see ollama/Modelfile)
 _MS_PER_SECOND = 1000.0
 
+# --- Endpointing profiles (Plan 06-02, MODE-05) -------------------------------
+# Two named endpointing profiles, no magic values (AGENTS.md). The CONVERSATIONAL
+# profile (min_delay 0.3 / max_delay 3.0) is today's Learn/Converse floor — see the
+# turn_handling dict in build_session. The INTERVIEW profile raises the floor so a
+# deliberate, pause-heavy answer ("let me think… the answer is…") is NOT read as
+# turn-end and cut mid-thought; MultilingualModel() stays the semantic decider, this
+# only widens the silence tolerance around it (RESEARCH §5).
+CONVERSATIONAL_ENDPOINTING_MIN_DELAY: float = 0.3
+CONVERSATIONAL_ENDPOINTING_MAX_DELAY: float = 3.0
+# Interview floor: min ∈ [0.6, 0.8] (wait longer before committing a turn),
+# max ∈ [5.0, 6.0] (allow a longer final pause before forcing turn-end).
+INTERVIEW_ENDPOINTING_MIN_DELAY: float = 0.7
+INTERVIEW_ENDPOINTING_MAX_DELAY: float = 5.0
+# METRICS INTERPRETATION (RESEARCH §2.4 / §7.7): the raised interview min_delay (0.7s)
+# INTENTIONALLY exceeds metrics.BUDGET_MS["eou"]=300 (agent/metrics.py:31), so interview
+# turns flag over_budget:["eou"]. This is EXPECTED and correct for deliberate-answer
+# speech, NOT a regression — do not "fix" it. agent/metrics.py is READ-ONLY here.
+#
+# [VM-INTROSPECT] HOW TO SWITCH PROFILES — UNRESOLVED, three ordered candidates; NO
+# runtime `turn_handling` setter is assumed (this codebase has never proven one):
+#   (1) Per-Agent override (cleanest): if the installed livekit-agents Agent.__init__
+#       accepts min_endpointing_delay / max_endpointing_delay / turn_detection, an
+#       interview-profiled Agent carries the slow floor by construction. Because
+#       Option B (06-01) keeps ONE agent (no separate InterviewAgent), this has no
+#       clean carrier unless the VM probe says otherwise.
+#   (2) Runtime mutation via session.update_options(...) on mode-enter — memory note
+#       suggests NO such runtime setter exists; UNCONFIRMED.
+#   (3) MVP-SAFE FALLBACK (the realistic landing): carry both profiles as named
+#       constants and select the interview floor as the session endpointing profile
+#       at build_session when interview-leaning, OR document mode-before-start. We
+#       apply the interview floor as the SINGLE session profile below (mechanism 3):
+#       a deliberate-answer floor that also serves Learn turns acceptably (slightly
+#       slower conversational commit), avoiding an unproven runtime setter.
+# The chosen mechanism is FINALIZED against the inspect.signature probe in
+# 06-INTERVIEW-VERIFY.md (06-02-3). Until that probe confirms mechanism 1 or 2, the
+# single-profile fallback ships.
+ENDPOINTING_MIN_DELAY: float = INTERVIEW_ENDPOINTING_MIN_DELAY
+ENDPOINTING_MAX_DELAY: float = INTERVIEW_ENDPOINTING_MAX_DELAY
+
 # Default persona (PERS-01) now lives in agent/persona.py as a structured config:
 # DEFAULT_PERSONA renders (via render_persona) to a byte-stable system prompt with
 # the frozen prefix layout ([persona] + [KB] + [history] + [turn]) so Phase 4 can
@@ -156,7 +195,13 @@ def build_session(vad: silero.vad.VAD) -> AgentSession:
         # detector is the semantic decider and MUST live INSIDE the dict —
         # when turn_handling is given, the deprecated top-level turn_detection
         # kwarg is dropped (else-branch in __init__), so nesting it is required.
-        # min_delay 0.3s ∈ [0.25, 0.35] (default 0.5s is half the P50 budget).
+        # endpointing min_delay/max_delay are the named profile constants above. As of
+        # Plan 06-02 (MODE-05) the SINGLE session profile is the INTERVIEW floor
+        # (ENDPOINTING_MIN_DELAY/MAX_DELAY = the deliberate-answer profile) — the
+        # mechanism-3 fallback, because Option B keeps one agent and no runtime
+        # turn_handling setter is assumed ([VM-INTROSPECT] block above). The raised
+        # min_delay intentionally exceeds metrics.BUDGET_MS["eou"]=300 so interview
+        # turns flag over_budget:["eou"] — EXPECTED, not a regression.
         # VM-introspection-pending: confirm the installed signature with
         #   python -c "import inspect, livekit.agents as a; print(inspect.signature(a.AgentSession.__init__))"
         # (sandbox cannot import livekit — grounded on tagged source instead).
@@ -180,7 +225,11 @@ def build_session(vad: silero.vad.VAD) -> AgentSession:
         # ignoring unknown keys at _resolve_interruption (TypedDict, total=False).
         turn_handling={
             "turn_detection": MultilingualModel(),
-            "endpointing": {"mode": "dynamic", "min_delay": 0.3, "max_delay": 3.0},
+            "endpointing": {
+                "mode": "dynamic",
+                "min_delay": ENDPOINTING_MIN_DELAY,
+                "max_delay": ENDPOINTING_MAX_DELAY,
+            },
             "interruption": {
                 "min_duration": 0.3,
                 "resume_false_interruption": True,
