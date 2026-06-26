@@ -191,8 +191,12 @@ Plans:
 **Plans**: TBD
 
 Plans:
+**Wave 1**
 
 - [ ] 06-01: Mode toggle + role picker + Interview state machine (ask → listen → critique → model-answer → next)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 06-02: Rubric-structured critique prompts + slow-speech endpointing re-tune + 24GB fallback documented
 
 ### Phase 7: Polish & Reliability
