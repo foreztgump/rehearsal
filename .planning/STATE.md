@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-current_phase: 7
-current_phase_name: Polish & Reliability
-status: rc-shipped
-stopped_at: Completed 06-02-PLAN.md
-last_updated: "2026-06-26T05:15:40.938Z"
+milestone: v1.1
+milestone_name: Local-First Pipeline Swap + Avatar
+status: planning
+last_updated: "2026-06-26T05:28:45.557Z"
 last_activity: 2026-06-26
-last_activity_desc: Milestone v1.0-rc1 (Phases 1-6) completed and archived; Phase 7 remains for v1.0
 progress:
-  total_phases: 7
-  completed_phases: 6
-  total_plans: 15
-  completed_plans: 15
-  percent: 86
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -28,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-25)
 
 ## Current Position
 
-Phase: 7 — Polish & Reliability (not started)
+Phase: Not started (defining requirements)
 Plan: —
-Status: v1.0-rc1 shipped (Phases 1-6); Phase 7 closes out v1.0
-Last activity: 2026-06-26 — Milestone v1.0-rc1 completed and archived
+Status: Defining requirements
+Last activity: 2026-06-26 — Milestone v1.1 started
 
 ## Performance Metrics
 
