@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Warm all three Adept model services and emit a real LLM TTFT.
+"""Warm the LLM + TTS model services and emit a real LLM TTFT.
 
 Issues one tiny dummy inference to each in-stack service to force the weights
 resident, printing one structured JSON line per model:
 
-  {"model": "llm",     "load_ms": ..., "ttft_ms": ...}
-  {"model": "whisper", "load_ms": ...}
-  {"model": "kokoro",  "load_ms": ...}
+  {"model": "llm",    "load_ms": ..., "ttft_ms": ...}
+  {"model": "kokoro", "load_ms": ...}
+
+STT is no longer warmed here: the nemo-stt service loads
+`nvidia/nemotron-speech-streaming-en-0.6b` resident at container start and keeps
+it resident forever, so there is no host-side STT warmer (Phase 9).
 
 The LLM ttft_ms is the "one real metric" the 01-03 metrics scaffold consumes as
 its walking-skeleton gate. The LLM tag is read from OLLAMA_MODEL (no hardcoded
@@ -20,13 +23,9 @@ calls (e.g. OLLAMA_BASE_URL=http://ollama:11434).
 from __future__ import annotations
 
 import json
-import math
 import os
-import struct
 import sys
 import time
-import wave
-from io import BytesIO
 
 import httpx
 
@@ -35,16 +34,9 @@ THINKING_ENABLED = False
 WARMUP_PROMPT = "Reply with the single word: ready."
 TTS_TEXT = "warmup voice check"
 HTTP_TIMEOUT_SECONDS = 120.0
-SILENT_WAV_SECONDS = 1.0
-SILENT_WAV_RATE = 16000
-SINE_FREQ_HZ = 440.0
-SINE_AMPLITUDE = 0.2
-SAMPLE_MAX = 32767
 
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-WHISPER_BASE_URL = os.environ.get("WHISPER_BASE_URL", "http://127.0.0.1:8000")
 KOKORO_BASE_URL = os.environ.get("KOKORO_BASE_URL", "http://127.0.0.1:8880")
-WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "Systran/faster-whisper-large-v3")
 KOKORO_MODEL = os.environ.get("KOKORO_MODEL", "kokoro")
 KOKORO_VOICE = os.environ.get("KOKORO_VOICE", "af_bella")
 
@@ -59,21 +51,6 @@ def resolved_llm_tag() -> str:
 
 def _now_ms() -> float:
     return time.perf_counter() * 1000.0
-
-
-def _sine_wav_bytes() -> bytes:
-    """A short mono sine WAV — a non-silent clip whisper can transcribe."""
-    frame_count = int(SILENT_WAV_RATE * SILENT_WAV_SECONDS)
-    buffer = BytesIO()
-    with wave.open(buffer, "wb") as wav:
-        wav.setnchannels(1)
-        wav.setsampwidth(2)
-        wav.setframerate(SILENT_WAV_RATE)
-        for index in range(frame_count):
-            angle = 2.0 * math.pi * SINE_FREQ_HZ * (index / SILENT_WAV_RATE)
-            sample = int(SINE_AMPLITUDE * math.sin(angle) * SAMPLE_MAX)
-            wav.writeframes(struct.pack("<h", sample))
-    return buffer.getvalue()
 
 
 def warm_llm(client: httpx.Client, tag: str) -> dict:
@@ -115,18 +92,6 @@ def warm_llm(client: httpx.Client, tag: str) -> dict:
     }
 
 
-def warm_whisper(client: httpx.Client) -> dict:
-    """Transcribe a short sine clip to force the STT weights resident."""
-    started = _now_ms()
-    files = {"file": ("warmup.wav", _sine_wav_bytes(), "audio/wav")}
-    data = {"model": WHISPER_MODEL, "language": "en", "response_format": "json"}
-    response = client.post(
-        f"{WHISPER_BASE_URL}/v1/audio/transcriptions", files=files, data=data
-    )
-    response.raise_for_status()
-    return {"model": "whisper", "load_ms": round(_now_ms() - started, 1)}
-
-
 def warm_kokoro(client: httpx.Client) -> dict:
     """Synthesize a 3-word string to force the TTS weights resident."""
     started = _now_ms()
@@ -140,8 +105,7 @@ def warm_kokoro(client: httpx.Client) -> dict:
 def main() -> int:
     tag = resolved_llm_tag()
     with httpx.Client(timeout=HTTP_TIMEOUT_SECONDS) as client:
-        for warm in (lambda: warm_llm(client, tag), lambda: warm_whisper(client),
-                     lambda: warm_kokoro(client)):
+        for warm in (lambda: warm_llm(client, tag), lambda: warm_kokoro(client)):
             print(json.dumps(warm()), flush=True)
     return 0
 

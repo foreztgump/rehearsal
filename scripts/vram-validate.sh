@@ -5,12 +5,12 @@
 #
 # Procedure (PERF-02 proof, success criterion 3):
 #   1. warm all three models resident (ollama/warmup.py)
-#   2. drive a short CONCURRENT load (overlapping LLM completions + 1 whisper +
+#   2. drive a short CONCURRENT load (overlapping LLM completions + 1 nemo-stt +
 #      1 kokoro) while sampling nvidia-smi used-VRAM at peak
 #   3. assert peak used-VRAM < 16384 MB with headroom
 #   4. inspect ollama logs for flash-attn / KV-quant engagement; FAIL LOUDLY if
 #      q8_0 silently fell back to F16 (the STATE.md blocker)
-#   5. assert exactly the 3 GPU processes (ollama, whisper, kokoro) — NO
+#   5. assert exactly the 3 GPU processes (ollama, nemo-stt, kokoro) — NO
 #      embedder / vector-store process (PERF-02)
 #
 # Run from the host against the running stack:  ./scripts/vram-validate.sh
@@ -40,7 +40,7 @@ readonly VRAM_CEILING_MB=$((VRAM_LIMIT_MB - VRAM_HEADROOM_MB))
 readonly CONCURRENT_LLM="${CONCURRENT_LLM:-3}"
 readonly OLLAMA_CONTAINER="${OLLAMA_CONTAINER:-ollama}"
 readonly OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
-readonly WHISPER_BASE_URL="${WHISPER_BASE_URL:-http://127.0.0.1:8000}"
+readonly NEMO_STT_BASE_URL="${NEMO_STT_BASE_URL:-http://127.0.0.1:8000}"
 readonly KOKORO_BASE_URL="${KOKORO_BASE_URL:-http://127.0.0.1:8880}"
 readonly EXPECTED_GPU_PROCS=3
 readonly SAMPLE_INTERVAL_SECONDS=0.3
@@ -159,8 +159,8 @@ assert_three_gpu_procs() {
   local proc_count
   proc_count="$(nvidia-smi --query-compute-apps=pid --format=csv,noheader 2>/dev/null | grep -c . || true)"
   [ "${proc_count}" -eq "${EXPECTED_GPU_PROCS}" ] \
-    || fail "expected ${EXPECTED_GPU_PROCS} GPU processes (ollama, whisper, kokoro), found ${proc_count} — an embedder/vector-store process may be present (PERF-02 violation)"
-  echo "GPU processes: ${proc_count} (ollama, whisper, kokoro — no embedder/vector store)" >&2
+    || fail "expected ${EXPECTED_GPU_PROCS} GPU processes (ollama, nemo-stt, kokoro), found ${proc_count} — an embedder/vector-store process may be present (PERF-02 violation)"
+  echo "GPU processes: ${proc_count} (ollama, nemo-stt, kokoro — no embedder/vector store)" >&2
 }
 
 record_state() {

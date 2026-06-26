@@ -32,9 +32,16 @@ below.
 
 ## GPU passthrough
 
-The three model containers (`ollama`, `whisper`, `kokoro`) need the GPU. On a
+The three model containers (`ollama`, `nemo-stt`, `kokoro`) need the GPU. On a
 Proxmox homelab this is a **two-layer passthrough chain** — both layers must work,
 in order, before any model container sees the GPU.
+
+> **Speech-to-text (`nemo-stt`, port 8000):** STT runs Nemotron streaming ASR
+> (`nvidia/nemotron-speech-streaming-en-0.6b`) served via NeMo behind a local
+> websocket — a growing interim transcript while you speak, ~100 ms finalize after
+> end-of-speech, with native punctuation/capitalization surfaced as-is. The `.nemo`
+> model is **baked into the image at build time** (offline-capable, no first-run
+> download) and stays resident for the life of the container.
 
 ### Layer 1 — Proxmox host → VM (PCIe / vfio)
 
