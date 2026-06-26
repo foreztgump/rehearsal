@@ -61,7 +61,10 @@ Phase 7 was defined in the v1.0 plan but **never started** (0/2 plans). Its scop
   4. Each model build passes a verification gate — chat-template diff vs stock + raw-token artifact check (no stray `<think>`/`<|channel|>`/`<|analysis|>` in streamed output) — and a misbehaving build falls back to stock `gemma4:e2b`/`gemma4:e4b`
   5. The persona prompt's ethical boundary is verified intact as the SOLE content guardrail against both abliterated models (red-team boundary probes pass)
 
-**Plans**: TBD
+**Plans**: 1/2 plans executed
+
+- [x] 08-01-llm-picker-agent-swap-PLAN.md
+- [ ] 08-02-pull-pin-verify-build-PLAN.md
 
 ### Phase 9: Nemotron Streaming ASR (Part B)
 
@@ -153,7 +156,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → ~~7 (supers
 | 5. History Management | v1.0-rc1 | 1/1 | Complete | 2026-06-26 |
 | 6. Interview Mode | v1.0-rc1 | 2/2 | Complete | 2026-06-26 |
 | 7. Polish & Reliability | — | — | Superseded → folded into Phase 13 | - |
-| 8. LLM Speed Selector (Part A) | v1.1 | 0/? | Not started | - |
+| 8. LLM Speed Selector (Part A) | v1.1 | 1/2 | In Progress|  |
 | 9. Nemotron Streaming ASR (Part B) | v1.1 | 0/? | Not started | - |
 | 10. VRAM-Aware STT Placement (Part C) | v1.1 | 0/? | Not started | - |
 | 11. Consumer-GPU Deployment (Part E) | v1.1 | 0/? | Not started | - |

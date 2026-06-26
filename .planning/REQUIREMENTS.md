@@ -12,10 +12,10 @@ Requirements for the v1.1 milestone. Each maps to a roadmap phase.
 
 ### LLM — User-Selectable Models (Part A)
 
-- [ ] **LLM-01**: User can select a response model via a Fast / Better picker in the UI (plain-language labels — "Fast (snappier)" / "Better (more thoughtful)" — never raw Ollama tags)
-- [ ] **LLM-02**: The selected model is configurable-default Fast (E2B), persists for the session, and a switch takes effect on the next turn without tearing down the session or interrupting current TTS
-- [ ] **LLM-03**: Both models are pulled and served via Ollama — Fast `evalengine/unbound-e2b:latest`, Better `defyma85/gemma-4-E4B-it-ultra-uncensored-heretic-Q4_K_M_gguf:latest` — and the LiveKit agent's LLM plugin targets the selected model's tag
-- [ ] **LLM-04**: Both models preserve thinking DISABLED, token-by-token streaming, OLLAMA_KEEP_ALIVE (model stays resident), flash attention on, lean/sliding-window context, and a capped num_predict
+- [x] **LLM-01**: User can select a response model via a Fast / Better picker in the UI (plain-language labels — "Fast (snappier)" / "Better (more thoughtful)" — never raw Ollama tags)
+- [x] **LLM-02**: The selected model is configurable-default Fast (E2B), persists for the session, and a switch takes effect on the next turn without tearing down the session or interrupting current TTS
+- [x] **LLM-03**: Both models are pulled and served via Ollama — Fast `evalengine/unbound-e2b:latest`, Better `defyma85/gemma-4-E4B-it-ultra-uncensored-heretic-Q4_K_M_gguf:latest` — and the LiveKit agent's LLM plugin targets the selected model's tag
+- [x] **LLM-04**: Both models preserve thinking DISABLED, token-by-token streaming, OLLAMA_KEEP_ALIVE (model stays resident), flash attention on, lean/sliding-window context, and a capped num_predict
 - [ ] **LLM-05**: Each model build is verified before wiring — chat template is sane AND thinking-off actually suppresses reasoning with no stray `<think>`/`<|channel|>`/`<|analysis|>` artifacts in streamed output; a misbehaving build falls back to stock `gemma4:e2b` / `gemma4:e4b`
 - [ ] **LLM-06**: The persona prompt's ethical boundary (security at interview-appropriate level, not step-by-step attack instructions) remains the sole content guardrail and is verified intact against the abliterated models
 
@@ -105,10 +105,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LLM-01 | Phase 8 | Pending |
-| LLM-02 | Phase 8 | Pending |
-| LLM-03 | Phase 8 | Pending |
-| LLM-04 | Phase 8 | Pending |
+| LLM-01 | Phase 8 | Complete |
+| LLM-02 | Phase 8 | Complete |
+| LLM-03 | Phase 8 | Complete |
+| LLM-04 | Phase 8 | Complete |
 | LLM-05 | Phase 8 | Pending |
 | LLM-06 | Phase 8 | Pending |
 | STT-01 | Phase 9 | Pending |
@@ -137,11 +137,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PERF-04 | Phase 13 | Pending |
 
 **Coverage:**
+
 - v1.1 requirements: 30 total
 - Mapped to phases: 30 (100%) ✓
 - Unmapped: 0
 
 **Phase distribution:**
+
 - Phase 8 (LLM Speed Selector / Part A): LLM-01..06 (6)
 - Phase 9 (Nemotron Streaming ASR / Part B): STT-01..04 (4)
 - Phase 10 (VRAM-Aware STT Placement / Part C): STT-05..07 (3)

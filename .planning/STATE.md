@@ -2,14 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Local-First Pipeline Swap + Avatar
-status: planning
-last_updated: "2026-06-26T05:28:45.557Z"
+current_phase: 08
+current_phase_name: llm-speed-selector-part-a
+status: executing
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-06-26T06:32:57.368Z"
 last_activity: 2026-06-26
+last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 2
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -20,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-25)
 
 **Core value:** The user can hold a natural spoken conversation with a credible expert persona at voice-to-voice latency that feels live (P50 < 1.0s) — practicing speaking a domain out loud.
-**Current focus:** v1.1 Local-First Pipeline Swap + Avatar — roadmap created (Phases 8-13); ready to plan Phase 8 (LLM Speed Selector / Part A)
+**Current focus:** Phase 08 — llm-speed-selector-part-a
 
 ## Current Position
 
-Phase: 8 — LLM Speed Selector (Part A) — Ready to execute
-Plan: 2 plans (Wave 1: 08-01 picker+agent-swap; Wave 2: 08-02 pull-pin+verify-build)
-Status: Phase 8 planned — plans APPROVED by plan-checker (iteration 2); ready to execute
-Last activity: 2026-06-26 — v1.1 Phase 8 planned (2 plans, 2 waves)
+Phase: 08 (llm-speed-selector-part-a) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-06-26 — Phase 08 execution started
 
 ## Performance Metrics
 
@@ -67,6 +71,7 @@ Last activity: 2026-06-26 — v1.1 Phase 8 planned (2 plans, 2 waves)
 | Phase 05 P05-01 | 5 min | 3 tasks | 3 files |
 | Phase 06 P01 | 12 min | 3 tasks | 4 files |
 | Phase 06 P02 | 9 min | 3 tasks | 3 files |
+| Phase 08 P01 | 18 min | 4 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -116,8 +121,8 @@ Acknowledged at v1.0-rc1 close (2026-06-26) and carried into Phase 7 / v1.0:
 
 ## Session Continuity
 
-Last session: 2026-06-26T04:02:01.681Z
-Stopped at: Completed 06-02-PLAN.md
+Last session: 2026-06-26T06:32:57.364Z
+Stopped at: Completed 08-01-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
