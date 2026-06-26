@@ -114,6 +114,10 @@ class NemoSpeechStream(stt.RecognizeStream):
                         continue
                     # int16 PCM, already resampled to 16 kHz mono by push_frame.
                     await ws.send_bytes(data.data.tobytes())
+                # Input exhausted (session ending). The server holds the ws open
+                # after `final`, so unconditionally awaiting recv would hang
+                # forever — close the ws so _recv_loop drains to its CLOSED break.
+                await ws.close()
                 await recv
 
     async def _recv_loop(self, ws) -> None:
