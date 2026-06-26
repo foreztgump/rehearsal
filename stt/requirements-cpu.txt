@@ -1,0 +1,16 @@
+# nemo-stt-cpu — off-GPU CPU-ONNX runtime server deps (Plan 10-01).
+# Mirrors stt/requirements.txt pinning posture: explicit ~= pins, no :latest, no
+# unbounded float. torch + CUDA + NeMo are ABSENT BY DESIGN — the whole point of
+# the off-GPU port is to drop the GPU stack: this image runs the exported ONNX
+# graphs under the onnxruntime CPU EP, never NeMo/torch (RESEARCH §1.4). librosa is
+# ABSENT too — the 128-band Slaney mel is recomputed numpy-only from a baked
+# filterbank.bin (RESEARCH §1.3), so no librosa dependency is pulled.
+#
+# NOTE: onnxruntime here is the CPU wheel, NOT onnxruntime-gpu. int8 is fast only on
+# modern VNNI/AMX CPUs — the >6x realtime claim is an operator host-CPU gate
+# (10-PLACEMENT-VERIFY), not a sandbox fact.
+onnxruntime~=1.20
+fastapi~=0.115
+uvicorn[standard]~=0.34
+numpy~=1.26
+sentencepiece~=0.2
