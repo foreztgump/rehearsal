@@ -9,7 +9,9 @@ capitalization come out of the model and are surfaced AS-IS (STT-03).
 Contract (frozen for the Wave-2 NemoSTT plugin — 09-RESEARCH §2):
   WS /v1/audio/stream
     client → {"type":"config","language":"en"}, then raw int16 PCM binary frames;
-             control frames {"type":"flush"} (drain → FINAL) / {"type":"reset"}.
+             control frames {"type":"flush"} (drain → FINAL, then auto-reset the
+             per-turn decode state so the NEXT FINAL is that turn only) /
+             {"type":"reset"} (full per-connection state rebuild).
     server → {"type":"ready"} | {"type":"delta","text":<cumulative>} |
              {"type":"final","text":<final>} | {"type":"error","message":...}.
   GET  /health                  → 200 only after the model is resident (else 503).
@@ -182,6 +184,19 @@ def finalize(state: dict) -> str:
     return cumulative
 
 
+def reset_turn_state(state: dict) -> None:
+    """Clear per-turn decode state after a FINAL so the next utterance starts clean.
+
+    Resets the RNNT hypotheses + stall counters but CARRIES THE ENCODER CACHE
+    forward (cache_last_*) — same as the stall recycle — so cache-aware streaming
+    semantics are preserved across the turn boundary. Without this, prev_hyps is
+    fed back into the next decode and every FINAL accumulates the whole session.
+    """
+    state["prev_hyps"] = None
+    state["frames_since_growth"] = 0
+    state["last_text_len"] = 0
+
+
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Load the model resident at startup; keep it forever (no offload)."""
@@ -216,6 +231,10 @@ async def _handle_control(ws: WebSocket, state: dict, msg: dict) -> dict:
     if kind == "flush":
         async with _gpu_lock:
             text = await asyncio.to_thread(finalize, state)
+        # Client-driven (NOT a server heuristic): reset the per-turn decode state
+        # in direct response to the flush so the next FINAL is THIS turn only.
+        # The encoder cache is carried forward (cache-aware streaming preserved).
+        reset_turn_state(state)
         await ws.send_json({"type": "final", "text": text})
     elif kind == "reset":
         state = new_stream_state()
