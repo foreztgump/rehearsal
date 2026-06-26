@@ -29,7 +29,7 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 import history
 import interview
 import metrics
-from kb import DistillError, KbParseError, ParsedDoc
+from kb import KB_AGGREGATE_MAX_TOKENS, DistillError, KbParseError, ParsedDoc
 from kb import distill as kb_distill
 from kb import parse as kb_parse
 from persona import (
@@ -51,7 +51,11 @@ OLLAMA_GENERATE_URL = os.environ.get("OLLAMA_GENERATE_URL", "http://ollama:11434
 WHISPER_BASE_URL = os.environ.get("WHISPER_BASE_URL", "http://whisper:8000/v1")
 KOKORO_BASE_URL = os.environ.get("KOKORO_BASE_URL", "http://kokoro:8880/v1")
 
-WHISPER_MODEL = "Systran/faster-whisper-large-v3"
+# Single-source the whisper model with the host warmer (ollama/warmup.py) and
+# docker-compose `.env` via the same env var + default, so the warmup forces the
+# SAME STT model resident the agent loads (no model drift / two STT models
+# co-resident in VRAM).
+WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "Systran/faster-whisper-large-v3")
 # Use "tts-1" (not "kokoro"): the livekit openai TTS plugin only routes tts-1 /
 # tts-1-hd through the plain audio-stream path. Any other model name takes the
 # SSE path (stream_format="sse"), which kokoro-fastapi ignores — it returns raw
@@ -485,6 +489,13 @@ async def entrypoint(ctx: JobContext) -> None:
     # GC guard: the byte-stream read runs in a background task. Keep a strong ref
     # in this list (docs-mandated) so the task is not garbage-collected mid-read.
     active_tasks: list[asyncio.Task] = []
+    # Serialize ingest (M3): on_kb_stream spawns one ingest_kb task per incoming
+    # stream, so a multi-file pick yields overlapping tasks that each append to
+    # session_kb.docs, set session_kb.brief, and call update_instructions. Across
+    # their await points those interleave → nondeterministic final brief/docs and
+    # stacked priming replies. Hold this lock for the whole parse→distill→inject
+    # critical section so each upload is applied atomically, in arrival order.
+    ingest_lock = asyncio.Lock()
 
     async def set_kb_state(*, status: str, docs: int = 0, error: str = "") -> None:
         """Publish the kb.state participant attribute as JSON {status, docs, error}.
@@ -508,51 +519,74 @@ async def entrypoint(ctx: JobContext) -> None:
         raw = bytes()
         async for chunk in reader:
             raw += chunk
-        await set_kb_state(status="parsing", docs=len(session_kb.docs))
-        # Offload the synchronous, CPU-heavy PyMuPDF / python-docx parse to a worker
-        # thread (H3): running it inline on the agent's single event-loop thread would
-        # block audio, turn detection, and RPCs for the full parse duration — defeating
-        # the "off hot path, voice loop keeps running" guarantee (REL-03).
-        result = await asyncio.to_thread(kb_parse, info.name, info.mimeType, raw)
-        if isinstance(result, KbParseError):
-            await set_kb_state(status="error", docs=len(session_kb.docs), error=result.message)
-            return
-        session_kb.docs.append(result)
+        # Serialize the whole parse→distill→inject critical section (M3) so overlapping
+        # uploads from a multi-file pick apply atomically in arrival order instead of
+        # interleaving at their await points.
+        async with ingest_lock:
+            await set_kb_state(status="parsing", docs=len(session_kb.docs))
+            # Offload the synchronous, CPU-heavy PyMuPDF / python-docx parse to a worker
+            # thread (H3): running it inline on the agent's single event-loop thread would
+            # block audio, turn detection, and RPCs for the full parse duration — defeating
+            # the "off hot path, voice loop keeps running" guarantee (REL-03).
+            result = await asyncio.to_thread(kb_parse, info.name, info.mimeType, raw)
+            if isinstance(result, KbParseError):
+                await set_kb_state(status="error", docs=len(session_kb.docs), error=result.message)
+                return
 
-        # Distill all docs into a compact brief (one off-hot-path Ollama call — the
-        # latency is invisible to the voice loop). A typed DistillError is surfaced
-        # as a clear kb.state error; the session continues with the prefix unchanged.
-        await set_kb_state(status="distilling", docs=len(session_kb.docs))
-        try:
-            # Offload the blocking httpx-stream distill to a worker thread (H3): the
-            # synchronous httpx.Client streaming loop would otherwise block the event
-            # loop for the whole generation. The client now also carries a bounded
-            # DISTILL_TIMEOUT_SECONDS, so a stalled Ollama maps to DistillError instead
-            # of hanging the ingest forever.
-            brief = await asyncio.to_thread(kb_distill, _concat_docs(session_kb.docs))
-        except DistillError:
-            await set_kb_state(
-                status="error",
-                docs=len(session_kb.docs),
-                error="Couldn't build the brief — continuing without KB",
-            )
-            return
+            # Aggregate token-budget guard (M2): the distiller re-distills the FULL
+            # concatenation of every accepted doc, so reject a new doc when the running
+            # session total would exceed KB_AGGREGATE_MAX_TOKENS — otherwise Ollama
+            # silently truncates the distill prompt past its context (the GAP-1 class
+            # of bug, multi-doc edition). Reject BEFORE appending so the prior KB stays
+            # intact and the session continues unchanged.
+            current_total = sum(d.token_estimate for d in session_kb.docs)
+            if current_total + result.token_estimate > KB_AGGREGATE_MAX_TOKENS:
+                await set_kb_state(
+                    status="error",
+                    docs=len(session_kb.docs),
+                    error="KB is full — remove material or upload less to add more",
+                )
+                return
+            session_kb.docs.append(result)
 
-        # Inject the brief into the frozen KB_SLOT EXACTLY ONCE (the single sanctioned
-        # re-prefill, mirroring the persona hot-swap). render_prompt composes under the
-        # CURRENT persona so a prior persona edit is preserved. Then freeze: no
-        # per-turn re-distill / re-inject. The elevated llm_ttft_ms / over_budget on
-        # THIS one turn is expected (same as the persona-swap turn) — NOT "fixed".
-        session_kb.brief = brief
-        # Route through compose_instructions so a KB load while in Interview mode
-        # re-emits the INTERVIEW block + the new brief (compose, not clobber).
-        await agent.update_instructions(compose_instructions())
-        await set_kb_state(status="ready", docs=len(session_kb.docs))
+            # Distill all docs into a compact brief (one off-hot-path Ollama call — the
+            # latency is invisible to the voice loop). A typed DistillError is surfaced
+            # as a clear kb.state error; the session continues with the prefix unchanged.
+            await set_kb_state(status="distilling", docs=len(session_kb.docs))
+            try:
+                # Offload the blocking httpx-stream distill to a worker thread (H3): the
+                # synchronous httpx.Client streaming loop would otherwise block the event
+                # loop for the whole generation. The client now also carries a bounded
+                # DISTILL_TIMEOUT_SECONDS, so a stalled Ollama maps to DistillError instead
+                # of hanging the ingest forever.
+                brief = await asyncio.to_thread(kb_distill, _concat_docs(session_kb.docs))
+            except DistillError:
+                # Roll back the just-appended doc so a failed distill leaves session_kb
+                # exactly as it was (the prior brief stays valid; M3 atomicity).
+                session_kb.docs.pop()
+                await set_kb_state(
+                    status="error",
+                    docs=len(session_kb.docs),
+                    error="Couldn't build the brief — continuing without KB",
+                )
+                return
+
+            # Inject the brief into the frozen KB_SLOT EXACTLY ONCE (the single sanctioned
+            # re-prefill, mirroring the persona hot-swap). render_prompt composes under the
+            # CURRENT persona so a prior persona edit is preserved. Then freeze: no
+            # per-turn re-distill / re-inject. The elevated llm_ttft_ms / over_budget on
+            # THIS one turn is expected (same as the persona-swap turn) — NOT "fixed".
+            session_kb.brief = brief
+            # Route through compose_instructions so a KB load while in Interview mode
+            # re-emits the INTERVIEW block + the new brief (compose, not clobber).
+            await agent.update_instructions(compose_instructions())
+            await set_kb_state(status="ready", docs=len(session_kb.docs))
 
         # Priming turn (Pattern E, Pitfall 3): fire one internal reply so the KB
         # prefill warms while the panel shows "ready" — the user's first REAL turn is
         # cache-warm. The goal is the prefill, not a visible utterance (silent-vs-
-        # spoken is a [VM-INTROSPECT] operator gate).
+        # spoken is a [VM-INTROSPECT] operator gate). Outside the lock so the next
+        # queued upload isn't blocked on this reply.
         await session.generate_reply(
             instructions="(internal) acknowledge the loaded material briefly"
         )

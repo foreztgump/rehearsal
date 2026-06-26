@@ -50,6 +50,16 @@ CHARS_PER_TOKEN: int = 4
 KB_WARN_TOKENS: int = 6000      # over → distill harder (KB-08 oversize_warn signal for 04-02)
 KB_MAX_TOKENS: int = 24000      # over → reject this doc with a clear error (REL-03)
 
+# Aggregate ceiling across ALL accepted docs in a session (M2). The per-doc
+# KB_MAX_TOKENS guard bounds ONE upload, but ``ingest_kb`` re-distills the FULL
+# concatenation of every accepted doc each time, so several docs (or many small
+# ones) can push the distill INPUT past the effective Ollama context — Ollama then
+# silently truncates the prompt (the GAP-1 truncation, multi-doc edition). Reject a
+# new doc when the running session total would exceed this aggregate budget. Kept at
+# KB_MAX_TOKENS so the multi-doc total can never exceed what a single max-size doc
+# is already allowed to be (coupled to OLLAMA_CONTEXT_LENGTH the same way).
+KB_AGGREGATE_MAX_TOKENS: int = KB_MAX_TOKENS
+
 # RESOURCE ceilings enforced BEFORE the (memory-heavy) extraction step, so a large
 # or maliciously-crafted upload cannot OOM-kill the worker before the token guard
 # (which only measures EXTRACTED text) ever runs.

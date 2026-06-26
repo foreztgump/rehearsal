@@ -45,7 +45,9 @@ services:
 
   ollama:
     image: ollama/ollama:0.6.8
-    env_file: .env
+    # No env_file (M3): this pure model server needs none of .env's vars — all its
+    # config is in the explicit `environment:` block below. Dropping env_file keeps
+    # LIVEKIT_API_SECRET (and other secrets) out of a container that never uses them.
     environment:
       # VRAM-budget trio (01-02): flash-attn is REQUIRED for the q8_0 KV cache
       # quant, which ~halves KV memory so STT+LLM+TTS co-reside under 16GB;
@@ -85,7 +87,8 @@ services:
   whisper:
     # Pinned by digest — fedirz/faster-whisper-server:latest-cuda as of 2026-06-25.
     image: fedirz/faster-whisper-server@sha256:0b64050ad0b9244745746b652473ee42a8d5454d501877a252c3e65f631ffc99
-    env_file: .env
+    # No env_file (M3): the STT server takes its model/params per request (from the
+    # agent + warmup), so it needs none of .env — and must not carry the LiveKit secret.
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:8000:8000"
     networks:
@@ -104,7 +107,8 @@ services:
     # v0.2.4 image bundles PyTorch for sm_50..sm_90 only and crashes at startup
     # with "no kernel image is available for execution on the device".
     image: ghcr.io/remsky/kokoro-fastapi-gpu:v0.5.0-cu128
-    env_file: .env
+    # No env_file (M3): the TTS server takes its model/voice per request, so it needs
+    # none of .env — and must not carry the LiveKit secret.
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:8880:8880"
     networks:

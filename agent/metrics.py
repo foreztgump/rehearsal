@@ -90,6 +90,17 @@ _turns_emitted = 0
 # enough that no in-flight real turn is evicted before its TTS flush.
 _MAX_OPEN_TURNS = 8
 
+# Bounded ring of turn keys already flushed by `_flush_turn`. The TTS plugin can
+# emit more than one `metrics_collected` per turn (segmented/streamed synthesis),
+# and each event would otherwise re-create a fresh empty buffer via `_buffer_for`,
+# re-stamp agent_audio_start, and flush AGAIN — a duplicate/partial per-turn line
+# with null eou/stt/llm/e2e, a double-counted _turns_emitted (skewing the summary
+# cadence), and an extra tts_ttfb sample. We remember recently-flushed keys and
+# drop repeat TTS events for them. Bounded so it cannot grow unbounded; the window
+# is comfortably larger than the count of concurrently in-flight turns.
+_FLUSHED_KEYS_MAX = 64
+_flushed_keys: deque[str] = deque(maxlen=_FLUSHED_KEYS_MAX)
+
 
 def _turn_key(metric: Any) -> str:
     """Resolve a turn key from the metric's speech_id (falls back to pending)."""
@@ -129,6 +140,10 @@ def _flush_turn(key: str) -> None:
     buffer = _turns.pop(key, None)
     if buffer is None:
         return
+    # Record the flush so a later TTS event for the same turn (segmented synthesis)
+    # is recognized as a repeat in _on_tts_metrics and does not re-emit (M3).
+    if key != _PENDING_KEY:
+        _flushed_keys.append(key)
     e2e_ms: float | None = None
     if buffer.user_audio_end is not None and buffer.agent_audio_start is not None:
         e2e_ms = round((buffer.agent_audio_start - buffer.user_audio_end) * _MS_PER_SECOND, 1)
@@ -256,11 +271,16 @@ def _on_tts_metrics(metric: Any) -> None:
     TTS is the last stage of the voice-to-voice span — the first agent audio
     frame — so we stamp agent_audio_start here and flush the consolidated turn.
     """
+    key = _turn_key(metric)
+    # Drop repeat TTS events for an already-flushed turn (M3): segmented/streamed
+    # synthesis emits multiple TTS metrics per turn; only the first flushes.
+    if key != _PENDING_KEY and key in _flushed_keys:
+        return
     buffer = _buffer_for(metric)
     buffer.tts_ttfb_ms = _seconds_to_ms(getattr(metric, "ttfb", None))
     if buffer.agent_audio_start is None:
         buffer.agent_audio_start = time.monotonic()
-    _flush_turn(_turn_key(metric))
+    _flush_turn(key)
 
 
 def _on_eou_metrics(metric: Any) -> None:

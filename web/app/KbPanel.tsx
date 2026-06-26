@@ -10,6 +10,12 @@ import { useEffect, useState } from "react";
 const KB_UPLOAD_TOPIC = "kb.upload";
 const KB_STATE_ATTRIBUTE = "kb.state";
 
+// Client-side upload ceiling (M5). Mirrors the agent's KB_MAX_RAW_BYTES (25 MB):
+// reject oversize files with a friendly message BEFORE streaming them, so a user
+// doesn't wait on a large transfer the agent will only reject after extraction.
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+const MAX_UPLOAD_LABEL = "25 MB";
+
 // `distilling` is included now so 04-02 (distill → inject) needs no signature
 // change — the agent will set it between `parsing` and `ready` there.
 type KbStatus = "idle" | "uploading" | "parsing" | "distilling" | "ready" | "error";
@@ -91,11 +97,26 @@ export default function KbPanel() {
   }, [attributes]);
 
   async function upload(files: FileList) {
+    // Pre-upload size check (M5): bail with a clear message before any transfer.
+    const tooBig = Array.from(files).find((f) => f.size > MAX_UPLOAD_BYTES);
+    if (tooBig) {
+      setStatus("error");
+      setError(`"${tooBig.name}" is over ${MAX_UPLOAD_LABEL} — upload a smaller file`);
+      return;
+    }
     setStatus("uploading");
     setError("");
     // Per-file byte stream: a multi-file pick becomes N streams (KB-01 / §1.3).
-    for (const file of Array.from(files)) {
-      await room.localParticipant.sendFile(file, { topic: KB_UPLOAD_TOPIC });
+    try {
+      for (const file of Array.from(files)) {
+        await room.localParticipant.sendFile(file, { topic: KB_UPLOAD_TOPIC });
+      }
+    } catch (err) {
+      // A failed send (disconnect / transport error) never reaches the agent, so
+      // the kb.state channel can't report it — surface it here instead of leaving
+      // the panel stuck on "uploading".
+      setStatus("error");
+      setError(err instanceof Error ? `Upload failed: ${err.message}` : "Upload failed");
     }
   }
 

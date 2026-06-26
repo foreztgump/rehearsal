@@ -3,6 +3,8 @@
 // loop has a token path. Phase 1 only proves the route returns a signed token —
 // no room is actually joined yet. All key material stays server-side (gitignored
 // .env); the secret is never sent to the browser.
+import { randomUUID } from "crypto";
+
 import { AccessToken } from "livekit-server-sdk";
 import { NextResponse } from "next/server";
 
@@ -24,7 +26,11 @@ export async function GET(): Promise<NextResponse> {
     );
   }
 
-  const identity = `${DEFAULT_IDENTITY_PREFIX}-${Date.now()}`;
+  // Use a UUID, not Date.now(): two requests in the same millisecond (multi-tab /
+  // load) would otherwise collide on identity, and LiveKit evicts the older
+  // participant when a duplicate identity joins. The `user-` prefix is the
+  // cross-file contract Transcript.tsx uses to attribute local vs agent messages.
+  const identity = `${DEFAULT_IDENTITY_PREFIX}-${randomUUID()}`;
   const accessToken = new AccessToken(apiKey, apiSecret, {
     identity,
     ttl: TOKEN_TTL,
