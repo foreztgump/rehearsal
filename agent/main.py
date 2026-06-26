@@ -509,7 +509,11 @@ async def entrypoint(ctx: JobContext) -> None:
         async for chunk in reader:
             raw += chunk
         await set_kb_state(status="parsing", docs=len(session_kb.docs))
-        result = kb_parse(info.name, info.mimeType, raw)
+        # Offload the synchronous, CPU-heavy PyMuPDF / python-docx parse to a worker
+        # thread (H3): running it inline on the agent's single event-loop thread would
+        # block audio, turn detection, and RPCs for the full parse duration — defeating
+        # the "off hot path, voice loop keeps running" guarantee (REL-03).
+        result = await asyncio.to_thread(kb_parse, info.name, info.mimeType, raw)
         if isinstance(result, KbParseError):
             await set_kb_state(status="error", docs=len(session_kb.docs), error=result.message)
             return
@@ -520,7 +524,12 @@ async def entrypoint(ctx: JobContext) -> None:
         # as a clear kb.state error; the session continues with the prefix unchanged.
         await set_kb_state(status="distilling", docs=len(session_kb.docs))
         try:
-            brief = kb_distill(_concat_docs(session_kb.docs))
+            # Offload the blocking httpx-stream distill to a worker thread (H3): the
+            # synchronous httpx.Client streaming loop would otherwise block the event
+            # loop for the whole generation. The client now also carries a bounded
+            # DISTILL_TIMEOUT_SECONDS, so a stalled Ollama maps to DistillError instead
+            # of hanging the ingest forever.
+            brief = await asyncio.to_thread(kb_distill, _concat_docs(session_kb.docs))
         except DistillError:
             await set_kb_state(
                 status="error",

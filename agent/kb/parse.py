@@ -50,6 +50,19 @@ CHARS_PER_TOKEN: int = 4
 KB_WARN_TOKENS: int = 6000      # over → distill harder (KB-08 oversize_warn signal for 04-02)
 KB_MAX_TOKENS: int = 24000      # over → reject this doc with a clear error (REL-03)
 
+# RESOURCE ceilings enforced BEFORE the (memory-heavy) extraction step, so a large
+# or maliciously-crafted upload cannot OOM-kill the worker before the token guard
+# (which only measures EXTRACTED text) ever runs.
+#   * KB_MAX_RAW_BYTES — cheap len(raw) ceiling on the on-the-wire upload, checked
+#     before _extract buffers/parses it. Generous enough for real PDFs/DOCX.
+#   * DOCX_MAX_UNCOMPRESSED_BYTES — sum of the .docx zip members' UNCOMPRESSED sizes,
+#     checked before python-docx decompresses them. A tiny .docx whose document.xml
+#     is a zip bomb expands to GBs in memory inside Document(...) — small on the wire
+#     (so KB_MAX_RAW_BYTES does not catch it), huge once inflated. Reject by the zip
+#     directory's declared sizes before handing the bytes to python-docx.
+KB_MAX_RAW_BYTES: int = 25 * 1024 * 1024          # 25 MB upload ceiling
+DOCX_MAX_UNCOMPRESSED_BYTES: int = 50 * 1024 * 1024  # 50 MB inflated-zip ceiling
+
 # Extension → kind map for the few cases where the name is authoritative.
 _EXT_KIND: dict[str, str] = {
     "pdf": "pdf",
@@ -66,6 +79,14 @@ _MIME_KIND: dict[str, str] = {
     "text/markdown": "md",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
 }
+
+
+class _OversizeExtraction(Exception):
+    """Internal: a resource ceiling tripped DURING extraction (e.g. a DOCX zip bomb).
+
+    Caught inside ``parse`` and converted to a typed ``oversize`` ``KbParseError`` —
+    never raised across the public boundary.
+    """
 
 
 @dataclass
@@ -104,8 +125,19 @@ def parse(name: str, mime: str, raw: bytes) -> ParsedDoc | KbParseError:
     kind = _kind(name, mime)
     if kind not in SUPPORTED:
         return KbParseError(name, "unsupported", "Unsupported file type — use PDF/TXT/MD/DOCX")
+    # Pre-parse byte ceiling (H1): reject an oversize upload BEFORE _extract buffers
+    # and parses it into memory. The KB_MAX_TOKENS guard below only measures EXTRACTED
+    # text, so without this a multi-hundred-MB upload could OOM the worker during
+    # extraction before that guard ever runs.
+    if len(raw) > KB_MAX_RAW_BYTES:
+        return KbParseError(name, "oversize", "Too large for inline KB — trimmed/skipped")
     try:
         text = _extract(kind, raw)
+    except _OversizeExtraction:
+        # A resource ceiling tripped DURING extraction (e.g. a DOCX zip bomb whose
+        # inflated size exceeds DOCX_MAX_UNCOMPRESSED_BYTES). Map to the oversize
+        # reason, not corrupt — the file is readable, just too big to inline.
+        return KbParseError(name, "oversize", "Too large for inline KB — trimmed/skipped")
     except Exception:
         # Named boundary (CODE_PRINCIPLES §4): any parser exception becomes a typed
         # error so the voice loop keeps running. No bare except, no silent swallow.
@@ -166,6 +198,22 @@ def _extract_docx(raw: bytes) -> str:
     Joins paragraph text AND explicitly iterates table cells: tables extract out
     of order if ignored (Pitfall 14), so they are walked separately and appended.
     """
+    import zipfile  # stdlib; used to inspect the .docx zip directory before inflating
+
+    # Zip-bomb guard (H2): a .docx is a ZIP and python-docx decompresses its members
+    # with no ratio/size limit, so a small-on-the-wire .docx whose document.xml is a
+    # zip bomb inflates to GBs inside Document(...) and OOM-kills the worker (the H1
+    # raw-byte cap does NOT catch it — the upload is tiny). Sum the zip directory's
+    # DECLARED uncompressed sizes and bail BEFORE the heavy python-docx import + parse.
+    # Runs on stdlib `zipfile` only, ahead of the lazy `from docx import Document`.
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+            uncompressed = sum(zi.file_size for zi in zf.infolist())
+    except zipfile.BadZipFile:
+        uncompressed = 0  # not a valid zip → let python-docx raise the real error below
+    if uncompressed > DOCX_MAX_UNCOMPRESSED_BYTES:
+        raise _OversizeExtraction(uncompressed)
+
     from docx import Document  # python-docx; lazy import
 
     doc = Document(io.BytesIO(raw))
@@ -242,6 +290,14 @@ def _self_check() -> None:
     oversize_raw = ("word " * (KB_MAX_TOKENS * CHARS_PER_TOKEN)).encode("utf-8")
     oversize = parse("huge.txt", "text/plain", oversize_raw)
     assert isinstance(oversize, KbParseError) and oversize.reason == "oversize"
+
+    # Pre-parse byte cap (H1): a raw upload over KB_MAX_RAW_BYTES is rejected as
+    # oversize BEFORE extraction (cheap len(raw) check, no parse attempted).
+    too_many_bytes = b"a" * (KB_MAX_RAW_BYTES + 1)
+    byte_capped = parse("big.txt", "text/plain", too_many_bytes)
+    assert isinstance(byte_capped, KbParseError) and byte_capped.reason == "oversize", (
+        "raw byte cap must reject before extraction"
+    )
 
     # Mid-size text: tokens between WARN and MAX → ParsedDoc with oversize_warn True.
     warn_chars = (KB_WARN_TOKENS + (KB_MAX_TOKENS - KB_WARN_TOKENS) // 2) * CHARS_PER_TOKEN

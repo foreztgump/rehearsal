@@ -77,6 +77,14 @@ BRIEF_NUM_PREDICT: int = 2048
 # must fit the frozen-prefix budget once it lands in KB_SLOT.
 BRIEF_TOKEN_BUDGET: int = 1500
 
+# Bounded total timeout for the off-hot-path distill stream (H3). The previous
+# httpx.Client(timeout=None) meant a stalled/slow Ollama generation never timed out,
+# so a single bad distill could hang the ingest forever (and — until H3's offload —
+# freeze the voice loop). A stalled generation now maps to a typed DistillError so
+# main.ingest_kb surfaces a clear error and the session continues without the KB
+# (REL-03). Mirrors the warmup WARMUP_TIMEOUT_SECONDS=120 bound.
+DISTILL_TIMEOUT_SECONDS: float = 120.0
+
 
 class DistillError(Exception):
     """Typed failure of the distill network call (timeout / HTTP / empty output).
@@ -137,7 +145,7 @@ def _generate(prompt: str) -> str:
     }
     parts: list[str] = []
     try:
-        with httpx.Client(timeout=None) as client:
+        with httpx.Client(timeout=DISTILL_TIMEOUT_SECONDS) as client:
             with client.stream("POST", OLLAMA_GENERATE_URL, json=payload) as response:
                 response.raise_for_status()
                 for line in response.iter_lines():
