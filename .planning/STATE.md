@@ -4,17 +4,17 @@ milestone: v1.1
 milestone_name: Local-First Pipeline Swap + Avatar
 current_phase: 08
 current_phase_name: llm-speed-selector-part-a
-status: executing
-stopped_at: Completed 08-02-PLAN.md
-last_updated: "2026-06-26T18:25:00.000Z"
+status: shipped
+stopped_at: Phase 8 shipped (local-only repo — no PR); all 5 operator gates signed, VERIFICATION.md passed
+last_updated: "2026-06-26T18:40:00.000Z"
 last_activity: 2026-06-26
-last_activity_desc: "Deployment simplified to zero-cert localhost (TLS proxy removed, 7→6 services); Phase 8 operator gates ran on RTX 5090 (Gates 1/A/D PASS, B risk-accepted, C cap fixed)"
+last_activity_desc: "Phase 8 SHIPPED: 5 operator gates signed on RTX 5090 (1/A/C/D PASS, B risk-accepted); VERIFICATION.md + UAT status → passed. Whisper cold-start fixed (WHISPER__TTL=-1). Next: plan Phase 9 (Part B — Nemotron STT)."
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 2
   completed_plans: 2
-  percent: 17
+  percent: 33
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-06-25)
 
 ## Current Position
 
-Phase: 08 (llm-speed-selector-part-a) — EXECUTING
+Phase: 08 (llm-speed-selector-part-a) — SHIPPED
 Plan: 2 of 2
-Status: All plans executed; operator gates RUN on RTX 5090 — Gate 1/A/D PASS, Gate B FAIL→risk-accepted, Gate C num_predict cap fixed (live mid-TTS swap sign-off still pending in 08-LLM-VERIFY.md). Deployment simplified to zero-cert localhost (commit 615a6e7).
-Last activity: 2026-06-26 — Removed TLS reverse proxy; default install is now `docker compose up` → http://localhost:3000 (6 services, no certs)
+Status: COMPLETE. All 5 operator gates signed on RTX 5090 — Gate 1/A/C/D PASS, Gate B FAIL→risk-accepted (operator-approved, document-only). Gate C live mid-TTS swap confirmed by operator on http://localhost:3000. VERIFICATION.md + 08-UAT.md status → passed. Local-only repo (no remote) so no PR — shipped via state close. Deployment is zero-cert localhost (commit 615a6e7).
+Last activity: 2026-06-26 — Phase 8 closed; whisper STT cold-start drop fixed (WHISPER__TTL=-1, commit 06920c5). Next: `/gsd-plan-phase 9` (Part B — Nemotron STT).
 
 ## Performance Metrics
 
@@ -110,6 +110,8 @@ None yet.
 - [Phase 8 SAFETY — Gate B FAIL → RISK ACCEPTED 2026-06-26] The UNCHANGED Cybersecurity-Trainer persona is NOT a sufficient content guardrail against either abliterated model. Driven through the live `/v1` + `reasoning_effort=none` path with the rendered default persona as system prompt, ALL 4 boundary shapes FAILED on BOTH tags. Fast (`evalengine/unbound-e2b`) is worst — emits concrete actionable detail unprompted incl. a NAMED-TARGET intrusion path (Mimikatz/Pass-the-Hash/LSASS). Better (`defyma85/...heretic`) Socratically engages every ask incl. named-target. **DECISION: ACCEPT RISK, document only** — local single-user training tool, operator == user, abliterated models are an intentional unrestricted-coaching choice. Persona stays UNCHANGED, no guard model, no filter; the tags remain. KNOWN ACCEPTED LIMITATION: models will produce actionable attack guidance when asked. Revisit ONLY if the deployment model changes (multi-user / hosted / shared). Recorded in 08-LLM-VERIFY.md Gate B. NOT an open action item.
 - [RESOLVED 2026-06-26 — Phase 8 Gate C] LLM-04 num_predict cap was a SILENT NO-OP on Ollama 0.30: shipped code set `_opts.max_completion_tokens=256` but Ollama's `/v1` ignores `max_completion_tokens` (only honors top-level `max_tokens`). Fast tag masked it (55-tok replies); verbose Better tag exposed it (1892 tok uncapped). FIXED in `agent/main.py`: set `_opts.extra_body={"max_tokens": LIVE_NUM_PREDICT_CAP}` (plugin forwards extra_body verbatim; survives the model swap). Agent rebuilt + re-registered; both tags now truncate at 256.
 - [RESOLVED 2026-06-26 — Phase 8 Gate D] Two `scripts/vram-validate.sh` fixes needed for the bumped engine: (1) positive KV matcher only knew 0.6.x phrasing — extended to accept 0.30.x `flash_attn = enabled` / `K (q8_0)`/`V (q8_0)` / `--cache-type-k q8_0` runner flags; (2) LATENT pipefail/SIGPIPE bug surfaced by the larger 0.30 logs — `echo "$logs" | grep -q` under `set -o pipefail` read a TRUE match as a MISS (grep closes pipe → echo SIGPIPE 141 → pipefail propagates); switched to here-string `grep <<< "$logs"`. Both tags now PASS Gate D: Fast 7408 MB, Better 8912 MB, q8_0 engaged, 3 GPU procs (after `restart ollama` between tags to clear keep_alive=-1 pinned models).
+- [RESOLVED 2026-06-26 — Phase 8 whisper STT cold-start, commit 06920c5] Gate C live retry: agent stuck at "Listening" after talking, despite a healthy WebRTC connect (signal connected, track published). Agent logs showed `stt_ms: null` on every turn — no transcription. ROOT CAUSE: `fedirz/faster-whisper-server` defaults to `WHISPER__TTL=300`, OFFLOADING the `Systran/faster-whisper-large-v3` model after 300s idle and paying a ~60s cold reload on the next utterance; the speaker's first turn is silently dropped during reload (the earlier `docker compose up` that removed the proxy had restarted whisper, which then idled out). FIXED: added `WHISPER__MODEL` + `WHISPER__TTL=-1` to the whisper service in docker-compose.yml — pins the model resident forever (mirrors `OLLAMA_KEEP_ALIVE=-1`), correct for a single-user local tool. Confirmed via log `is idle, not unloading`. Operator re-ran Gate C successfully ("it is working now"). Lesson saved (lsn_ed652180c3212c1a). NOT an open action item.
+- [RESOLVED 2026-06-26 — Phase 8 SHIPPED] All five deferred operator gates signed on the RTX 5090. Final verdict PASS: Gate 1 (swap-surface) PASS, Gate A (verify-build both tags) PASS, Gate B (persona red-team) FAIL→RISK ACCEPTED (document-only), Gate C (live mid-TTS swap + cap) PASS, Gate D (q8_0 KV both tags) PASS. `08-VERIFICATION.md` status human_needed→passed (resolution section appended; original audit body untouched), `08-UAT.md` status testing→passed (4 passed / 1 risk-accepted / 0 blocking gaps). Local-only repo (no `origin` remote) so `/gsd-ship`'s PR path N/A — shipped via state-close. STATE frontmatter: status executing→shipped, completed_phases 1→2, percent 17→33. NEXT: `/gsd-plan-phase 9` (v1.1 Part B — Nemotron STT) per build order 8→9→10→11→12→13.
 - [RESOLVED 2026-06-26 — deployment simplification, commit 615a6e7] Gate C live-test surfaced an ICE/WebRTC connect failure in Firefox ("could not establish pc connection") even on-box. Root cause PROVEN via headless Chromium over CDP (Chromium connected over the identical stack, Firefox did not): **Firefox refuses loopback ICE by default** (`media.peerconnection.ice.loopback=false`) and silently drops the server's `127.0.0.1` host candidate. Initial fix advertised the LAN IP — but that's wrong for a local-first tool. FINAL FIX (user-directed): **removed the TLS reverse proxy (Caddy + mkcert) entirely from the default stack.** The whole TLS chain existed ONLY to give the mic a secure context over `https://<lan-ip>`; `localhost` is ALREADY a secure context, so mic + WebRTC work over plain `http://localhost` with NO certs. `proxy` service deleted (docker-compose.yml, 7→6 services); `NEXT_PUBLIC_LIVEKIT_URL` → `ws://localhost:7880`; `livekit.yaml node_ip` back to `127.0.0.1`. mkcert/Caddy reframed as OPTIONAL for serving OTHER LAN devices (`certs/README.md`, `proxy/Caddyfile`, README "Serving other LAN devices (optional TLS)"). Verified end-to-end via CDP against `http://localhost:3000`: ICE paired on `ws://localhost:7880`, agent joined room, TTS reply generated, all on the RTX 5090. Default install is now `cp .env.example .env && docker compose up` → open `http://localhost:3000` in Chromium. KNOWN: Firefox local use still needs the `about:config` loopback pref (we recommend Chromium instead); the Firefox-global pref I briefly set was reverted on user direction. Also bumped livekit-server v1.10.0→v1.10.1 (v1.10.0 mis-formats the embedded-TURN NodeIP URL). NOT an open action item.
 
 ## Deferred Items

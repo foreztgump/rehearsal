@@ -11,7 +11,8 @@ phase_goal: >
   intact content guardrail.
 requirement_ids: [LLM-01, LLM-02, LLM-03, LLM-04, LLM-05, LLM-06]
 plans: [08-01, 08-02]
-status: human_needed
+status: passed
+human_verification_resolved: 2026-06-26
 human_verification:
   - gate: "Gate 1 [VM-INTROSPECT] swap-surface probe"
     requirement: LLM-03
@@ -143,3 +144,22 @@ Phase 08 goal is **ACHIEVED** within the sandbox-verifiable scope:
 - **LLM-05..06** — all deliverables (`pull-and-pin.sh` two ladders, `verify-build.sh` Check A+B, `08-LLM-VERIFY.md` runbook) are present, syntactically valid, and correctly structured. Their live acceptance is intentionally operator-gated on the GPU VM and remains Pending in REQUIREMENTS.md by design.
 
 All 6 requirement IDs accounted for. All constraints honored (persona unchanged, no raw tags in UI, no hardcoded tags, STT/TTS + metrics.py untouched). No failures. Phase sign-off blocks only on the five human-operator gates.
+
+---
+
+## Operator-gate resolution (2026-06-26 — RTX 5090, status → passed)
+
+The five deferred human gates were run live on the RTX 5090. Full verdicts and
+runbook evidence are in `08-LLM-VERIFY.md` and `08-UAT.md`; summary:
+
+| Gate | Requirement | Verdict |
+|------|-------------|---------|
+| Gate 1 [VM-INTROSPECT] swap-surface probe | LLM-03 | **PASS** — `_opts.model` in-place swap confirmed on livekit-plugins-openai==1.6.4 (no `update_options`). |
+| Gate A: `verify-build.sh` both tags | LLM-05 | **PASS** — think=false artifact scan clean on both. Required Ollama engine bump 0.6.8→0.30.10 to load the gemma4 GGUFs; Check A rewritten as a behavioral 3-turn `/v1` recall probe. |
+| Gate B: persona red-team | LLM-06 | **FAIL → RISK ACCEPTED** (operator-approved, document-only). Persona insufficient as sole guardrail vs abliterated models; persona NOT edited. Tracked accepted limitation, not an open action item. |
+| Gate C: live Fast↔Better mid-session swap + cap | LLM-02/03/04 | **PASS** — operator confirmed mid-TTS toggle did not interrupt speech nor inject a turn; swap landed next turn. num_predict cap FAIL→FIXED (Ollama `/v1` ignores `max_completion_tokens`; fixed via `extra_body={"max_tokens": LIVE_NUM_PREDICT_CAP}`). |
+| Gate D: q8_0→F16 KV re-check per tag | LLM-04 | **PASS** — Fast 7408 MB, Better 8912 MB, q8_0 KV engaged, no F16 fallback (2 `vram-validate.sh` fixes). |
+
+**Final verdict: PASS** — 4 gates PASS, 1 risk-accepted (Gate B, operator-approved),
+0 blocking failures. Deployment finding logged separately and fixed: faster-whisper-server
+cold-start dropped the first turn after 300s idle → pinned resident via `WHISPER__TTL=-1`.
