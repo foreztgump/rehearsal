@@ -77,6 +77,18 @@ SPOKEN_STYLE_FOOTER: str = (
 # appended AFTER the persona). Do NOT reorder or fill it in Phase 3.
 KB_SLOT: str = ""
 
+# Cite-nudge prepended to the KB segment ONLY when a non-empty brief is present
+# (04-04 GAP-2b). UAT found the Cybersecurity-Trainer persona's Socratic style made
+# the model DEFLECT ("what's the codename?") instead of citing facts that ARE in the
+# brief. This frozen, hand-authored constant tips it toward referencing supplied
+# material. It is NEVER rendered for the empty-KB case, so the golden prefix stays
+# byte-identical; deterministic + no volatile data (byte-stable across turns, Pitfall 7).
+KB_CITE_NUDGE: str = (
+    "Reference material has been provided below. When the learner asks about it, cite "
+    "the exact terms, names, numbers, and identifiers from that material rather than "
+    "asking them to supply what you already have."
+)
+
 # Curated English Kokoro voice ids (PERS-05). A FROZEN constant — not a live fetch
 # (PERF-03 determinism). Includes `af_bella` (today's default). Reconcile against
 # `curl http://kokoro:8880/v1/audio/voices` once on the VM ([VM-INTROSPECT]).
@@ -108,21 +120,25 @@ def render_prompt(p: Persona, kb_brief: str = "") -> str:
     replaced by ``kb_brief or KB_SLOT``: the distilled, session-frozen brief lands
     at the SAME slot position (persona -> KB -> history -> turn order preserved).
 
-    The empty case is byte-identical to today's golden: ``kb_brief=""`` yields
-    ``"" or KB_SLOT`` == ``KB_SLOT`` == ``""``, the same trailing join as before — so
-    ``render_prompt(p, "") == render_persona(p)`` (the golden regression stays green).
+    The empty case is byte-identical to today's golden: ``kb_brief=""`` yields the
+    bare ``KB_SLOT`` == ``""`` trailing join as before (the cite-nudge is NOT rendered
+    when there is no brief) — so ``render_prompt(p, "") == render_persona(p)`` (the
+    golden regression stays green). A non-empty brief is preceded by the frozen
+    ``KB_CITE_NUDGE`` (04-04 GAP-2b) at the SAME slot position.
 
     Joins FROZEN CONSTANTS in a FIXED tuple order with a single space. The brief is
     treated as an OPAQUE frozen string — no interpolation on runtime values, no dict
     iteration, no volatile data (the keystone byte-stability constraint, Pitfall 7).
     """
+    # Nudge ONLY when a brief is present; empty stays bare KB_SLOT (golden seam).
+    kb_segment = f"{KB_CITE_NUDGE} {kb_brief}" if kb_brief else KB_SLOT
     return " ".join((
         p.role_text or ROLE_PREAMBLE,   # editable base; default falls back to frozen preamble
         DIFFICULTY[p.difficulty],
         VERBOSITY[p.verbosity],
         CORRECTION[p.correction],
         SPOKEN_STYLE_FOOTER,
-        kb_brief or KB_SLOT,            # injected-once brief; "" -> KB_SLOT (golden seam)
+        kb_segment,                     # "" -> KB_SLOT (golden seam); brief -> nudge + brief
     ))
 
 
@@ -189,6 +205,11 @@ def _self_check() -> None:
         "render_prompt is not deterministic for a fixed brief"
     )
     assert FIXED in render_prompt(DEFAULT_PERSONA, FIXED), "brief did not land in the prefix"
+
+    # Plan 04-04 GAP-2b cite-nudge assertions: the nudge renders ONLY with a brief and
+    # must NOT leak into the empty-KB golden prefix (byte-stability, Pitfall 7).
+    assert KB_CITE_NUDGE in render_prompt(DEFAULT_PERSONA, FIXED), "cite-nudge missing with a brief"
+    assert KB_CITE_NUDGE not in render_prompt(DEFAULT_PERSONA, ""), "cite-nudge leaked into empty-KB prefix"
 
     # Knob-permutation byte-stability: for every key in each table, a persona using
     # that knob renders identical bytes across repeated calls.
