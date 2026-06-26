@@ -1,0 +1,63 @@
+# nemo-stt-cpu — lean off-GPU CPU-ONNX streaming ASR server image (Plan 10-01).
+#
+# The whole point of this image is to run STT OFF the GPU: NO CUDA, NO NeMo, NO torch
+# in the runtime stage. NeMo + torch are needed ONLY at EXPORT time (the builder stage
+# below), never at serve time — the server runs the exported ONNX graphs under the
+# onnxruntime CPU EP. The same server.py is used; STT_RUNTIME=cpu routes it to
+# backend_onnx (RESEARCH §1.4 / §5 Phase B).
+
+# --- Stage 1: export builder (heavy — NeMo + torch; OPERATOR-GATED, multi-GB) ------
+# Runs export_onnx.py to produce the four artifacts backend_onnx loads
+# (encoder.onnx, decoder_joint.onnx, filterbank.bin, tokenizer.model) from the
+# original .nemo (STT_MODEL), then the slim final stage COPYs only those artifacts —
+# none of NeMo/torch reaches the runtime image. The .onnx is NEVER committed; it is
+# baked here at build. (Alternative path: `hf download` a prebuilt ONNX bundle keyed
+# by STT_ONNX_MODEL — it yields the SAME four artifacts.)
+FROM nvcr.io/nvidia/nemo:25.11 AS export-builder
+WORKDIR /build
+# Single-sourced tags (no hardcoded literal in this Dockerfile body — Compose
+# build.args supply them from env). STT_MODEL = source .nemo; STT_ONNX_MODEL = export
+# id; STT_QUANT = profile (int8-dynamic default / int4-kquant operator stretch).
+ARG STT_MODEL
+ARG STT_ONNX_MODEL
+ARG STT_QUANT=int8-dynamic
+COPY export_onnx.py ./
+ENV STT_MODEL=${STT_MODEL} STT_ONNX_MODEL=${STT_ONNX_MODEL} STT_QUANT=${STT_QUANT} STT_ONNX_DIR=/build/onnx
+RUN python export_onnx.py
+
+# --- Stage 2: lean CPU runtime (python:3.11-slim — no CUDA/NeMo/torch) --------------
+FROM python:3.11-slim
+WORKDIR /app
+
+# Single-sourced tags carried via ARG → ENV (no hardcoded literal — mirrors
+# stt/Dockerfile:15-33). The loaded artifact == the baked artifact so they never drift.
+ARG STT_ONNX_MODEL
+ARG STT_QUANT=int8-dynamic
+
+# CPU/ORT server deps only — onnxruntime CPU wheel, fastapi, uvicorn, numpy,
+# sentencepiece (NO onnxruntime-gpu/torch/NeMo/librosa — off-GPU port by design).
+COPY requirements-cpu.txt ./
+RUN pip install --no-cache-dir -r requirements-cpu.txt
+
+# Both backends are copied so STT_RUNTIME can switch without a rebuild; server.py
+# imports the chosen one lazily, and only backend_onnx is exercised at cpu runtime.
+COPY server.py backend_nemo.py backend_onnx.py ./
+
+# Bake the exported ONNX bundle from the builder stage (the four artifacts
+# backend_onnx.load_model loads). No first-run download — offline/local-first.
+COPY --from=export-builder /build/onnx /app/onnx
+
+# Runtime tags == bake tags + route to the ORT backend.
+ENV STT_ONNX_MODEL=${STT_ONNX_MODEL}
+ENV STT_QUANT=${STT_QUANT}
+ENV STT_RUNTIME=cpu
+ENV STT_ONNX_DIR=/app/onnx
+
+EXPOSE 8000
+
+# python-urllib /health probe (NOT curl — parity with stt/Dockerfile:41-42). A
+# SHORTER start_period than the NeMo image is fine since ORT load ≪ NeMo load.
+HEALTHCHECK --start-period=30s --interval=10s --timeout=5s --retries=30 \
+    CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
