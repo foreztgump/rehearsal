@@ -61,10 +61,10 @@ Phase 7 was defined in the v1.0 plan but **never started** (0/2 plans). Its scop
   4. Each model build passes a verification gate — chat-template diff vs stock + raw-token artifact check (no stray `<think>`/`<|channel|>`/`<|analysis|>` in streamed output) — and a misbehaving build falls back to stock `gemma4:e2b`/`gemma4:e4b`
   5. The persona prompt's ethical boundary is verified intact as the SOLE content guardrail against both abliterated models (red-team boundary probes pass)
 
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans executed
 
 - [x] 08-01-llm-picker-agent-swap-PLAN.md
-- [ ] 08-02-pull-pin-verify-build-PLAN.md
+- [x] 08-02-pull-pin-verify-build-PLAN.md
 
 ### Phase 9: Nemotron Streaming ASR (Part B)
 

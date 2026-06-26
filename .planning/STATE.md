@@ -5,15 +5,15 @@ milestone_name: Local-First Pipeline Swap + Avatar
 current_phase: 08
 current_phase_name: llm-speed-selector-part-a
 status: executing
-stopped_at: Completed 08-01-PLAN.md
+stopped_at: Completed 08-02-PLAN.md
 last_updated: "2026-06-26T06:32:57.368Z"
 last_activity: 2026-06-26
-last_activity_desc: Phase 08 execution started
+last_activity_desc: Phase 08 plan 08-02 executed (pull/pin both tags + verify-build gate + operator runbook)
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -30,8 +30,8 @@ See: .planning/PROJECT.md (updated 2026-06-25)
 
 Phase: 08 (llm-speed-selector-part-a) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
-Last activity: 2026-06-26 — Phase 08 execution started
+Status: All plans executed; operator [VM-*] gates pending (08-LLM-VERIFY.md)
+Last activity: 2026-06-26 — Plan 08-02 executed (two-model pull/pin + verify-build gate + operator runbook)
 
 ## Performance Metrics
 
@@ -72,6 +72,7 @@ Last activity: 2026-06-26 — Phase 08 execution started
 | Phase 06 P01 | 12 min | 3 tasks | 4 files |
 | Phase 06 P02 | 9 min | 3 tasks | 3 files |
 | Phase 08 P01 | 18 min | 4 tasks | 4 files |
+| Phase 08 P02 | 12 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 2 / 02-03: endpointing pinned on the non-deprecated turn_handling dict (dynamic, min_delay 0.3s) with MultilingualModel nested; the plan's claimed two-incompatible-surfaces TypeError BLOCKER is disproven by reading livekit-agents@1.5.0/1.5.17/1.6.4 source (direct kwargs are deprecated-but-migrated, no TypeError). Barge-in tuned (interruption min_duration 0.3s + resume_false_interruption); Silero VAD activation_threshold 0.5->0.65. Per-turn metrics consolidated via a speech_id-keyed buffer computing real e2e_ms (no LiveKit v2v field exists) + rolling P50/P95. Client-side AEC is the sole echo defense (headphones hint added); no server noise-cancellation plugin.
 - [Phase 04]: num_ctx kept at 8192: documented worst case (persona+brief+history+headroom ~8190) fits; Ollama pre-allocates num_ctx as VRAM so no inflation. Bump gated on operator Proof-C measurement. — KB-05/PERF-02 keystone proof coupled the num_ctx pin to BRIEF_TOKEN_BUDGET; flat-TTFT + cache-hit + KB-load VRAM are deferred VM operator gates in 04-KB-VERIFY.md.
 - [Phase 05]: 05-01: History windowing is item-list-only (HistoryWindowAgent.on_user_turn_completed → truncate(max_items=HISTORY_MAX_ITEMS=20) + update_chat_ctx); NEVER update_instructions, so the frozen persona+KB prefix is untouched by construction. Window-only is the MVP floor (no summarization). Exact N + flat-TTFT proof are deferred VM gates in 05-HISTORY-VERIFY.md. — SESS-05 keystone: bounded history → flat per-turn TTFT (Pitfall 10) without busting the KB prefix cache (Pitfall 7).
+- [Phase 08]: 08-02: Two-model pull/pin generalizes `pull-and-pin.sh` to named `FAST_LADDER`/`BETTER_LADDER` + a parameterized `write_resolved_tag <key> <tag>`, pinning `OLLAMA_MODEL_FAST`/`OLLAMA_MODEL_BETTER` (+ `OLLAMA_MODEL` Fast back-compat alias). `ollama/verify-build.sh` is the standalone pull-time LLM-05 gate: Check A asserts STRUCTURAL chat-template sanity (role-turn markers + diff vs stock Gemma — catches a malformed-but-nonempty template) and Check B scans a think=false `/api/generate` stream for the artifact superset (`<think>`/`<|channel|>`/`<|analysis|>`/…) — an accepted equivalent mirror of the live `/v1 reasoning_effort=none` path. The persona stays the SOLE guardrail (UNCHANGED); 08-LLM-VERIFY.md Gate B red-teams it and ESCALATES a FAIL rather than editing it. All GPU/live gates are deferred operator gates in 08-LLM-VERIFY.md. — Per-build verification + per-model fallback ladders keep a misbehaving abliterated build from leaking reasoning markers into TTS.
 - [Phase 06]: 06-02: Rubric-structured critique (4 qualitative dims, no numeric score) + slow-speech interview endpointing (min_delay 0.7/max_delay 5.0, mechanism-3 single session profile, [VM-INTROSPECT] for the switch setter). The E4B critique-depth blocker (line 101) is now GATED by Gate A (scripted strong-vs-weak discrimination) in 06-INTERVIEW-VERIFY.md but NOT yet discharged — deferred operator gate; FAIL triggers the documented 24GB OLLAMA_MODEL fallback (no 24GB code in v1). — Prompt structure compensates for the 4B model depth; the strong-vs-weak gate is the operator-verifiable bar the STATE.md blocker demands; over_budget:[eou] on interview turns is expected.
 
 ### Pending Todos
@@ -102,6 +104,7 @@ None yet.
 
 - [Phase 1 / 01-02]: Flash-attn allowlist + VRAM-under-load are now INSTRUMENTED, not assumed — `scripts/vram-validate.sh` warms all 3 models, drives concurrent load, asserts peak used-VRAM < 16384 MB (with 1GB headroom), greps ollama logs and FAILS LOUDLY if q8_0 silently falls back to F16, and asserts exactly 3 GPU processes (no embedder/vector store). The empirical run is an OPERATOR GATE: this sandbox has no Docker daemon (same limit as 01-01), so the full-stack co-residency measurement must be captured on the Proxmox VM. Rung-1 tag itself was verified against the real RTX 5090 host Ollama (manifest resolved). Record peak VRAM + q8_0-engaged result here when the operator runs the script on the VM.
 - [Phase 6]: E4B critique depth unproven — gate on a strong-vs-weak answer check; keep 24GB larger-model swap behind LiveKit's interface
+- [Phase 8 / 08-02]: Operator [VM-*] gates PENDING in `08-LLM-VERIFY.md` — run on the Proxmox VM + RTX 5090 after `docker compose build web agent && up -d` and `./ollama/pull-and-pin.sh`: Gate 1 [VM-INTROSPECT] swap-surface probe, Gate A (LLM-05 `verify-build.sh` both tags), Gate B (LLM-06 persona red-team), Gate C (live Fast↔Better swap + num_predict cap), Gate D (per-tag q8_0→F16 re-check via `vram-validate.sh`). NONE marked passed by the executor.
 
 ## Deferred Items
 
@@ -122,7 +125,7 @@ Acknowledged at v1.0-rc1 close (2026-06-26) and carried into Phase 7 / v1.0:
 ## Session Continuity
 
 Last session: 2026-06-26T06:32:57.364Z
-Stopped at: Completed 08-01-PLAN.md
+Stopped at: Completed 08-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
