@@ -53,7 +53,7 @@ Requirements for the first complete release. Each maps to roadmap phases.
 - [ ] **SESS-02**: User can reset the current session
 - [ ] **SESS-03**: User can end the session (clearing ephemeral state including the KB)
 - [ ] **SESS-04**: User can export/download the session transcript
-- [ ] **SESS-05**: Conversation history is managed (sliding window / summarization) so per-turn TTFT stays flat as the session grows
+- [x] **SESS-05**: Conversation history is managed (sliding window / summarization) so per-turn TTFT stays flat as the session grows
 
 ### Reliability
 
@@ -146,7 +146,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SESS-02 | Phase 7 | Pending |
 | SESS-03 | Phase 7 | Pending |
 | SESS-04 | Phase 7 | Pending |
-| SESS-05 | Phase 5 | Pending |
+| SESS-05 | Phase 5 | Complete |
 | REL-01 | Phase 7 | Pending |
 | REL-02 | Phase 7 | Pending |
 | REL-03 | Phase 4 | Complete |

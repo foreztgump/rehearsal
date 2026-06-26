@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 04
-current_phase_name: knowledge-base-layer
-status: executing
-stopped_at: Phase 04 all 3 plans executed; sandbox layer verified; awaiting operator UAT (04-UAT.md)
-last_updated: "2026-06-26T00:49:48.476Z"
-last_activity: 2026-06-25
-last_activity_desc: Phase 04 execution started
+current_phase: 05
+current_phase_name: history-management
+status: verifying
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-06-26T03:03:29.678Z"
+last_activity: 2026-06-26
+last_activity_desc: Phase 05 execution started
 progress:
   total_phases: 7
-  completed_phases: 3
-  total_plans: 11
-  completed_plans: 11
-  percent: 43
+  completed_phases: 5
+  total_plans: 13
+  completed_plans: 13
+  percent: 71
 ---
 
 # Project State
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-25)
 
 **Core value:** The user can hold a natural spoken conversation with a credible expert persona at voice-to-voice latency that feels live (P50 < 1.0s) — practicing speaking a domain out loud.
-**Current focus:** Phase 04 — knowledge-base-layer
+**Current focus:** Phase 05 — history-management
 
 ## Current Position
 
-Phase: 04 (knowledge-base-layer) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-06-25 — Phase 04 execution started
+Phase: 05 (history-management) — EXECUTING
+Plan: 1 of 1
+Status: Phase complete — ready for verification
+Last activity: 2026-06-26 — Phase 05 execution started
 
 Progress: [████████████████████] 8/8 plans (100% of phases 1–3)
 
@@ -68,6 +68,7 @@ Progress: [████████████████████] 8/8 pla
 | Phase 04 P04-01 | 12 min | 5 tasks | 7 files |
 | Phase 04 P04-02 | 10 min | 4 tasks | 4 files |
 | Phase 04 P04-03 | 8 min | 3 tasks | 3 files |
+| Phase 05 P05-01 | 5 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,7 @@ Recent decisions affecting current work:
 - [Phase 02]: Phase 2 / 02-02: thinking-OFF on live LLM turns plumbed via with_ollama(reasoning_effort="none") — Ollama /v1 ignores native think but maps reasoning_effort=none to internal Think=false. Path (a) chosen over a Modelfile <think> strip: no Modelfile change, tag still resolves from OLLAMA_MODEL. preemptive_generation NOT passed (livekit not importable in sandbox — introspection deferred to VM). Greeting via session.generate_reply after session.start. — Keeps the no-second-hardcoded-LLM-tag prohibition; avoids unverified-kwarg risk per sandbox conservative-path guidance.
 - [Phase ?]: Phase 2 / 02-03: endpointing pinned on the non-deprecated turn_handling dict (dynamic, min_delay 0.3s) with MultilingualModel nested; the plan's claimed two-incompatible-surfaces TypeError BLOCKER is disproven by reading livekit-agents@1.5.0/1.5.17/1.6.4 source (direct kwargs are deprecated-but-migrated, no TypeError). Barge-in tuned (interruption min_duration 0.3s + resume_false_interruption); Silero VAD activation_threshold 0.5->0.65. Per-turn metrics consolidated via a speech_id-keyed buffer computing real e2e_ms (no LiveKit v2v field exists) + rolling P50/P95. Client-side AEC is the sole echo defense (headphones hint added); no server noise-cancellation plugin.
 - [Phase 04]: num_ctx kept at 8192: documented worst case (persona+brief+history+headroom ~8190) fits; Ollama pre-allocates num_ctx as VRAM so no inflation. Bump gated on operator Proof-C measurement. — KB-05/PERF-02 keystone proof coupled the num_ctx pin to BRIEF_TOKEN_BUDGET; flat-TTFT + cache-hit + KB-load VRAM are deferred VM operator gates in 04-KB-VERIFY.md.
+- [Phase 05]: 05-01: History windowing is item-list-only (HistoryWindowAgent.on_user_turn_completed → truncate(max_items=HISTORY_MAX_ITEMS=20) + update_chat_ctx); NEVER update_instructions, so the frozen persona+KB prefix is untouched by construction. Window-only is the MVP floor (no summarization). Exact N + flat-TTFT proof are deferred VM gates in 05-HISTORY-VERIFY.md. — SESS-05 keystone: bounded history → flat per-turn TTFT (Pitfall 10) without busting the KB prefix cache (Pitfall 7).
 
 ### Pending Todos
 
@@ -107,6 +109,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-25T23:03:48.276Z
-Stopped at: Completed 04-03-PLAN.md
+Last session: 2026-06-26T03:03:11.757Z
+Stopped at: Completed 05-01-PLAN.md
 Resume file: None
