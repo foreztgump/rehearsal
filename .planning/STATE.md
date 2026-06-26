@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Local-First Pipeline Swap + Avatar
-current_phase: 11
-current_phase_name: consumer-gpu-deployment-part-e
-status: code-complete-operator-gate-pending
-stopped_at: Phase 11 executed (11-01 + 11-02), reviewed, 11-VERIFICATION written; operator GPU gate pending in 11-DEPLOY-VERIFY.md
-last_updated: "2026-06-26T23:30:00.000Z"
-last_activity: 2026-06-26
-last_activity_desc: "Phase 11 (Consumer-GPU Deployment / Part E) EXECUTED + CODE-COMPLETE. 11-01 (commit feat(11-01)): scripts/gpu-doctor.sh (ordered nvidia-smi→toolkit→CUDA12.8-floor→16GB-VRAM-floor chain, advise-only always-exit-0, never mutates .env, GPU-ready vs degraded env snippet) + thin ./up.sh wrapper (doctor→docker compose up, SKIP_DOCTOR=1) + scripts/test_gpu_doctor.sh PATH-shim harness 5/5 PASS; real RTX 5090 run RC=0. 11-02 (commit 21361d1): README Proxmox two-layer-passthrough section DELETED→single 'GPU setup (NVIDIA Container Toolkit)' section (toolkit install, docker run --gpus all proof, ./up.sh preflight, default CPU-ONNX vs opt-in --profile stt-gpu, degraded path, no-hung-up note); Quick start now ./up.sh; scripts/test_compose_topology.sh (9 assertions, default vs --profile stt-gpu, 9/9 PASS); 11-DEPLOY-VERIFY.md (7 unsigned operator gates). Repo-wide grep proxmox|vfio|pcie|two-layer|inside-the-vm = empty. 11-VERIFICATION.md verdict: CODE-COMPLETE, operator gate pending (DEPLOY-04/05 satisfied-in-code). Next: v1.1 Phase 12 (Part D avatar, frontend-only)."
+current_phase: 12
+current_phase_name: optional-3d-avatar-part-d
+status: planned-ready-to-execute
+stopped_at: Phase 12 discussed (4 grey areas all Accept-Recommended) + planned (12-01 scaffold+isolation, 12-02 lipsync+persona); not yet executed. Phase 11 remains code-complete (operator GPU gate pending).
+last_updated: "2026-06-27T00:30:00.000Z"
+last_activity: 2026-06-27
+last_activity_desc: "Phase 12 (Optional 3D Avatar / Part D, frontend-only) DISCUSSED + PLANNED. 4 grey areas all Accept-Recommended: (1) vendor TalkingHead+three.js under web/public via same-origin importmap (offline/local-first, dynamic-imported so voice-only bundle untouched) — NO CDN; (2) default GLB = Ready Player Me half-body exported morphTargets=ARKit,Oculus, Meshopt/Draco-compressed into web/public/avatars + AVTR-07 attestation; (3) persona→GLB+mood map is PURE CLIENT-SIDE in web/ (zero agent/persona.py change — honors empty-server-diff isolation gate); (4) two plans. 12-CONTEXT.md + 2 plans written: 12-01 = vendored lib + importmap + dynamic-imported AvatarStage behind default-OFF Voice-only/Avatar toggle + clean unmount + cameraView framing (AVTR-01/05/08 + isolation gate); 12-02 = Path-A HeadAudio lip-sync on inbound Kokoro track + barge-in on existing user-speech-start interrupt + eye-contact/setMood + client persona→GLB map + AVTR-07 GLB verify + 12-AVATAR-VERIFY.md (AVTR-02/03/04/06/07). HARD ISOLATION GATE: git diff -- agent/ stt/ tts/ docker-compose.yml MUST be empty across the phase; zero server VRAM cost. Frontend greenfield (no avatar refs exist). Next: execute 12-01 then 12-02."
 progress:
   total_phases: 6
   completed_phases: 3
@@ -24,12 +24,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-25)
 
 **Core value:** The user can hold a natural spoken conversation with a credible expert persona at voice-to-voice latency that feels live (P50 < 1.0s) — practicing speaking a domain out loud.
-**Current focus:** Phase 11 — consumer-gpu-deployment-part-e (CODE-COMPLETE, operator GPU gate pending) → next Phase 12 (Part D avatar)
+**Current focus:** Phase 12 — optional-3d-avatar-part-d (PLANNED, ready to execute)
 
 ## Current Position
 
-Phase: 11 (consumer-gpu-deployment-part-e) — CODE-COMPLETE, operator GPU gate pending
-Plan: 2 of 2 executed (11-01 gpu-doctor.sh + ./up.sh wrapper + test harness; 11-02 README Consumer-GPU rewrite + compose-topology verify + 11-DEPLOY-VERIFY.md) — both committed, reviewed, 11-VERIFICATION written. All sandbox checks green (bash -n clean; gpu-doctor harness 5/5; compose topology 9/9; README+verify grep proxmox|vfio|pcie clean). 7 GPU gates UNSIGNED in 11-DEPLOY-VERIFY.md. Next: discuss+plan+execute Phase 12 (Part D — avatar, frontend-only).
+Phase: 12 (optional-3d-avatar-part-d) — DISCUSSED + PLANNED, not yet executed
+Plan: 0 of 2 executed (12-01 vendored TalkingHead+three.js importmap + dynamic-imported AvatarStage behind default-OFF toggle + clean unmount + framing; 12-02 Path-A lip-sync + barge-in + eye-contact/mood + client persona→GLB map + AVTR-07 verify). All 4 discuss grey areas = Accept-Recommended. HARD isolation gate: git diff -- agent/ stt/ tts/ docker-compose.yml empty across the phase. Next: execute 12-01 → 12-02.
 
 ### (prior) Phase 11 — consumer-gpu-deployment-part-e — CODE-COMPLETE, operator GPU gate pending
 Plan: 2 of 2 (11-01 gpu-doctor.sh + ./up.sh wrapper + test harness, 11-02 README Consumer-GPU rewrite + compose-topology verify + 11-DEPLOY-VERIFY.md) — both executed, reviewed, verified.

@@ -125,7 +125,7 @@ Phase 7 was defined in the v1.0 plan but **never started** (0/2 plans). Its scop
   4. The avatar holds eye contact while speaking AND listening, applies persona mood (`setMood`), uses interview-appropriate framing (`cameraView` upper/head), and each persona maps to a GLB+mood client-side (default cyber-trainer ships a default avatar) reusing its existing Kokoro voice
   5. Each GLB is verified to have a Mixamo rig + ARKit(52) + Oculus(15) viseme blendshapes and a license permitting personal/internal use before lip-sync is wired; rendering targets ~30fps with Meshopt/Draco compression and degrades gracefully (the toggle is the escape hatch)
 
-**Plans**: TBD
+**Plans**: 12-01 (scaffold + isolation), 12-02 (lip-sync + persona + eye-contact)
 
 ### Phase 13: Deferred v1.0 Polish (rolled in)
 
@@ -160,5 +160,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → ~~7 (supers
 | 9. Nemotron Streaming ASR (Part B) | v1.1 | 2/2 | Code-complete (GPU gate pending) | 2026-06-26 |
 | 10. VRAM-Aware STT Placement (Part C) | v1.1 | 2/2 | Code-complete (GPU gate pending) | 2026-06-26 |
 | 11. Consumer-GPU Deployment (Part E) | v1.1 | 2/2 | Code-complete (GPU gate pending-operator) | 2026-06-26 |
-| 12. Optional 3D Avatar (Part D) | v1.1 | 0/? | Not started | - |
+| 12. Optional 3D Avatar (Part D) | v1.1 | 0/2 | Planned (ready to execute) | 2026-06-27 |
 | 13. Deferred v1.0 Polish (rolled in) | v1.1 | 0/? | Not started | - |
