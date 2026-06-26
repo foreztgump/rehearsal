@@ -5,8 +5,8 @@
 # the web shell (http://localhost:3000) and LiveKit (ws://localhost:7880)
 # directly: localhost is a secure context, so the mic/WebRTC work over plain
 # HTTP with no TLS. To serve other LAN devices over https://<lan-ip> instead,
-# see README.md (optional TLS reverse-proxy). Image tags are pinned (no :latest
-# except faster-whisper, which is pinned by digest below).
+# see README.md (optional TLS reverse-proxy). Upstream image tags are pinned (no
+# :latest); nemo-stt is a locally-built service (./stt), not an upstream image.
 
 services:
   livekit-server:
@@ -39,11 +39,17 @@ services:
     env_file: .env
     networks:
       - adept
+    # Long-form depends_on so the agent waits for nemo-stt to be HEALTHY (model
+    # load is slow); the other three lack healthchecks so they gate on started.
     depends_on:
-      - livekit-server
-      - ollama
-      - whisper
-      - kokoro
+      livekit-server:
+        condition: service_started
+      ollama:
+        condition: service_started
+      nemo-stt:
+        condition: service_healthy
+      kokoro:
+        condition: service_started
     restart: unless-stopped
 
   ollama:
@@ -92,19 +98,22 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
-  whisper:
-    # Pinned by digest — fedirz/faster-whisper-server:latest-cuda as of 2026-06-25.
-    image: fedirz/faster-whisper-server@sha256:0b64050ad0b9244745746b652473ee42a8d5454d501877a252c3e65f631ffc99
-    # No env_file (M3): the STT server takes its model/params per request (from the
-    # agent + warmup), so it needs none of .env — and must not carry the LiveKit secret.
+  nemo-stt:
+    # Locally-built Nemotron cache-aware streaming ASR server (./stt) — the Phase 9
+    # STT service. The model is loaded RESIDENT at server startup and never
+    # offloaded (mirrors the prior STT keep-resident fix that stopped the first-
+    # turn-drop cold-reload bug, commit 06920c5). Single-sourced model tag: the default
+    # literal lives ONLY here (build.args + environment) — server.py + the
+    # Dockerfile body carry it via STT_MODEL env/ARG (no hardcoded tag, AGENTS.md).
+    build:
+      context: ./stt
+      args:
+        STT_MODEL: ${STT_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b}
+    # No env_file (M3): the STT server takes its model/params via build-ARG + env;
+    # it needs none of .env — and must not carry the LiveKit secret.
     environment:
-      # Pre-resolve the STT model and KEEP IT RESIDENT. The image default offloads
-      # the model after WHISPER__TTL=300s idle and then pays a ~60s cold reload on
-      # the next utterance — during which the speaker's first turn is silently
-      # dropped and the agent appears stuck at "Listening". TTL=-1 pins it forever
-      # (mirrors OLLAMA_KEEP_ALIVE=-1), correct for a single-user local tool.
-      - WHISPER__MODEL=Systran/faster-whisper-large-v3
-      - WHISPER__TTL=-1
+      - STT_MODEL=${STT_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b}
+      - STT_ATT_CONTEXT_SIZE=${STT_ATT_CONTEXT_SIZE:-[56,3]}
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:8000:8000"
     networks:
@@ -116,6 +125,16 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    # Generous start_period — model load is slow. python urllib probe (NOT curl —
+    # curl is not guaranteed in the NeMo base image; a missing-curl healthcheck
+    # would never pass and the agent would hang forever on service_healthy). SAME
+    # command as the Dockerfile HEALTHCHECK (stt/Dockerfile).
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      start_period: 180s
+      interval: 10s
+      timeout: 5s
+      retries: 30
     restart: unless-stopped
 
   kokoro:
