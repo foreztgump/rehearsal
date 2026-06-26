@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+#
+# gpu-doctor.sh — preflight GPU "doctor" for the consumer `docker compose` deploy.
+#
+# Runs an ORDERED chain of host checks BEFORE `docker compose up` and, on any
+# problem, prints the EXACT remedy plus a copy-paste env snippet — instead of
+# letting `up` hang on a cryptic `could not select device driver` or silently
+# OOM on a sub-spec card. `docker compose` on the user's own machine is the ONLY
+# supported deployment (there is no VM/passthrough path).
+#
+# Posture: NON-BLOCKING ADVISE. This script ALWAYS exits 0 so `./up.sh` proceeds;
+# its only job is to make GPU/driver/toolkit/VRAM problems legible and to print
+# the env snippet for the VRAM-safe degraded path. It NEVER writes .env and NEVER
+# switches anything at runtime — the actual CPU/GPU STT choice stays with
+# STT_FORCE_CPU + the Phase-10 placement resolver.
+#
+# Ordered chain (each step: detect -> on fail, print remedy + keep going):
+#   1. nvidia-smi present + driver responds        (non-NVIDIA / no driver)
+#   2. NVIDIA Container Toolkit wired              (docker run --gpus all ...)
+#   3. CUDA/driver floor >= 12.8                   (Blackwell / kokoro cu128)
+#   4. VRAM floor >= 16384 MB                       (the 16GB co-residency budget)
+#
+# Run directly:        ./scripts/gpu-doctor.sh
+# Run via the wrapper: ./up.sh           (runs this first, then docker compose up)
+#
+# Env overrides (single-sourced floors — do not scatter literals elsewhere):
+#   VRAM_FLOOR_MB        (default 16384 — matches scripts/vram-validate.sh VRAM_LIMIT_MB)
+#   CUDA_FLOOR           (default 12.8  — kokoro …-cu128 Blackwell/sm_120 image)
+#   TOOLKIT_PROBE_IMAGE  (default nvidia/cuda:12.4.0-base-ubuntu22.04 — same image the
+#                         README --gpus all verification step uses)
+set -euo pipefail
+
+readonly VRAM_FLOOR_MB="${VRAM_FLOOR_MB:-16384}"
+readonly CUDA_FLOOR="${CUDA_FLOOR:-12.8}"
+readonly TOOLKIT_PROBE_IMAGE="${TOOLKIT_PROBE_IMAGE:-nvidia/cuda:12.4.0-base-ubuntu22.04}"
+
+# The documented degraded defaults (consistent with .env.example): CPU-ONNX STT +
+# the Fast LLM tag. Referenced in the degraded snippet — not new literals.
+readonly FAST_LLM_TAG="evalengine/unbound-e2b:latest"
+
+# DEGRADED accumulates across checks; any failed check sets it. The final advice
+# block branches on it. We never exit non-zero (ADVISE posture).
+DEGRADED=0
+NVIDIA_OK=0   # set when step 1 passes (gates steps 3 & 4, which query the GPU)
+
+ok()     { printf 'OK: %s\n' "$*"; }
+advise() { printf 'ADVISE: %s\n' "$*"; DEGRADED=1; }
+hr()     { printf -- '----------------------------------------------------------------------\n'; }
+
+# --- Step 1: nvidia-smi present + driver responds --------------------------------
+check_nvidia_smi() {
+  if ! command -v nvidia-smi >/dev/null 2>&1; then
+    advise "No \`nvidia-smi\` on PATH — no NVIDIA driver detected."
+    printf '  Fix: install the NVIDIA driver for your GPU so nvidia-smi prints a\n'
+    printf '       GPU table, then re-run. (Or run CPU-degraded — see below.)\n'
+    return
+  fi
+  if ! nvidia-smi >/dev/null 2>&1; then
+    advise "\`nvidia-smi\` is installed but the driver did not respond."
+    printf '  Fix: the driver/library versions likely mismatch (common after a driver\n'
+    printf '       update without a reboot). Reboot, or reinstall the NVIDIA driver.\n'
+    return
+  fi
+  NVIDIA_OK=1
+  ok "nvidia-smi present and the driver responds."
+}
+
+# --- Step 2: NVIDIA Container Toolkit wired --------------------------------------
+check_toolkit() {
+  if ! command -v docker >/dev/null 2>&1; then
+    advise "\`docker\` not found — cannot run the stack."
+    printf '  Fix: install Docker Engine + the Compose plugin, then re-run.\n'
+    return
+  fi
+  if [ "${NVIDIA_OK}" -ne 1 ]; then
+    # No GPU/driver in step 1 — the --gpus probe is guaranteed to fail and would
+    # make a non-NVIDIA user pull a CUDA image for nothing. Skip the pull, advise.
+    advise "Skipping the container-GPU probe (no working driver from step 1)."
+    printf '  Once the driver works, this step verifies the NVIDIA Container Toolkit.\n'
+    return
+  fi
+  local probe_err
+  if probe_err="$(docker run --rm --gpus all "${TOOLKIT_PROBE_IMAGE}" nvidia-smi 2>&1)"; then
+    ok "NVIDIA Container Toolkit wired — a container can see the GPU."
+    return
+  fi
+  # Distinguish the classic toolkit-missing string from any other failure.
+  if printf '%s' "${probe_err}" | grep -qi 'could not select device driver'; then
+    advise "GPU not reachable from a container — NVIDIA Container Toolkit missing or the Docker runtime is not configured."
+  else
+    advise "GPU not reachable from a container (\`docker run --gpus all\` failed)."
+    printf '  (probe said: %s)\n' "$(printf '%s' "${probe_err}" | head -1)"
+  fi
+  printf '  Fix: install + wire the NVIDIA Container Toolkit, then restart Docker:\n'
+  printf '       sudo apt-get install -y nvidia-container-toolkit\n'
+  printf '       sudo nvidia-ctk runtime configure --runtime=docker\n'
+  printf '       sudo systemctl restart docker\n'
+}
+
+# Numeric major.minor compare: returns 0 (true) if $1 >= $2. NOT lexical
+# ("12.8" < "12.10" must be handled), so split on the dot and compare ints.
+version_ge() {
+  local a="$1" b="$2"
+  local a_major="${a%%.*}" a_minor="${a#*.}" b_major="${b%%.*}" b_minor="${b#*.}"
+  [ "${a_minor}" = "${a}" ] && a_minor=0
+  [ "${b_minor}" = "${b}" ] && b_minor=0
+  # Guard against any non-numeric component reaching the arithmetic [ -gt/-ge ]
+  # tests (which abort the script under set -e). Treat unpar? as "older".
+  case "${a_major}${a_minor}${b_major}${b_minor}" in *[!0-9]*) return 1 ;; esac
+  if [ "${a_major}" -gt "${b_major}" ]; then return 0; fi
+  if [ "${a_major}" -lt "${b_major}" ]; then return 1; fi
+  [ "${a_minor}" -ge "${b_minor}" ]
+}
+
+# --- Step 3: CUDA/driver floor ---------------------------------------------------
+check_cuda_floor() {
+  [ "${NVIDIA_OK}" -eq 1 ] || return 0   # can't query a GPU that isn't there
+  # nvidia-smi's header reports the MAX CUDA the installed driver supports.
+  # `|| true`: a driver that rejects the query field exits non-zero, which would
+  # trip pipefail+set -e before we get to sanitize the value below.
+  local cuda
+  cuda="$(nvidia-smi --query-gpu=cuda_version --format=csv,noheader 2>/dev/null | head -1 | tr -d ' ' || true)"
+  # Some drivers reject the cuda_version query field and print an error string
+  # ("Field ... is not a valid field to query") instead of an empty result — and
+  # older drivers lack the field entirely. Accept the value ONLY if it looks like a
+  # version number; otherwise fall back to parsing nvidia-smi's textual header.
+  case "${cuda}" in
+    ''|*[!0-9.]*) cuda="$(nvidia-smi 2>/dev/null | sed -n 's/.*CUDA Version: \([0-9][0-9.]*\).*/\1/p' | head -1 || true)" ;;
+  esac
+  if [ -z "${cuda}" ]; then
+    advise "Could not read the driver's CUDA version (need >= ${CUDA_FLOOR})."
+    printf '  Fix: update your NVIDIA driver; kokoro needs CUDA >= %s (Blackwell).\n' "${CUDA_FLOOR}"
+    return
+  fi
+  if version_ge "${cuda}" "${CUDA_FLOOR}"; then
+    ok "Driver supports CUDA ${cuda} (>= ${CUDA_FLOOR})."
+  else
+    advise "Driver supports CUDA ${cuda}, but kokoro needs CUDA >= ${CUDA_FLOOR} (Blackwell/sm_120)."
+    printf '  Fix: update your NVIDIA driver to one that advertises CUDA >= %s.\n' "${CUDA_FLOOR}"
+  fi
+}
+
+# --- Step 4: VRAM floor ----------------------------------------------------------
+check_vram_floor() {
+  [ "${NVIDIA_OK}" -eq 1 ] || return 0
+  local vram
+  vram="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null \
+            | tr -d ' ' | sort -nr | head -1 || true)"
+  # Only accept an all-digit value; a driver that rejects the query field prints an
+  # error string, which would crash the numeric [ -ge ] test under set -e.
+  case "${vram}" in ''|*[!0-9]*) vram="" ;; esac
+  if [ -z "${vram}" ]; then
+    advise "Could not read total VRAM (need >= ${VRAM_FLOOR_MB} MB)."
+    return
+  fi
+  if [ "${vram}" -ge "${VRAM_FLOOR_MB}" ]; then
+    ok "GPU has ${vram} MB VRAM (>= ${VRAM_FLOOR_MB} MB floor)."
+  else
+    advise "GPU has ${vram} MB VRAM; the full 16 GB STT+LLM+TTS stack will not co-reside (floor ${VRAM_FLOOR_MB} MB)."
+    printf '  Fix: run CPU-degraded STT + the Fast model (snippet below); the stack\n'
+    printf '       still comes up usable.\n'
+  fi
+}
+
+# --- Final advice block (always printed) -----------------------------------------
+print_advice() {
+  hr
+  if [ "${DEGRADED}" -eq 0 ]; then
+    ok "GPU ready."
+    printf 'You can opt into GPU STT (otherwise the default boots VRAM-safe CPU-ONNX STT):\n\n'
+    printf '  # GPU ready — opt into GPU STT ONLY after 10-PLACEMENT-VERIFY.md passes:\n'
+    printf '  #   set in .env:  STT_FORCE_CPU=0   STT_HEADROOM_MEASURED=1\n'
+    printf '  docker compose --profile stt-gpu up\n\n'
+    printf 'Default (recommended): docker compose up   # CPU-ONNX STT, VRAM-safe\n'
+  else
+    advise_summary
+  fi
+  hr
+  printf 'Note: the first `up` builds/pulls multi-GB GPU images and bakes the STT\n'
+  printf '      model — watch `docker compose ps` for health: starting -> healthy.\n'
+  printf '      It is NOT hung.\n'
+}
+
+advise_summary() {
+  printf 'One or more checks need attention. The stack still runs VRAM-safe on CPU-ONNX\n'
+  printf 'STT + the Fast model. Copy these into .env (this script does NOT edit .env):\n\n'
+  printf '  # Sub-spec / non-NVIDIA host — CPU-ONNX STT + Fast model (the safe defaults):\n'
+  printf '  STT_FORCE_CPU=1\n'
+  printf '  OLLAMA_MODEL=%s   # the Fast tag\n' "${FAST_LLM_TAG}"
+  printf '  # then: docker compose up   (do NOT add --profile stt-gpu)\n\n'
+  printf 'Limitation: ollama + kokoro still require a working NVIDIA GPU. A fully\n'
+  printf 'non-NVIDIA host can run STT on CPU but not the LLM/TTS (v1.1 limitation).\n'
+}
+
+main() {
+  printf 'gpu-doctor: preflight checks for `docker compose up` (advise-only, never blocks)\n'
+  hr
+  check_nvidia_smi
+  check_toolkit
+  check_cuda_floor
+  check_vram_floor
+  print_advice
+  exit 0
+}
+
+main "$@"
