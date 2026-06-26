@@ -4,11 +4,11 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 7
 current_phase_name: Polish & Reliability
-status: verifying
+status: rc-shipped
 stopped_at: Completed 06-02-PLAN.md
-last_updated: "2026-06-26T04:07:13.631Z"
+last_updated: "2026-06-26T05:15:40.938Z"
 last_activity: 2026-06-26
-last_activity_desc: Phase 06 complete, transitioned to Phase 7
+last_activity_desc: Milestone v1.0-rc1 (Phases 1-6) completed and archived; Phase 7 remains for v1.0
 progress:
   total_phases: 7
   completed_phases: 6
@@ -24,16 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-25)
 
 **Core value:** The user can hold a natural spoken conversation with a credible expert persona at voice-to-voice latency that feels live (P50 < 1.0s) — practicing speaking a domain out loud.
-**Current focus:** Phase 06 — interview-mode
+**Current focus:** Phase 7 — Polish & Reliability (the remaining v1.0 work after the v1.0-rc1 RC)
 
 ## Current Position
 
-Phase: 7 — Polish & Reliability
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-06-26 — Phase 06 complete, transitioned to Phase 7
-
-Progress: [████████████████████] 8/8 plans (100% of phases 1–3)
+Phase: 7 — Polish & Reliability (not started)
+Plan: —
+Status: v1.0-rc1 shipped (Phases 1-6); Phase 7 closes out v1.0
+Last activity: 2026-06-26 — Milestone v1.0-rc1 completed and archived
 
 ## Performance Metrics
 
@@ -106,14 +104,27 @@ None yet.
 
 ## Deferred Items
 
-Items acknowledged and carried forward from previous milestone close:
+Acknowledged at v1.0-rc1 close (2026-06-26) and carried into Phase 7 / v1.0:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| requirement | SESS-01 new session | Pending (Phase 7) | v1.0-rc1 |
+| requirement | SESS-02 reset session | Pending (Phase 7) | v1.0-rc1 |
+| requirement | SESS-03 end session (clear KB) | Pending (Phase 7) | v1.0-rc1 |
+| requirement | SESS-04 transcript export | Pending (Phase 7) | v1.0-rc1 |
+| requirement | REL-01 mic-denial prompt | Pending (Phase 7) | v1.0-rc1 |
+| requirement | REL-02 garbled-STT reprompt | Pending (Phase 7) | v1.0-rc1 |
+| uat | Phase 02 UAT (0 pending scenarios) | passed | v1.0-rc1 |
+| uat | Phase 04 UAT (0 pending scenarios) | gaps_resolved | v1.0-rc1 |
+| verification | KB/history/interview/latency VM operator gates | Documented runbooks, unsigned | v1.0-rc1 |
 
 ## Session Continuity
 
 Last session: 2026-06-26T04:02:01.681Z
 Stopped at: Completed 06-02-PLAN.md
 Resume file: None
+
+## Operator Next Steps
+
+- v1.0-rc1 (Phases 1-6) shipped and tagged. Continue v1.0 by planning Phase 7 (Polish & Reliability): `/gsd-plan-phase 7`
+- Operator-gated VM proofs remain (KB flat-TTFT, three-models-under-16GB, P50<1.0s, interview strong-vs-weak critique) — run the documented runbooks on the Proxmox VM when available.
