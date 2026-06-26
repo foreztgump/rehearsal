@@ -258,6 +258,11 @@ async def _stream_loop(websocket: WebSocket, state: dict) -> None:
     """Receive loop: JSON control frames vs binary PCM frames (nesting ≤3)."""
     while True:
         message = await websocket.receive()
+        if message.get("type") == "websocket.disconnect":
+            # Starlette delivers a disconnect dict (no text/bytes). Raise the
+            # disconnect ws_stream catches instead of looping into another
+            # receive() (which would RuntimeError on a noisy traceback).
+            raise WebSocketDisconnect()
         if message.get("text") is not None:
             state = await _handle_control_frame(websocket, state, message["text"])
             continue
