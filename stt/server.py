@@ -259,12 +259,25 @@ async def _stream_loop(websocket: WebSocket, state: dict) -> None:
     while True:
         message = await websocket.receive()
         if message.get("text") is not None:
-            state = await _handle_control(websocket, state, json.loads(message["text"]))
+            state = await _handle_control_frame(websocket, state, message["text"])
             continue
         pcm = message.get("bytes")
         if pcm is None:
             continue
         await _emit_delta(websocket, state, pcm)
+
+
+async def _handle_control_frame(websocket: WebSocket, state: dict, text: str) -> dict:
+    """Parse + dispatch a JSON control frame; a bad frame replies error, no crash."""
+    try:
+        msg = json.loads(text)
+    except (json.JSONDecodeError, ValueError) as exc:
+        await websocket.send_json({"type": "error", "message": f"bad control frame: {exc}"})
+        return state
+    if not isinstance(msg, dict):
+        await websocket.send_json({"type": "error", "message": "control frame must be an object"})
+        return state
+    return await _handle_control(websocket, state, msg)
 
 
 async def _emit_delta(websocket: WebSocket, state: dict, pcm: bytes) -> None:
