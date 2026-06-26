@@ -26,6 +26,7 @@ from livekit.plugins import openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 import history
+import interview
 import metrics
 from kb import DistillError, KbParseError, ParsedDoc
 from kb import distill as kb_distill
@@ -289,6 +290,28 @@ async def entrypoint(ctx: JobContext) -> None:
     # (handle_persona_update, ingest_kb) read/write the same reference.
     current_persona: list[Persona] = [DEFAULT_PERSONA]
 
+    # Mode/role as a THIRD mutable axis alongside current_persona (06-01). MODE-01:
+    # default = Learn, exactly as DEFAULT_PERSONA is the default-on-load persona.
+    # All three closures (handle_persona_update, ingest_kb, handle_mode_update) write
+    # these holders so their renders COMPOSE (the "(persona × KB × mode) epoch" model)
+    # rather than clobber each other.
+    current_mode: list[str] = [interview.MODE_LEARN]
+    current_role: list[str] = [interview.DEFAULT_ROLE]
+
+    def compose_instructions() -> str:
+        """Instruction string for the CURRENT (persona × KB × mode) epoch.
+
+        In Interview mode, render the Interview block for the picked role composed
+        with the current KB brief; otherwise render today's Learn (persona) block
+        composed with the brief. The brief composition mirrors how ingest_kb /
+        handle_persona_update already pass session_kb.brief. The mode toggle is the
+        SINGLE sanctioned re-prefill — this is never called per turn (Pitfall 7).
+        """
+        if current_mode[0] == interview.MODE_INTERVIEW:
+            interview_block = interview.render_interview_prompt(current_role[0])
+            return f"{interview_block} {session_kb.brief}" if session_kb.brief else interview_block
+        return render_prompt(current_persona[0], session_kb.brief)
+
     # Live persona hot-swap (PERS-06): the browser side panel sends a full persona
     # snapshot over the `persona.update` RPC. The handler closes over the named
     # `agent`/`session` and applies the change IN PLACE — no AgentSession/Agent
@@ -309,13 +332,42 @@ async def entrypoint(ctx: JobContext) -> None:
         snapshot = json.loads(data.payload)
         p = Persona(**snapshot)
         current_persona[0] = p
-        await agent.update_instructions(render_prompt(p, session_kb.brief))
+        # Route through compose_instructions so a persona edit while in Interview mode
+        # re-emits the INTERVIEW block (not the Learn block) — the renders compose.
+        await agent.update_instructions(compose_instructions())
         session.tts.update_options(voice=p.voice_id)
         return "applied"
 
     # Register AFTER connect/start so the method exists before the client calls it.
     ctx.room.local_participant.register_rpc_method(
         "persona.update", handle_persona_update
+    )
+
+    # Live mode/role hot-swap (MODE-02/03/04): the browser side panel sends a
+    # {mode, role_key} snapshot over the `mode.update` RPC. Clones the persona
+    # hot-swap machinery EXACTLY — write the mutable holders, re-prefill IN PLACE via
+    # update_instructions(compose_instructions()), no AgentSession/Agent teardown. The
+    # toggle is the single sanctioned re-prefill (same cost model as a persona edit),
+    # NEVER a per-turn render (Pitfall 7). The native RPC return ("applied") IS the
+    # applying->applied ack. ONLY on entering Interview mode do we fire one ask-Q1
+    # generate_reply (MODE-04 ask boundary — mirrors the greeting/KB-priming calls);
+    # toggling back to Learn just re-prefills and lets the normal loop resume.
+    async def handle_mode_update(data):
+        snapshot = json.loads(data.payload)
+        current_mode[0] = snapshot["mode"]
+        current_role[0] = snapshot["role_key"]
+        await agent.update_instructions(compose_instructions())
+        if current_mode[0] == interview.MODE_INTERVIEW:
+            await session.generate_reply(
+                instructions=(
+                    "(internal) ask the first interview question for the current role, "
+                    "then wait for the candidate's answer"
+                )
+            )
+        return "applied"
+
+    ctx.room.local_participant.register_rpc_method(
+        "mode.update", handle_mode_update
     )
 
     # --- KB ingest (Plan 04-01/04-02): upload → parse → distill → inject once -----
@@ -380,7 +432,9 @@ async def entrypoint(ctx: JobContext) -> None:
         # per-turn re-distill / re-inject. The elevated llm_ttft_ms / over_budget on
         # THIS one turn is expected (same as the persona-swap turn) — NOT "fixed".
         session_kb.brief = brief
-        await agent.update_instructions(render_prompt(current_persona[0], brief))
+        # Route through compose_instructions so a KB load while in Interview mode
+        # re-emits the INTERVIEW block + the new brief (compose, not clobber).
+        await agent.update_instructions(compose_instructions())
         await set_kb_state(status="ready", docs=len(session_kb.docs))
 
         # Priming turn (Pattern E, Pitfall 3): fire one internal reply so the KB
