@@ -188,12 +188,16 @@ Plans:
   4. After each answer the agent gives a critique and demonstrates a strong model answer
   5. Endpointing is re-tuned for deliberate interview-answer speech so the agent does not cut in mid-thought
 
-**Plans**: TBD
+**Plans**: 1/2 plans executed
 
 Plans:
+
+- [x] 06-01-PLAN.md
+- [ ] 06-02-PLAN.md
+
 **Wave 1**
 
-- [ ] 06-01: Mode toggle + role picker + Interview state machine (ask → listen → critique → model-answer → next)
+- [x] 06-01: Mode toggle + role picker + Interview state machine (ask → listen → critique → model-answer → next)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -232,5 +236,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. Persona Layer | 2/2 | Complete   | 2026-06-25 |
 | 4. Knowledge Base Layer | 4/4 | Complete   | 2026-06-25 |
 | 5. History Management | 1/1 | Complete    | 2026-06-26 |
-| 6. Interview Mode | 0/2 | Not started | - |
+| 6. Interview Mode | 1/2 | In Progress|  |
 | 7. Polish & Reliability | 0/2 | Not started | - |

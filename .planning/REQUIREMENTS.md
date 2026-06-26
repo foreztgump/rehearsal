@@ -41,11 +41,11 @@ Requirements for the first complete release. Each maps to roadmap phases.
 
 ### Modes
 
-- [ ] **MODE-01**: Learn/Converse mode is the default — open conversation where the trainer explains, quizzes informally, and pushes the user to articulate
-- [ ] **MODE-02**: User can toggle into Interview Mode from the side panel
-- [ ] **MODE-03**: On entering Interview Mode, the user picks the target role (e.g., SOC analyst, security engineer, GRC)
-- [ ] **MODE-04**: In Interview Mode the agent asks one realistic, role-relevant question at a time and waits for the user's spoken answer
-- [ ] **MODE-05**: After each answer the agent gives feedback (critique) and demonstrates a strong model answer
+- [x] **MODE-01**: Learn/Converse mode is the default — open conversation where the trainer explains, quizzes informally, and pushes the user to articulate
+- [x] **MODE-02**: User can toggle into Interview Mode from the side panel
+- [x] **MODE-03**: On entering Interview Mode, the user picks the target role (e.g., SOC analyst, security engineer, GRC)
+- [x] **MODE-04**: In Interview Mode the agent asks one realistic, role-relevant question at a time and waits for the user's spoken answer
+- [x] **MODE-05**: After each answer the agent gives feedback (critique) and demonstrates a strong model answer
 
 ### Session
 
@@ -137,11 +137,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | KB-06 | Phase 4 | Complete |
 | KB-07 | Phase 4 | Complete |
 | KB-08 | Phase 4 | Complete |
-| MODE-01 | Phase 6 | Pending |
-| MODE-02 | Phase 6 | Pending |
-| MODE-03 | Phase 6 | Pending |
-| MODE-04 | Phase 6 | Pending |
-| MODE-05 | Phase 6 | Pending |
+| MODE-01 | Phase 6 | Complete |
+| MODE-02 | Phase 6 | Complete |
+| MODE-03 | Phase 6 | Complete |
+| MODE-04 | Phase 6 | Complete |
+| MODE-05 | Phase 6 | Complete |
 | SESS-01 | Phase 7 | Pending |
 | SESS-02 | Phase 7 | Pending |
 | SESS-03 | Phase 7 | Pending |
