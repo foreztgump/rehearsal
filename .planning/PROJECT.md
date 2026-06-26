@@ -35,6 +35,7 @@ The user can hold a natural spoken conversation with a credible expert persona a
 - ✓ Persona editor: role/instructions, name, behavior knobs (difficulty, verbosity, correction-aggressiveness), applied in-session — Phase 3
 - ✓ Voice selection per persona (Kokoro preset voices) — Phase 3
 - ✓ Sliding-window conversation history (`HistoryWindowAgent`, items capped each turn behind the frozen persona+KB prefix) keeps per-turn TTFT flat over long sessions — Phase 5 (flat-TTFT-over-time proof operator-gated on the VM)
+- ✓ Interview Mode: toggle into Interview, pick a target role (SOC analyst / security engineer / GRC), agent asks one role-relevant question at a time, waits, then gives a rubric-structured critique + a strong model answer; slow-speech endpointing re-tune — Phase 6 (Option B single prompt-swap agent; live loop + strong-vs-weak critique gate operator-gated on the VM via `06-INTERVIEW-VERIFY.md`)
 
 ### Active
 
@@ -51,8 +52,6 @@ The user can hold a natural spoken conversation with a credible expert persona a
 - [ ] KB loaded into session context once; rely on Ollama prefix/KV caching (no per-turn RAG)
 - [ ] KB ephemeral per-session (cleared at session end)
 - [ ] KB active indicator + upload size guard
-- [ ] Learn/Converse mode (default open conversation)
-- [ ] Interview Mode: agent asks one question at a time, user answers, agent critiques + gives a model answer; role picked at mode entry
 - [ ] Session controls: new / reset / end
 - [ ] Export/download session transcript
 - [ ] Voice-to-voice latency P50 < 1.0s, P95 < 1.5s (instrumented via LiveKit per-turn metrics)
@@ -134,4 +133,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-26 after Phase 5 (History Management) complete*
+*Last updated: 2026-06-26 after Phase 6 (Interview Mode) complete*
