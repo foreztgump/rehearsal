@@ -58,7 +58,10 @@ class NemoSTT(stt.STT):
 
     @property
     def model(self) -> str:
-        return "nemotron-speech-streaming-en-0.6b"
+        # Generic metrics label only — the real model tag is single-sourced
+        # server-side via STT_MODEL (no model-name literal in agent code that
+        # could drift from the server's actual checkpoint).
+        return "nemotron-streaming"
 
     @property
     def provider(self) -> str:
