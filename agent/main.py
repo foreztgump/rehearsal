@@ -132,6 +132,37 @@ def resolved_llm_tag() -> str:
     return tag
 
 
+# --- LLM Speed Selector (Phase 8, LLM-01..LLM-04) -----------------------------
+# Two user-selectable response models exposed via plain-language OUTCOME labels in
+# the UI ("Fast (snappier)" / "Better (more thoughtful)"). The agent only ever sees
+# the validated plain choice key here — NEVER a raw Ollama tag from the client
+# (LLM-01). Fast is the configurable default (LLM-02). No hardcoded gemma tag: each
+# choice resolves to its own env var (the v1.0 no-hardcoded-tag invariant,
+# generalized from resolved_llm_tag above).
+MODEL_CHOICES = ("fast", "better")
+DEFAULT_MODEL_CHOICE = "fast"
+_MODEL_ENV = {"fast": "OLLAMA_MODEL_FAST", "better": "OLLAMA_MODEL_BETTER"}
+
+# Live hot-path num_predict cap (LLM-04 "capped num_predict"). Sized to the
+# SPOKEN_STYLE_FOOTER "a sentence or two at a time" budget (persona.py:71) — it
+# bounds runaway generation uniformly on BOTH models. with_ollama does NOT accept
+# max_completion_tokens, so it is set on _opts after construction (RESEARCH §1.5);
+# chat() forwards max_completion_tokens → OpenAI → Ollama num_predict when given.
+LIVE_NUM_PREDICT_CAP: int = 256
+
+
+def resolved_model_tag(choice: str) -> str:
+    """Resolve a Fast/Better picker choice to its pinned Ollama tag from env.
+
+    Mirrors resolved_llm_tag's SystemExit-if-unset posture — no hardcoded tag.
+    """
+    env_var = _MODEL_ENV[choice]
+    tag = os.environ.get(env_var, "").strip()
+    if not tag:
+        raise SystemExit(f"{env_var} is not set — run ollama/pull-and-pin.sh first")
+    return tag
+
+
 def _warmup_llm_ttft_ms(tag: str) -> float:
     """Stream one tiny completion from Ollama; return measured TTFT in ms.
 
@@ -183,9 +214,14 @@ def build_session(vad: silero.vad.VAD) -> AgentSession:
         # Think=false (see Ollama OpenAI-compatibility docs). with_ollama exposes
         # `reasoning_effort` directly (livekit-plugins-openai reference), so this
         # forwards think-off over /v1 WITHOUT a Modelfile change or repointing the
-        # model (the tag still resolves from OLLAMA_MODEL via resolved_llm_tag()).
+        # model. The tag now resolves to the Fast default (LLM-02) via
+        # resolved_model_tag(DEFAULT_MODEL_CHOICE); handle_model_update swaps it in
+        # place per session. The num_predict cap is NOT set here (build_session
+        # returns the AgentSession inline — there is no handle to session.llm
+        # before the return); it is pinned to the single entrypoint site after
+        # metrics.attach (LLM-04).
         llm=openai.LLM.with_ollama(
-            model=resolved_llm_tag(),
+            model=resolved_model_tag(DEFAULT_MODEL_CHOICE),
             base_url=OLLAMA_BASE_URL,
             reasoning_effort="none",
         ),
@@ -342,6 +378,13 @@ async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
     session = build_session(ctx.proc.userdata["vad"])
     metrics.attach(session)
+    # Live num_predict cap (LLM-04) — the SINGLE site it is set, applied exactly
+    # once at startup. with_ollama does NOT accept max_completion_tokens, so the
+    # live hot-path LLM otherwise caps NOTHING (only warmup/distill cap num_predict
+    # off the hot path). Set it here, where session.llm is reachable, to close that
+    # pre-existing gap; chat() forwards max_completion_tokens → Ollama num_predict.
+    # Applies equally to BOTH models and survives the in-place _opts.model swap.
+    session.llm._opts.max_completion_tokens = LIVE_NUM_PREDICT_CAP
     # Named local ref (was inline): 03-02's RPC handler will close over `agent` to
     # hot-swap the persona via agent.update_instructions(...) without a restart.
     # render_prompt(DEFAULT_PERSONA, "") is byte-identical to the old
@@ -362,6 +405,13 @@ async def entrypoint(ctx: JobContext) -> None:
     # rather than clobber each other.
     current_mode: list[str] = [interview.MODE_LEARN]
     current_role: list[str] = [interview.DEFAULT_ROLE]
+
+    # Fourth mutable holder for the picked response model (LLM-02 per-session
+    # persistence). UNLIKE current_persona/current_mode/current_role, it does NOT
+    # feed compose_instructions() — a model swap does not re-render the
+    # persona/KB/mode prefix. It ONLY drives session.llm._opts.model via
+    # handle_model_update (the simpler axis). Defaults to Fast (LLM-02).
+    current_model: list[str] = [DEFAULT_MODEL_CHOICE]
 
     def compose_instructions() -> str:
         """Instruction string for the CURRENT (persona × KB × mode) epoch.
@@ -475,6 +525,38 @@ async def entrypoint(ctx: JobContext) -> None:
 
     ctx.room.local_participant.register_rpc_method(
         "mode.update", handle_mode_update
+    )
+
+    # Live response-model hot-swap (LLM-01..LLM-03): the browser ModelPanel sends a
+    # {choice: "fast"|"better"} snapshot over the `model.update` RPC. Clones
+    # handle_mode_update's validate-before-mutate discipline (the Phase-6 fix) but
+    # SIMPLER — NO update_instructions (a model swap does not re-render the
+    # persona/KB/mode prefix) and NO generate_reply (a model switch must NOT inject
+    # an agent turn — it lands on the user's NEXT real turn, LLM-02). The swap is
+    # IN PLACE on the SAME openai.LLM instance (session.llm._opts.model = tag),
+    # re-read fresh by the next chat() (RESEARCH §1.3) — so the metrics_collected
+    # subscription from metrics.attach() survives, no AgentSession/Agent teardown,
+    # current TTS uninterrupted. reasoning_effort="none" lives in the same _opts and
+    # carries across the swap automatically (thinking stays OFF). The native RPC
+    # return ("applied") IS the applying→applied ack.
+    async def handle_model_update(data):
+        # model.update is the UNTRUSTED RPC boundary. VALIDATE the choice BEFORE
+        # mutating: only the plain keys in MODEL_CHOICES are accepted — NEVER a raw
+        # tag from the client (LLM-01). Reject up front so a bad payload never
+        # reaches _opts.model (validate-before-mutate, the Phase-6 discipline).
+        snapshot = json.loads(data.payload)
+        choice = snapshot.get("choice")
+        if choice not in MODEL_CHOICES:
+            logger.warning("model.update rejected: unknown choice %r", choice)
+            return "error"
+        current_model[0] = choice
+        # In-place swap on the existing LLM instance (mirrors the TTS voice swap at
+        # session.tts.update_options above): the next chat() re-reads _opts.model.
+        session.llm._opts.model = resolved_model_tag(choice)
+        return "applied"
+
+    ctx.room.local_participant.register_rpc_method(
+        "model.update", handle_model_update
     )
 
     # --- KB ingest (Plan 04-01/04-02): upload → parse → distill → inject once -----
