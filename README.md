@@ -8,8 +8,11 @@ persona. Self-hosted on a single 16GB-VRAM GPU via Docker Compose. See
 
 ```bash
 cp .env.example .env          # then set a LIVEKIT_API_SECRET
-docker compose up             # builds + boots all services
+./up.sh                       # GPU preflight, then builds + boots all services
 ```
+
+(`./up.sh` runs the GPU doctor then `docker compose up` — see
+[GPU setup](#gpu-setup-nvidia-container-toolkit). Plain `docker compose up` works too.)
 
 Then open **http://localhost:3000** in **Chromium/Chrome** and click *Start
 talking*. That's it — no certs, no TLS, no browser config.
@@ -30,37 +33,26 @@ forwarded to the WAN. To serve **other LAN devices** (not the same machine), see
 [Serving other LAN devices (optional TLS)](#serving-other-lan-devices-optional-tls)
 below.
 
-## GPU passthrough
+## GPU setup (NVIDIA Container Toolkit)
 
-The three model containers (`ollama`, `nemo-stt`, `kokoro`) need the GPU. On a
-Proxmox homelab this is a **two-layer passthrough chain** — both layers must work,
-in order, before any model container sees the GPU.
+`docker compose up` on your own machine is the only supported deployment. The three
+model containers — `ollama`, `kokoro`, and the GPU STT `nemo-stt` (opt-in, see below)
+— need an NVIDIA GPU on that machine. STT also has an off-GPU CPU-ONNX path, so the
+**default boots VRAM-safe without the GPU STT** and the only host step is installing
+the NVIDIA Container Toolkit.
 
-> **Speech-to-text (`nemo-stt`, port 8000):** STT runs Nemotron streaming ASR
-> (`nvidia/nemotron-speech-streaming-en-0.6b`) served via NeMo behind a local
-> websocket — a growing interim transcript while you speak, ~100 ms finalize after
-> end-of-speech, with native punctuation/capitalization surfaced as-is. The `.nemo`
-> model is **baked into the image at build time** (offline-capable, no first-run
-> download) and stays resident for the life of the container.
+> **Speech-to-text:** STT runs Nemotron streaming ASR
+> (`nvidia/nemotron-speech-streaming-en-0.6b`) behind a local websocket — a growing
+> interim transcript while you speak, ~100 ms finalize after end-of-speech, with
+> native punctuation/capitalization surfaced as-is. The model is **baked into the
+> image at build time** (offline-capable, no first-run download) and stays resident
+> for the life of the container. By default this runs **off-GPU** on CPU
+> (`nemo-stt-cpu`); the GPU `nemo-stt` (port 8000) is opt-in.
 
-### Layer 1 — Proxmox host → VM (PCIe / vfio)
+### Install the toolkit (the only host step)
 
-The physical GPU is passed through to the guest VM via PCIe passthrough (vfio).
-This is host-level Proxmox configuration done outside this repo. **Verify it before
-touching Docker:** inside the VM, this must already succeed and print the GPU table:
-
-```bash
-nvidia-smi
-```
-
-If `nvidia-smi` fails inside the VM, the GPU is not passed through to the guest yet
-— fix the Proxmox vfio passthrough first. Docker cannot bridge a GPU the VM can't
-see.
-
-### Layer 2 — VM → container (NVIDIA Container Toolkit)
-
-With `nvidia-smi` working in the VM, install the NVIDIA Container Toolkit so Docker
-can hand the GPU to containers, then point the Docker runtime at it:
+Install the NVIDIA Container Toolkit so Docker can hand the GPU to containers, then
+point the Docker runtime at it:
 
 ```bash
 sudo apt-get install -y nvidia-container-toolkit
@@ -68,27 +60,58 @@ sudo nvidia-ctk runtime configure --runtime=docker
 sudo systemctl restart docker
 ```
 
-Verify the container layer end-to-end (this is the operator gate for this task —
-record the output):
+Verify the GPU is reachable from a container (this is the operator gate — record the
+output):
 
 ```bash
 docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
 ```
 
-It must print the same GPU table from inside a container. Once it does, both layers
-are good and `docker compose up` will give the model services the GPU via the
-`deploy.resources.reservations.devices` block in `docker-compose.yml`.
+It must print the GPU table from inside a container. Once it does, `docker compose up`
+gives the model services the GPU via the `deploy.resources.reservations.devices`
+blocks in `docker-compose.yml`.
+
+### Preflight: `./up.sh`
+
+`./up.sh` runs [`scripts/gpu-doctor.sh`](scripts/gpu-doctor.sh) first — it checks
+driver → toolkit → CUDA version → VRAM in order and prints either `OK: GPU ready` or
+an exact remedy plus a copy-paste env snippet, then runs `docker compose up`. It is
+**advise-only** and never blocks; set `SKIP_DOCTOR=1 ./up.sh` to skip the preflight.
+
+```bash
+./up.sh            # preflight, then docker compose up
+./up.sh -d         # detached
+```
+
+### Default (CPU STT) vs opt-in GPU STT
+
+`docker compose up` (or `./up.sh`) brings up **CPU-ONNX STT** — the VRAM-safe default
+(`STT_FORCE_CPU=1`). To run STT on the GPU, opt into the `stt-gpu` profile **and** flip
+the placement flags — but only after the co-residency matrix in
+[`10-PLACEMENT-VERIFY.md`](.planning/phases/10-vram-aware-stt-placement-part-c/10-PLACEMENT-VERIFY.md)
+passes (set `STT_FORCE_CPU=0` + `STT_HEADROOM_MEASURED=1` in `.env`):
+
+```bash
+docker compose --profile stt-gpu up
+```
+
+On a sub-spec (<16 GB) or non-NVIDIA host, the doctor recommends staying on
+`STT_FORCE_CPU=1` + the Fast `OLLAMA_MODEL` and the stack still comes up usable. Note:
+`ollama` and `kokoro` always need a working NVIDIA GPU — a fully non-NVIDIA host can
+run STT on CPU but not the LLM/TTS (a v1.1 limitation).
 
 ### Diagnosing the two common failure modes
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `could not select device driver "nvidia" with capabilities: [[gpu]]` | NVIDIA Container Toolkit missing / Docker runtime not configured (Layer 2) | Run the `nvidia-ctk runtime configure --runtime=docker` step above, restart Docker |
+| `could not select device driver "nvidia" with capabilities: [[gpu]]` | NVIDIA Container Toolkit missing / Docker runtime not configured | Run the `nvidia-ctk runtime configure --runtime=docker` step above, restart Docker |
 | `capabilities is required` (compose error) | A GPU service is missing `capabilities: [gpu]` in its reservation block | Ensure each model service's `devices` entry includes `capabilities: [gpu]` |
 
-> This repo does **not** alter host configuration. Layer 1 (Proxmox vfio) and the
-> toolkit install in Layer 2 are operator steps; the compose manifest only *reserves*
-> the GPU once both layers are in place.
+> The first `docker compose up` builds/pulls multi-GB GPU images and bakes the STT
+> model — watch `docker compose ps` for health `starting → healthy` (`start_period`
+> is 180 s for GPU STT, 30 s for CPU STT). It is **not** hung. This repo does not alter
+> host configuration; the toolkit install above is the only operator step, and the
+> compose manifest only *reserves* the GPU once it is in place.
 
 ## LiveKit self-host networking (ICE / firewall)
 
