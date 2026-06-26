@@ -1,12 +1,19 @@
-"""nemo-stt — FastAPI websocket server for Nemotron cache-aware streaming ASR.
+"""nemo-stt — FastAPI websocket server for cache-aware streaming ASR (gpu|cpu).
 
-Serves the Nemotron streaming ASR checkpoint (single-sourced via the
-STT_MODEL env var — NO hardcoded tag, AGENTS.md) behind a websocket that takes
-16 kHz mono int16 PCM frames in and streams growing interim transcripts out, with
-a FINAL emitted ONLY on the agent's `flush` control frame. Native punctuation +
-capitalization come out of the model and are surfaced AS-IS (STT-03).
+Serves streaming ASR behind a websocket that takes 16 kHz mono int16 PCM frames in
+and streams growing interim transcripts out, with a FINAL emitted ONLY on the
+agent's `flush` control frame. Native punctuation + capitalization come out of the
+model and are surfaced AS-IS (STT-03).
 
-Contract (frozen for the Wave-2 NemoSTT plugin — 09-RESEARCH §2):
+Two runtimes behind the SAME frozen contract (Phase 10, RESEARCH §2). `STT_RUNTIME`
+selects a backend module that exposes the SAME four callables — the WS/HTTP layer
+below is byte-unchanged from Phase 9:
+  * STT_RUNTIME=gpu → backend_nemo (full GPU NeMo, the Phase-9 decode body, moved).
+  * STT_RUNTIME=cpu → backend_onnx (off-GPU ONNX-Runtime CPU port, three-graph
+    cache loop + numpy mel). Single-sourced via STT_ONNX_MODEL (no hardcoded tag).
+The agent plugin is runtime-agnostic — only the URL differs.
+
+Contract (frozen for the NemoSTT plugin — 09-RESEARCH §2; UNCHANGED in Phase 10):
   WS /v1/audio/stream
     client → {"type":"config","language":"en"}, then raw int16 PCM binary frames;
              control frames {"type":"flush"} (drain → FINAL, then auto-reset the
@@ -16,21 +23,21 @@ Contract (frozen for the Wave-2 NemoSTT plugin — 09-RESEARCH §2):
              {"type":"final","text":<final>} | {"type":"error","message":...}.
   GET  /health                  → 200 only after the model is resident (else 503).
   POST /v1/audio/transcriptions → optional whole-file OpenAI-compat path for the
-                                  09-STT-VERIFY offline checks (mirrors warm_whisper).
+                                  offline VERIFY checks (mirrors warm_whisper).
 
 The model is loaded resident at lifespan startup and NEVER offloaded (mirrors
-WHISPER__TTL=-1 — avoids the cold-reload first-turn-drop bug). GPU access is
+WHISPER__TTL=-1 — avoids the cold-reload first-turn-drop bug). Decode access is
 serialized with an asyncio.Lock and the blocking decode runs off the event loop.
 
-Heavy imports (nemo, torch, numpy) live INSIDE functions / the lifespan so this
-module byte-compiles in the GPU-less sandbox; the real decode is an operator GPU
-gate (09-STT-VERIFY).
+Heavy imports (nemo/torch or onnxruntime/numpy) live INSIDE the chosen backend so
+this module byte-compiles in the GPU-less, ORT-less sandbox; the real decode is an
+operator gate (10-PLACEMENT-VERIFY).
 """
 from __future__ import annotations
 
-import ast
 import asyncio
 import contextlib
+import importlib
 import io
 import json
 import logging
@@ -42,189 +49,39 @@ from fastapi import FastAPI, Response, UploadFile, WebSocket, WebSocketDisconnec
 
 logger = logging.getLogger("nemo-stt")
 
-# --- Config (module scope, no hardcoded tag) ----------------------------------
-# Single-source the model tag the SAME way agent/main.py:resolved_llm_tag does:
-# KeyError → SystemExit if unset, so the baked weights and the loaded model can
-# never drift (the v1.0 no-hardcoded-tag invariant).
-try:
-    MODEL_NAME: str = os.environ["STT_MODEL"]
-except KeyError as exc:  # pragma: no cover - exercised only at process start
-    raise SystemExit("STT_MODEL is not set — supplied by docker-compose build/env") from exc
-
-# att_context_size = [left, right] in 80 ms encoder frames (STT-04). Balanced
-# default [56,3]; set ONCE on the encoder at load. `right` trades latency vs
-# accuracy (lower = snappier, higher = more accurate).
-def _parse_att_context_size(raw: str) -> list[int]:
-    """Parse + validate the [left, right] env value, failing fast on bad input.
-
-    ast.literal_eval is code-exec-safe (not eval); we additionally require a
-    2-element list of ints so a malformed value fails at import with a clear
-    message instead of deep inside set_default_att_context_size at the GPU gate
-    (matches the STT_MODEL SystemExit posture).
-    """
-    try:
-        value = ast.literal_eval(raw)
-    except (ValueError, SyntaxError) as exc:
-        raise SystemExit(f"STT_ATT_CONTEXT_SIZE is not a valid literal: {raw!r}") from exc
-    if (not isinstance(value, list) or len(value) != 2
-            or not all(isinstance(n, int) for n in value)):
-        raise SystemExit(f"STT_ATT_CONTEXT_SIZE must be a 2-element list of ints, got {raw!r}")
-    return value
-
-
-ATT_CONTEXT_SIZE = _parse_att_context_size(os.environ.get("STT_ATT_CONTEXT_SIZE", "[56,3]"))
-
-# RNNT decoder-stall watchdog (09-RESEARCH §1, PITFALL B2). Named constants, no
-# magic values. If cumulative text stops growing for STALL_FRAMES while audio is
-# STILL arriving, recycle decoder state and CONTINUE — the server NEVER auto-emits
-# FINAL (the turn detector owns finalize). STT_RECYCLE_* bound the recycle so it
-# stays stall-recovery only.
-STALL_FRAMES = int(os.environ.get("STT_STALL_FRAMES", "50"))
-RECYCLE_MIN_CHARS = int(os.environ.get("STT_RECYCLE_MIN_CHARS", "120"))
-RECYCLE_HARD_CHARS = int(os.environ.get("STT_RECYCLE_HARD_CHARS", "400"))
+# --- Backend dispatch (validate-or-SystemExit, mirrors _parse_att_context_size) ---
+# STT_RUNTIME selects which decode backend module to import lazily by name. The
+# backend exposes load_model()/new_stream_state(model)/decode_chunk(model,state,pcm)/
+# finalize(model,state)/reset_turn_state(state); server.py owns the single model
+# handle + the WS/HTTP layer. Heavy imports stay inside the backend so this module
+# byte-compiles in the GPU-less, ORT-less sandbox.
+RUNTIME = os.environ.get("STT_RUNTIME", "gpu")
+if RUNTIME not in ("gpu", "cpu"):
+    raise SystemExit(f"STT_RUNTIME must be gpu|cpu, got {RUNTIME!r}")
+backend = importlib.import_module("backend_nemo" if RUNTIME == "gpu" else "backend_onnx")
 
 PORT = 8000
 SAMPLE_RATE = 16000
-INT16_FULL_SCALE = 32768.0
 # Offline-path window: feed whole-file PCM through the per-chunk decode loop in
 # fixed ~560 ms slices (the live cache-aware step size) rather than one giant
 # step, so the VERIFY offline path exercises the same code path as live.
 OFFLINE_CHUNK_MS = int(os.environ.get("STT_OFFLINE_CHUNK_MS", "560"))
 _BYTES_PER_SAMPLE = 2  # int16 mono
 
-# Module-level model handles + readiness gate + GPU serialization lock.
+# Module-level model handle + readiness gate + decode serialization lock. The
+# _gpu_lock name is kept for continuity but it now serializes the single decode
+# session per connection for BOTH runtimes (under cpu it serializes the one ORT
+# session — single-user, one active stream); no behavioural change.
 _model: Any = None
 _ready: bool = False
 _gpu_lock = asyncio.Lock()
-
-
-def load_model() -> Any:
-    """Load the Nemotron streaming model resident, set the att_context_size knob.
-
-    Heavy imports are local so the GPU-less sandbox can byte-compile this module.
-    The exact `conformer_stream_step` signature + preprocessing are confirmed
-    against the in-container `nemo.collections.asr` source at the operator GPU
-    gate (09-STT-VERIFY) — the sandbox cannot import NeMo.
-    """
-    import nemo.collections.asr as nemo_asr  # noqa: PLC0415 - GPU-only dep
-
-    model = nemo_asr.models.ASRModel.from_pretrained(MODEL_NAME)
-    model.eval()
-    model.encoder.set_default_att_context_size(ATT_CONTEXT_SIZE)
-    # Greedy single-step RNNT decoding — lowest latency for streaming.
-    _set_greedy_decoding(model)
-    logger.info("nemo-stt model loaded: %s att_context_size=%s", MODEL_NAME, ATT_CONTEXT_SIZE)
-    return model
-
-
-def _set_greedy_decoding(model: Any) -> None:
-    """Switch the RNNT head to greedy single-step decoding (alignments off)."""
-    from omegaconf import open_dict  # noqa: PLC0415 - GPU-only dep
-
-    cfg = model.cfg.decoding
-    with open_dict(cfg):
-        cfg.strategy = "greedy"
-        cfg.preserve_alignments = False
-    model.change_decoding_strategy(decoding_cfg=cfg)
-
-
-def new_stream_state() -> dict:
-    """Fresh per-connection streaming state (cache + stall-tracking counters)."""
-    channel, time_state, channel_len = _model.encoder.get_initial_cache_state(batch_size=1)
-    return {
-        "cache_last_channel": channel,
-        "cache_last_time": time_state,
-        "cache_last_channel_len": channel_len,
-        "prev_hyps": None,
-        "frames_since_growth": 0,
-        "last_text_len": 0,
-    }
-
-
-def _extract_features(pcm: bytes) -> tuple[Any, Any]:
-    """int16 PCM bytes → mel features via the model's own preprocessor."""
-    import numpy as np  # noqa: PLC0415 - GPU-only dep
-    import torch  # noqa: PLC0415 - GPU-only dep
-
-    samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / INT16_FULL_SCALE
-    signal = torch.tensor(samples).unsqueeze(0)
-    length = torch.tensor([signal.shape[1]])
-    feats, feat_len = _model.preprocessor(input_signal=signal, length=length)
-    return feats, feat_len
-
-
-def decode_chunk(state: dict, pcm: bytes) -> str:
-    """Run one cache-aware stream step; return the CUMULATIVE transcript.
-
-    Native PnC is surfaced AS-IS (no strip/lowercase — STT-03). Recycles decoder
-    state on a stall but NEVER emits FINAL (the turn detector owns finalize).
-    """
-    import torch  # noqa: PLC0415 - GPU-only dep
-
-    feats, feat_len = _extract_features(pcm)
-    with torch.inference_mode():
-        text, channel, time_state, channel_len, hyps = _model.conformer_stream_step(
-            processed_signal=feats,
-            processed_signal_length=feat_len,
-            cache_last_channel=state["cache_last_channel"],
-            cache_last_time=state["cache_last_time"],
-            cache_last_channel_len=state["cache_last_channel_len"],
-            keep_all_outputs=True,
-            previous_hypotheses=state["prev_hyps"],
-            return_transcription=True,
-        )
-    state["cache_last_channel"] = channel
-    state["cache_last_time"] = time_state
-    state["cache_last_channel_len"] = channel_len
-    state["prev_hyps"] = hyps
-    cumulative = hyps[0].text if hyps else ""
-    _track_stall(state, cumulative)
-    return cumulative
-
-
-def _track_stall(state: dict, cumulative: str) -> None:
-    """Stall watchdog: recycle decoder state if text stops growing (no FINAL)."""
-    grew = len(cumulative) > state["last_text_len"]
-    state["last_text_len"] = len(cumulative)
-    if grew:
-        state["frames_since_growth"] = 0
-        return
-    state["frames_since_growth"] += 1
-    stalled = state["frames_since_growth"] >= STALL_FRAMES
-    if stalled and len(cumulative) >= RECYCLE_MIN_CHARS:
-        # Reset prev_hyps, carry the encoder cache forward, continue. Log only —
-        # do NOT emit FINAL (single-turn-source invariant, 09-RESEARCH §1/§4).
-        logger.info("nemo-stt RNNT stall recycle at %d chars (cache carried forward)", len(cumulative))
-        state["prev_hyps"] = None
-        state["frames_since_growth"] = 0
-
-
-def finalize(state: dict) -> str:
-    """Drain the stream and return the final transcript (flush→final response)."""
-    cumulative = ""
-    if state["prev_hyps"]:
-        cumulative = state["prev_hyps"][0].text
-    return cumulative
-
-
-def reset_turn_state(state: dict) -> None:
-    """Clear per-turn decode state after a FINAL so the next utterance starts clean.
-
-    Resets the RNNT hypotheses + stall counters but CARRIES THE ENCODER CACHE
-    forward (cache_last_*) — same as the stall recycle — so cache-aware streaming
-    semantics are preserved across the turn boundary. Without this, prev_hyps is
-    fed back into the next decode and every FINAL accumulates the whole session.
-    """
-    state["prev_hyps"] = None
-    state["frames_since_growth"] = 0
-    state["last_text_len"] = 0
 
 
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Load the model resident at startup; keep it forever (no offload)."""
     global _model, _ready
-    _model = await asyncio.to_thread(load_model)
+    _model = await asyncio.to_thread(backend.load_model)
     _ready = True
     yield
     # No offload on shutdown — keep-resident-forever mirrors WHISPER__TTL=-1.
@@ -243,9 +100,9 @@ async def health() -> Response:
 
 
 async def _decode_off_loop(state: dict, pcm: bytes) -> str:
-    """Serialize GPU access (asyncio.Lock) and run the blocking decode off-loop."""
+    """Serialize decode access (asyncio.Lock) and run the blocking decode off-loop."""
     async with _gpu_lock:
-        return await asyncio.to_thread(decode_chunk, state, pcm)
+        return await asyncio.to_thread(backend.decode_chunk, _model, state, pcm)
 
 
 async def _handle_control(ws: WebSocket, state: dict, msg: dict) -> dict:
@@ -253,14 +110,14 @@ async def _handle_control(ws: WebSocket, state: dict, msg: dict) -> dict:
     kind = msg.get("type")
     if kind == "flush":
         async with _gpu_lock:
-            text = await asyncio.to_thread(finalize, state)
+            text = await asyncio.to_thread(backend.finalize, _model, state)
         # Client-driven (NOT a server heuristic): reset the per-turn decode state
         # in direct response to the flush so the next FINAL is THIS turn only.
         # The encoder cache is carried forward (cache-aware streaming preserved).
-        reset_turn_state(state)
+        backend.reset_turn_state(state)
         await ws.send_json({"type": "final", "text": text})
     elif kind == "reset":
-        state = new_stream_state()
+        state = backend.new_stream_state(_model)
     return state
 
 
@@ -270,7 +127,7 @@ async def ws_stream(websocket: WebSocket) -> None:
     await websocket.accept()
     await websocket.receive_json()  # the {"type":"config", ...} handshake
     await websocket.send_json({"type": "ready"})
-    state = new_stream_state()
+    state = backend.new_stream_state(_model)
     try:
         await _stream_loop(websocket, state)
     except WebSocketDisconnect:
@@ -330,14 +187,14 @@ async def transcribe_file(file: UploadFile) -> dict:
 def _transcribe_wav(raw: bytes) -> str:
     """Decode a 16 kHz mono int16 WAV through the same per-chunk decode loop.
 
-    The file PCM is sliced into fixed OFFLINE_CHUNK_MS windows and fed through
-    decode_chunk one at a time — the SAME cache-aware per-chunk path the live
-    websocket loop uses — instead of one multi-second conformer_stream_step.
+    The file PCM is sliced into fixed OFFLINE_CHUNK_MS windows and fed through the
+    backend's decode_chunk one at a time — the SAME cache-aware per-chunk path the
+    live websocket loop uses — instead of one multi-second step.
     """
     with wave.open(io.BytesIO(raw), "rb") as wav:
         pcm = wav.readframes(wav.getnframes())
-    state = new_stream_state()
+    state = backend.new_stream_state(_model)
     step = (SAMPLE_RATE * OFFLINE_CHUNK_MS // 1000) * _BYTES_PER_SAMPLE
     for start in range(0, len(pcm), step):
-        decode_chunk(state, pcm[start:start + step])
-    return finalize(state)
+        backend.decode_chunk(_model, state, pcm[start:start + step])
+    return backend.finalize(_model, state)
