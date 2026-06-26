@@ -91,10 +91,42 @@ def _write_parity_assets(model, out_dir: str) -> None:
     import numpy as np  # noqa: PLC0415 - export-only dep
 
     fb = np.asarray(model.preprocessor.featurizer.filter_banks).astype("float32")
+    # M4: assert band-major [128,257] before writing so a freq-major [257,128] tensor
+    # is caught HERE (the flat .bin can't self-describe its shape, and the loader would
+    # silently re-interpret a wrong orientation as [128,257]).
+    band_major = (fb.shape[-2], fb.shape[-1])
+    if band_major != (128, 257):
+        raise SystemExit(
+            f"filter_banks is {fb.shape}, expected band-major (..,128,257); "
+            "transpose to [n_mels, n_fft//2+1] before writing (M4)")
     fb.reshape(1, fb.shape[-2], fb.shape[-1]).tofile(f"{out_dir}/filterbank.bin")  # [1,128,257]
     src = model.tokenizer.tokenizer.model_path  # SentencePiece .model inside the .nemo
     with open(src, "rb") as fin, open(f"{out_dir}/tokenizer.model", "wb") as fout:
         fout.write(fin.read())
+    _write_parity_manifest(model, out_dir)
+
+
+def _write_parity_manifest(model, out_dir: str) -> None:
+    """Surface the preprocessor's normalize/log-guard/window config for the WER gate.
+
+    H1: backend_onnx recomputes the mel OUTSIDE the ONNX graph, so the operator parity
+    gate (10-PLACEMENT-VERIFY Gate 2) needs the actual .nemo preprocessor config to
+    confirm backend_onnx matches it (normalize mode, log_zero_guard_*, window
+    periodicity, STFT centering). Dump the live values rather than re-deriving them.
+    """
+    import json  # noqa: PLC0415 - export-only dep
+
+    feat = model.preprocessor.featurizer
+    manifest = {
+        "normalize": getattr(feat, "normalize", None),
+        "log_zero_guard_type": getattr(feat, "log_zero_guard_type", None),
+        "log_zero_guard_value": getattr(feat, "log_zero_guard_value", None),
+        "n_fft": getattr(feat, "n_fft", None),
+        "hop_length": getattr(feat, "hop_length", None),
+        "win_length": getattr(feat, "win_length", None),
+    }
+    with open(f"{out_dir}/mel_parity.json", "w") as fout:
+        json.dump(manifest, fout, indent=2, default=str)
 
 
 def main() -> None:

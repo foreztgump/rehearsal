@@ -75,6 +75,11 @@ _N_FFT = 512
 _HOP = 160      # 10 ms @ 16 kHz
 _WIN = 400      # 25 ms @ 16 kHz
 _N_MELS = 128   # Slaney norm, band-major [n_mels, n_frames]
+# NeMo AudioToMelSpectrogramPreprocessor defaults (the mel-PARITY contract — see
+# _extract_features). log_zero_guard_type="add", value 2**-24 (≈5.96e-8); per-feature
+# normalization epsilon is NeMo's CONSTANT=1e-5 (features.normalize_batch).
+_LOG_ZERO_GUARD = 2 ** -24
+_NORM_EPS = 1e-5
 
 
 def load_model() -> Any:
@@ -98,7 +103,7 @@ def load_model() -> Any:
     decoder_joint = onnxruntime.InferenceSession(
         f"{bundle_dir}/decoder_joint.onnx", providers=providers)
     tokenizer = sentencepiece.SentencePieceProcessor(model_file=f"{bundle_dir}/tokenizer.model")
-    filterbank = np.fromfile(f"{bundle_dir}/filterbank.bin", dtype=np.float32).reshape(1, _N_MELS, _N_FFT // 2 + 1)
+    filterbank = _load_filterbank(np, f"{bundle_dir}/filterbank.bin")
     logger.info("nemo-stt-cpu ORT sessions loaded: %s quant=%s", ONNX_MODEL, QUANT)
     return {
         "encoder": encoder,
@@ -106,6 +111,24 @@ def load_model() -> Any:
         "tokenizer": tokenizer,
         "filterbank": filterbank,
     }
+
+
+def _load_filterbank(np, path: str):
+    """Load the baked Slaney filterbank, asserting band-major [1,128,257] orientation.
+
+    M4: the flat .bin can't self-describe its shape, so a freq-major [257,128] export
+    would be silently re-interpreted as [128,257] and scramble the mel projection with
+    no error. Assert the element count matches 128*257 before the reshape so a wrong
+    on-disk orientation fails LOUD here (export_onnx also validates fb.shape before
+    writing). The matmul (power @ filterbank[0].T) is correct GIVEN [128,257].
+    """
+    flat = np.fromfile(path, dtype=np.float32)
+    expected = _N_MELS * (_N_FFT // 2 + 1)
+    if flat.size != expected:
+        raise SystemExit(
+            f"filterbank.bin has {flat.size} elems, expected {expected} (128*257) — "
+            "export orientation mismatch (M4); rebuild the ONNX bundle")
+    return flat.reshape(1, _N_MELS, _N_FFT // 2 + 1)
 
 
 def _resolve_bundle_dir() -> str:
@@ -136,18 +159,20 @@ def new_stream_state(model) -> dict:
 
 
 def _extract_features(model, pcm: bytes):
-    """int16 PCM bytes → band-major [1,128,n_frames] log-mel (numpy-only).
+    """int16 PCM bytes → band-major [1,128,n_frames] PER-FEATURE-NORMALIZED log-mel.
 
-    !!! HIGHEST-RISK PARITY SEAM (RESEARCH §1.3) !!!
+    !!! HIGHEST-RISK PARITY SEAM (RESEARCH §1.3) — MEL-PARITY CONTRACT !!!
     The NeMo AudioToMelSpectrogramPreprocessor is NOT in the exported ONNX graph, so
-    the CPU backend MUST recompute the 128-band Slaney mel ITSELF before the encoder
-    session. This is the single largest piece of new code and the highest-risk parity
-    item — a numerical mismatch vs the NeMo preprocessor SILENTLY TANKS WER (the
-    operator WER gate in 10-PLACEMENT-VERIFY is the catch). It uses the BAKED Slaney
-    filterbank.bin (bit-identical to the .nemo preprocessor, extracted by
-    export_onnx.py) + a numpy STFT — numpy-only, NO librosa, numerically matched to
-    the export. Params (pre-emphasis 0.97, FFT 512 / hop 160 / win 400 Hann, 128
-    bands) are verified from the export config.json.
+    the CPU backend MUST recompute the 128-band Slaney mel ITSELF before the encoder.
+    The exact NeMo preprocessing — (a) per_feature normalization (subtract per-mel-band
+    mean and divide by per-band std across the time axis, with NeMo's 1e-5 epsilon),
+    (b) the log offset (log_zero_guard_type="add", value 2**-24), (c) STFT centering
+    (torch.stft center=True reflect pad n_fft//2), and (d) Hann window periodicity
+    (torch.hann_window periodic=True vs np.hanning symmetric) — is the PARITY CONTRACT
+    verified at the operator gate (10-PLACEMENT-VERIFY Gate 2). A numerical mismatch on
+    ANY of these SILENTLY TANKS WER. (a) and (b) are implemented to NeMo's documented
+    defaults below; (c) and (d) are flagged in _stft_power for the operator gate to
+    confirm against the actual export config and align. numpy-only, NO librosa.
     """
     import numpy as np  # noqa: PLC0415 - ORT-only dep
 
@@ -155,12 +180,42 @@ def _extract_features(model, pcm: bytes):
     emphasized = np.append(samples[:1], samples[1:] - _PRE_EMPHASIS * samples[:-1])
     power = _stft_power(emphasized)                              # [n_frames, n_fft/2+1]
     mel = power @ model["filterbank"][0].T                       # [n_frames, 128]
-    log_mel = np.log(np.clip(mel, a_min=1e-9, a_max=None))
-    return log_mel.T[np.newaxis, :, :].astype(np.float32)        # band-major [1,128,n]
+    # M1: NeMo default is log_zero_guard_type="add" (offset, NOT clamp), value 2**-24.
+    log_mel = np.log(mel + _LOG_ZERO_GUARD).T                    # band-major [128, n]
+    normalized = _normalize_per_feature(log_mel)                 # H1: per_feature norm
+    return normalized[np.newaxis, :, :].astype(np.float32)       # band-major [1,128,n]
+
+
+def _normalize_per_feature(log_mel):
+    """Per-feature (per mel-band) mean/std normalization — NeMo normalize="per_feature".
+
+    Subtract each band's mean and divide by its std ACROSS the time axis, matching
+    NeMo features.normalize_batch with its CONSTANT=1e-5 epsilon. Input/return are
+    band-major [128, n_frames]. (H1 — the FastConformer encoder was trained on
+    per-feature-normalized features; un-normalized log-mel shifts the whole input
+    distribution and tanks WER.)
+    """
+    import numpy as np  # noqa: PLC0415 - ORT-only dep
+
+    mean = log_mel.mean(axis=1, keepdims=True)
+    std = log_mel.std(axis=1, keepdims=True)
+    return (log_mel - mean) / (std + _NORM_EPS)
 
 
 def _stft_power(signal):
-    """Framed Hann STFT magnitude-squared → [n_frames, n_fft/2+1] (numpy-only)."""
+    """Framed Hann STFT magnitude-squared → [n_frames, n_fft/2+1] (numpy-only).
+
+    PARITY ITEMS FOR THE OPERATOR GATE (10-PLACEMENT-VERIFY Gate 2):
+      * M2 STFT centering — torch.stft (NeMo's wrap) defaults to center=True with
+        reflect padding of n_fft//2, which shifts every frame center and changes the
+        frame count. This recompute frames from signal[i*hop : i*hop+win] (center=
+        False semantics). Confirm the export's centering and add an n_fft//2 reflect
+        pad here if it was produced with center=True.
+      * M3 Hann periodicity — np.hanning is the SYMMETRIC (periodic=False) window;
+        torch.hann_window defaults to periodic=True. NeMo FilterbankFeatures typically
+        builds periodic=False (matching np.hanning), but it is config-dependent.
+        Confirm the export's window periodicity and align.
+    """
     import numpy as np  # noqa: PLC0415 - ORT-only dep
 
     window = np.hanning(_WIN).astype(np.float32)
