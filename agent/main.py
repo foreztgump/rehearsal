@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass, field
@@ -31,7 +32,9 @@ import metrics
 from kb import DistillError, KbParseError, ParsedDoc
 from kb import distill as kb_distill
 from kb import parse as kb_parse
-from persona import DEFAULT_PERSONA, Persona, render_prompt
+from persona import DEFAULT_PERSONA, KB_CITE_NUDGE, Persona, render_prompt
+
+logger = logging.getLogger("adept.agent")
 
 # In-stack model endpoints (Docker `adept` network — all LAN-local, no egress).
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://ollama:11434/v1")
@@ -358,7 +361,13 @@ async def entrypoint(ctx: JobContext) -> None:
         """
         if current_mode[0] == interview.MODE_INTERVIEW:
             interview_block = interview.render_interview_prompt(current_role[0])
-            return f"{interview_block} {session_kb.brief}" if session_kb.brief else interview_block
+            # Compose the KB brief through the SAME KB_CITE_NUDGE the Learn path uses
+            # (persona.render_prompt) so a KB-grounded interview keeps the 04-04 GAP-2b
+            # cite nudge instead of silently dropping it. Empty brief stays bare
+            # (byte-stable, no nudge leak into the no-KB prefix).
+            if session_kb.brief:
+                return f"{interview_block} {KB_CITE_NUDGE} {session_kb.brief}"
+            return interview_block
         return render_prompt(current_persona[0], session_kb.brief)
 
     # Live persona hot-swap (PERS-06): the browser side panel sends a full persona
@@ -403,8 +412,22 @@ async def entrypoint(ctx: JobContext) -> None:
     # toggling back to Learn just re-prefills and lets the normal loop resume.
     async def handle_mode_update(data):
         snapshot = json.loads(data.payload)
-        current_mode[0] = snapshot["mode"]
-        current_role[0] = snapshot["role_key"]
+        # mode.update is the UNTRUSTED RPC boundary. VALIDATE before committing the
+        # shared holders: compose_instructions() (also used by handle_persona_update /
+        # ingest_kb) would raise KeyError on an unknown role_key AFTER the holders were
+        # already poisoned, breaking persona edits + KB loads for the rest of the
+        # session. Reject malformed payloads up front so a bad client cannot wedge the
+        # shared epoch state.
+        new_mode = snapshot.get("mode")
+        new_role = snapshot.get("role_key", current_role[0])
+        if new_mode not in (interview.MODE_LEARN, interview.MODE_INTERVIEW):
+            logger.warning("mode.update rejected: unknown mode %r", new_mode)
+            return "error"
+        if new_mode == interview.MODE_INTERVIEW and new_role not in interview.ROLES:
+            logger.warning("mode.update rejected: unknown role_key %r", new_role)
+            return "error"
+        current_mode[0] = new_mode
+        current_role[0] = new_role
         await agent.update_instructions(compose_instructions())
         if current_mode[0] == interview.MODE_INTERVIEW:
             await session.generate_reply(

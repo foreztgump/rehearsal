@@ -90,12 +90,14 @@ export default function InterviewPanel() {
     }
     try {
       // Payload keys MUST match the agent's handle_mode_update parse: mode, role_key.
-      await room.localParticipant.performRpc({
+      // The native RPC return string IS the ack: "applied" on success, "error" when
+      // the agent rejected an unknown mode/role_key (it validates before committing).
+      const ack = await room.localParticipant.performRpc({
         destinationIdentity: agentIdentity,
         method: "mode.update",
         payload: JSON.stringify({ mode, role_key: roleKey }),
       });
-      setStatus("applied");
+      setStatus(ack === "applied" ? "applied" : "error");
     } catch {
       setStatus("error");
     }
