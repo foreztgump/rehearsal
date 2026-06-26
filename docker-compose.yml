@@ -39,15 +39,19 @@ services:
     env_file: .env
     networks:
       - adept
-    # Long-form depends_on so the agent waits for nemo-stt to be HEALTHY (model
-    # load is slow); the other three lack healthchecks so they gate on started.
+    # depends_on gates the agent on the other services STARTING (Phase 10 change):
+    # the Phase-9 `nemo-stt: service_healthy` HARD-GATE is DROPPED to service_started
+    # because placement (Wave 2) picks EITHER nemo-stt (gpu) OR nemo-stt-cpu (cpu) per
+    # session — forcing the GPU STT healthy would boot/wait on an image a CPU-default
+    # deploy never uses. The NemoSTT plugin's WS connect-retry is the readiness point;
+    # only the placement-resolved STT service need actually be up (RESEARCH §4).
     depends_on:
       livekit-server:
         condition: service_started
       ollama:
         condition: service_started
       nemo-stt:
-        condition: service_healthy
+        condition: service_started
       kokoro:
         condition: service_started
     restart: unless-stopped
@@ -112,6 +116,10 @@ services:
     # No env_file (M3): the STT server takes its model/params via build-ARG + env;
     # it needs none of .env — and must not carry the LiveKit secret.
     environment:
+      # STT_RUNTIME=gpu is the server default, but set it explicitly here for
+      # symmetry with nemo-stt-cpu (STT_RUNTIME=cpu) — this service is the GPU NeMo
+      # backend (backend_nemo).
+      - STT_RUNTIME=gpu
       - STT_MODEL=${STT_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b}
       - STT_ATT_CONTEXT_SIZE=${STT_ATT_CONTEXT_SIZE:-[56,3]}
     ports:
@@ -132,6 +140,44 @@ services:
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       start_period: 180s
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  nemo-stt-cpu:
+    # Off-GPU CPU-ONNX STT (Phase 10, STT-05) — the same ./stt codebase as nemo-stt
+    # but built from Dockerfile.cpu (python:3.11-slim, onnxruntime CPU EP, no CUDA/
+    # NeMo/torch) and routed to backend_onnx via STT_RUNTIME=cpu. ~0.88 GB int8-dynamic
+    # default / ~0.67 GB int4-kquant operator stretch (RESEARCH §1.1). Both STT services
+    # are defined; only the placement-resolved one (Wave 2) need be healthy per session.
+    # Single-sourced ONNX tag: the default literal lives ONLY here (build.args +
+    # environment) — Dockerfile.cpu body + server.py + backend_onnx carry it via
+    # STT_ONNX_MODEL env/ARG (no hardcoded tag, AGENTS.md).
+    build:
+      context: ./stt
+      dockerfile: Dockerfile.cpu
+      args:
+        STT_ONNX_MODEL: ${STT_ONNX_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b-onnx}
+        STT_QUANT: ${STT_QUANT:-int8-dynamic}
+    # No env_file (M3): takes its model/params via build-ARG + env; needs none of .env
+    # and must not carry the LiveKit secret.
+    environment:
+      - STT_RUNTIME=cpu
+      - STT_ONNX_MODEL=${STT_ONNX_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b-onnx}
+      - STT_QUANT=${STT_QUANT:-int8-dynamic}
+    # Distinct HOST port 8001 for host probing (internal stays 8000; the agent reaches
+    # it by service DNS ws://nemo-stt-cpu:8000/...). No collision with nemo-stt's 8000.
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:8001:8000"
+    networks:
+      - adept
+    # No GPU reservation — this service runs OFF the GPU (the whole point of the port).
+    # SAME python-urllib /health probe as nemo-stt; a SHORTER start_period is fine since
+    # ORT load ≪ NeMo load.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      start_period: 30s
       interval: 10s
       timeout: 5s
       retries: 30
