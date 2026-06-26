@@ -79,7 +79,7 @@ The keystone invariant carried forward: **per-turn TTFT must stay flat as the se
 | STT placement resolver | **NEW** `agent/placement.py` (pure module) | At session start: pick GPU-NeMo vs CPU-ONNX from selected LLM + VRAM headroom; global-CPU-ONNX fallback | Called in `entrypoint` before `build_session` |
 | Avatar layer | **NEW** `web/app/avatar/*` | TalkingHead GLB render, HeadAudio Path-A lip-sync on inbound track, barge-in via existing interrupt, persona→GLB map | Mounts inside `<LiveKitRoom>`; **no server touch** |
 | Avatar toggle | **NEW** in `VoiceRoom.tsx` | "Voice only / Avatar" (default Voice only); voice-only unmounts ALL avatar code | Conditional render boundary |
-| Consumer-GPU passthrough | **MODIFIED** `docker-compose.yml` | `--gpus all` / NVIDIA Container Toolkit path instead of Proxmox PCIe | `deploy.resources` already correct; doc/runtime shift |
+| Consumer-GPU passthrough | **MODIFIED** `docker-compose.yml` | `--gpus all` / NVIDIA Container Toolkit path; `docker compose` on the user's machine is the only deployment | `deploy.resources` already correct; doc/runtime shift |
 
 ## Part A — LLM Model Selector (server pipeline)
 
@@ -272,20 +272,20 @@ User speaks ─────▶│ VAD/turn-detect → NeMo STT → Ollama LLM �
 
 ## Part E — Deployment: Consumer-GPU Passthrough (Compose)
 
-**Drop the Proxmox VM; `docker compose up` on the user's machine.** The existing GPU reservation blocks (`docker-compose.yml:78–84` ollama, `:96–102` whisper→nemo-stt, `:116–122` kokoro) already use the modern Compose `deploy.resources.reservations.devices` form, which the NVIDIA Container Toolkit honors directly on a consumer host with `--gpus`/the toolkit installed. The change is primarily environmental, not structural:
+**`docker compose up` on the user's own machine is the sole supported deployment (no VM/PCIe path).** The existing GPU reservation blocks (`docker-compose.yml:78–84` ollama, `:96–102` whisper→nemo-stt, `:116–122` kokoro) already use the modern Compose `deploy.resources.reservations.devices` form, which the NVIDIA Container Toolkit honors directly on a consumer host with `--gpus`/the toolkit installed. The change is primarily environmental, not structural:
 
-| Concern | v1.0 (Proxmox VM) | v1.1 (consumer machine) |
-|---------|-------------------|--------------------------|
-| GPU exposure | VM PCIe passthrough | NVIDIA Container Toolkit (`nvidia-ctk runtime configure`) + existing `deploy.devices` |
-| `LIVEKIT_NODE_IP` / `LAN_BIND_IP` | VM LAN IP | host LAN IP (or `127.0.0.1` for local-only) |
-| GPU detection | assumed present | add a preflight (`nvidia-smi` / toolkit check) and a clear failure message |
-| STT placement default | n/a | `STT_FORCE_CPU` default set per Part C measurement on the consumer GPU |
+| Concern | v1.1 (consumer machine, docker compose) |
+|---------|------------------------------------------|
+| GPU exposure | NVIDIA Container Toolkit (`nvidia-ctk runtime configure`) + existing `deploy.devices` |
+| `LIVEKIT_NODE_IP` / `LAN_BIND_IP` | host LAN IP (or `127.0.0.1` for local-only) |
+| GPU detection | preflight (`nvidia-smi` / toolkit check) with a clear failure message |
+| STT placement default | `STT_FORCE_CPU` default set per Part C measurement on the consumer GPU |
 
 **Compose deltas:**
 - Remove `whisper`; add `nemo-stt` (GPU) and `nemo-stt-cpu` (CPU), gated behind `profiles: [stt-gpu]` / `[stt-cpu]` so only the chosen runtime boots.
 - `agent` `depends_on` updates: drop `whisper`, add the active STT service.
 - `.env` gains `OLLAMA_MODEL_FAST`, `OLLAMA_MODEL_BETTER`, `OLLAMA_MODEL_DEFAULT`, `STT_FORCE_CPU`, `NEMO_STT_BASE_URL` (+ CPU variant), `NEMO_ATT_CONTEXT_SIZE`.
-- README/runbook: consumer-GPU toolkit setup replaces the Proxmox passthrough section.
+- README/runbook: a single consumer-GPU toolkit setup section (the old VM/passthrough section is deleted, not migrated).
 
 ## New vs Modified — explicit inventory
 
@@ -327,7 +327,7 @@ Ordered to respect the flat-TTFT invariant (each server change re-proves the lat
 1. **Part A — LLM selector** (lowest risk; clones a verified RPC pattern). Two-tag env + pull/pin with per-build template/thinking-off verification + stock fallback → `model.update` RPC + `current_model` holder → `ModelPanel.tsx`. **Gate:** persona-swap-equivalent one-turn TTFT bump only; flat-TTFT holds across switches; thinking-off verified for both GGUFs (the content-guardrail-is-persona-only invariant rides on this).
 2. **Part B — Nemotron STT service + rewire** (replaces a pipeline stage; must re-prove the STT latency budget). Build `nemo-stt` (GPU) → rewire `build_session` STT plugin → drop `whisper` → update warmup/metrics. **Gate:** streaming partials visible in transcript, ~100ms finalize, native punctuation/caps, voice-to-voice P50 still < 1.0s.
 3. **Part C — VRAM-aware placement + CPU-ONNX fallback** (depends on B existing; needs the consumer-GPU co-fit measurement). Add `nemo-stt-cpu` + `placement.py` + `STT_FORCE_CPU` + Compose profiles → run `vram-validate.sh` co-fit measurement → set the safe default (global CPU-ONNX unless E4B+GPU-STT+Kokoro proves to co-fit). **Gate:** both LLM choices VRAM-safe at session start with no mid-session thrash; fallback flag proven.
-4. **Part E — Consumer-GPU deployment** (folds in alongside/after C since C's default depends on the target-GPU measurement). Toolkit preflight + GPU-detection failure message + `.env`/README shift off Proxmox. **Gate:** `docker compose up` on a consumer GPU brings the full stack up with the resolved STT placement.
+4. **Part E — Consumer-GPU deployment** (folds in alongside/after C since C's default depends on the target-GPU measurement). Toolkit preflight + GPU-detection failure message + `.env`/README rewrite to a single docker-compose-only deployment (delete the old VM/passthrough docs). **Gate:** `docker compose up` on a consumer GPU brings the full stack up with the resolved STT placement.
 5. **Part D — Avatar** (LAST and ISOLATED; server is frozen by this point). Dynamic-imported `<AvatarStage>` + HeadAudio Path-A tap + existing-interrupt barge-in + client-side persona→GLB map + default-off toggle. **Gate:** voice-only is byte-for-byte the pre-avatar build (no avatar JS loaded, worklet/canvas unmounted); avatar adds no latency; isolation checklist all-green; **no `agent/`, Compose, or RPC change introduced.**
 6. **v1.0 polish (deferred Phase 7, rolled in):** session controls (new/reset/end + ephemeral teardown incl. KB), transcript export, mic-denial prompt, garbled-STT reprompt, final P50<1.0s/P95<1.5s tuning. Slots after the pipeline is stable; the garbled-STT reprompt couples to Part B's NeMo finalize behavior.
 

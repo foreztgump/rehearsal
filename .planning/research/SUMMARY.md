@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-v1.1 is an **integration milestone, not a greenfield one**: the shipped v1.0 pipeline (LiveKit Agents, Silero VAD + MultilingualModel turn-detection, Ollama brain with thinking-off/keep-alive/flash-attn, Kokoro TTS, Next.js client, ephemeral KB, per-turn speech_id metrics) is the substrate and stays byte-for-byte. Four parts bolt onto it: **A** swaps the single stock LLM for two user-selectable Ollama models (Fast `evalengine/unbound-e2b` 3.4GB default / Better `defyma85/gemma-4-E4B…heretic-Q4_K_M` 5.3GB — both lighter than stock E4B, both abliterated); **B** replaces faster-whisper with NVIDIA `nemotron-speech-streaming-en-0.6b` served behind a local OpenAI-compatible HTTP server; **C** resolves GPU-NeMo vs CPU-ONNX STT placement **once at session start** from VRAM headroom; **D** adds an OPTIONAL, default-OFF, **frontend-only** TalkingHead/HeadAudio Path-A avatar that lip-syncs off the inbound Kokoro audio. Deployment drops the Proxmox VM for consumer-GPU `docker compose up` via the NVIDIA Container Toolkit. Deferred v1.0 polish (session new/reset/end, transcript export, mic/STT graceful failure, final latency tuning) folds in.
+v1.1 is an **integration milestone, not a greenfield one**: the shipped v1.0 pipeline (LiveKit Agents, Silero VAD + MultilingualModel turn-detection, Ollama brain with thinking-off/keep-alive/flash-attn, Kokoro TTS, Next.js client, ephemeral KB, per-turn speech_id metrics) is the substrate and stays byte-for-byte. Four parts bolt onto it: **A** swaps the single stock LLM for two user-selectable Ollama models (Fast `evalengine/unbound-e2b` 3.4GB default / Better `defyma85/gemma-4-E4B…heretic-Q4_K_M` 5.3GB — both lighter than stock E4B, both abliterated); **B** replaces faster-whisper with NVIDIA `nemotron-speech-streaming-en-0.6b` served behind a local OpenAI-compatible HTTP server; **C** resolves GPU-NeMo vs CPU-ONNX STT placement **once at session start** from VRAM headroom; **D** adds an OPTIONAL, default-OFF, **frontend-only** TalkingHead/HeadAudio Path-A avatar that lip-syncs off the inbound Kokoro audio. Deployment is consumer-GPU `docker compose up` on the user's own machine via the NVIDIA Container Toolkit (the sole supported deployment — no VM path). Deferred v1.0 polish (session new/reset/end, transcript export, mic/STT graceful failure, final latency tuning) folds in.
 
 The recommended approach keeps every change surgical and reuses verified v1.0 idioms. Part A clones the verified `persona.update` RPC pattern and **mutates the existing LLM plugin in place** (`session.llm.update_options(model=)`) rather than reassigning it — reassignment orphans the metrics subscription and silently breaks the flat-TTFT instrument. Part B keeps the agent pointed at a **single STT `base_url`** and hides GPU-vs-CPU inside the sidecar, so Part C's placement decision never touches agent pipeline code. Part D is gated at the React mount boundary (`next/dynamic ssr:false`) so voice-only loads zero avatar JS. The keystone invariant carried forward: **voice-to-voice P50 < 1.0s / P95 < 1.5s must hold for BOTH LLMs**, and the avatar must add **zero** server VRAM and **zero** latency.
 
@@ -27,7 +27,7 @@ Three swaps + one addition; everything else unchanged. The two new Ollama tags a
 - **NVIDIA NeMo** `nemo_toolkit[asr]>=2.5.0` + `nemotron-speech-streaming-en-0.6b` — native cache-aware streaming, ~100ms finalize, native punctuation/caps, `att_context_size [56,3]`
 - **onnxruntime ~=1.21** + CPU-ONNX port (`danielbodart` int8-dynamic ~0.88GB, or Foundry int4 ~0.67GB) — off-GPU VRAM fallback
 - **@met4citizen/talkinghead@1.7.0 + @met4citizen/headaudio@0.1.0 + three@0.180.0** (MIT) — client WebGL avatar, audio-driven Path-A visemes, zero server cost
-- **NVIDIA Container Toolkit** — replaces Proxmox PCIe passthrough; existing compose `deploy.resources.reservations.devices` blocks are already correct
+- **NVIDIA Container Toolkit** — consumer-GPU passthrough for `docker compose` on the user's machine (no VM/PCIe path); existing compose `deploy.resources.reservations.devices` blocks are already correct
 
 See [STACK.md](STACK.md) for verified tags, install costs, and version-compatibility matrix.
 
@@ -96,7 +96,7 @@ Research strongly converges on a single ordering (ARCHITECTURE.md "Suggested Bui
 **Avoids:** C1 (measured matrix, not param math), C2 (resolve once, no migration path), C3 (CPU-ONNX benchmarked under contention).
 
 ### Phase 4: Part E — Consumer-GPU Deployment
-**Rationale:** Folds in with C since C's default depends on the target-GPU measurement; drops Proxmox.
+**Rationale:** Folds in with C since C's default depends on the target-GPU measurement; `docker compose` on the user's machine is the sole deployment (no VM path).
 **Delivers:** NVIDIA Container Toolkit path, GPU preflight doctor + clear failure message, `.env`/README shift, `agent.depends_on` updates.
 **Avoids:** DEPLOY1 (pinned CUDA + preflight), DEPLOY2 (VRAM/vendor detection → CPU-ONNX + Fast).
 

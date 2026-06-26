@@ -47,7 +47,7 @@
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| **NVIDIA Container Toolkit** | Consumer-GPU passthrough for `docker compose up` on the user's machine | Replaces Proxmox PCIe passthrough. Install on host: `nvidia-container-toolkit` apt package + `nvidia-ctk runtime configure --runtime=docker` + restart Docker. Each GPU service keeps its existing `deploy.resources.reservations.devices` block (already in the compose file). |
+| **NVIDIA Container Toolkit** | Consumer-GPU passthrough for `docker compose up` on the user's machine (the sole supported deployment — no VM/PCIe path) | Install on host: `nvidia-container-toolkit` apt package + `nvidia-ctk runtime configure --runtime=docker` + restart Docker. Each GPU service keeps its existing `deploy.resources.reservations.devices` block (already in the compose file). |
 | **`ollama pull` in an init step** | Pre-pull both LLM tags + run template/thinking-off verification before the agent registers | Extend the existing `ollama/pull-and-pin.sh` to pull both tags and run the Part A.5 probe per build. |
 | **HF CLI (`hf download`)** | Fetch the ONNX CPU port + the `.nemo` checkpoint at build time | Bake into the STT image so the container starts offline-capable (mirrors v1.0's `download-files`). |
 
@@ -245,7 +245,7 @@ head.opt.update = headaudio.update.bind(headaudio);
 
 ---
 
-## Deployment — consumer-GPU passthrough (drop Proxmox VM)
+## Deployment — consumer-GPU passthrough (docker compose, single machine)
 
 **The compose file already uses the correct syntax** — no change needed to the GPU service blocks:
 ```yaml
@@ -257,7 +257,7 @@ deploy:
           count: all          # or device_ids: ["0"] to pin a specific GPU
           capabilities: [gpu]
 ```
-What changes is the **host setup** (was: Proxmox PCIe passthrough into a VM; now: NVIDIA Container Toolkit directly on the user's machine):
+The **host setup** is the NVIDIA Container Toolkit on the machine running `docker compose` (the only supported deployment — no VM/PCIe-passthrough path):
 1. Install NVIDIA driver on the host.
 2. Install **NVIDIA Container Toolkit**: add the `nvidia-container-toolkit` apt/dnf repo, install, then `sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker`.
 3. Verify: `docker run --rm --gpus all nvidia/cuda:12.x-base nvidia-smi`.

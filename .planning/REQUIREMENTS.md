@@ -54,7 +54,7 @@ Requirements for the v1.1 milestone. Each maps to a roadmap phase.
 
 ### DEPLOY — Consumer-Machine Deployment
 
-- [ ] **DEPLOY-04**: `docker compose up` runs the full stack directly on the user's consumer machine — the Proxmox-VM assumption is dropped
+- [ ] **DEPLOY-04**: `docker compose up` runs the full stack directly on the user's own machine — `docker compose` is the sole supported deployment (no VM/Proxmox/PCIe-passthrough path)
 - [ ] **DEPLOY-05**: Consumer-GPU detection and passthrough work via the NVIDIA Container Toolkit (`--gpus` / `deploy.resources.reservations.devices`), with a preflight GPU "doctor" giving a clear, actionable message on driver/CUDA/VRAM/non-NVIDIA failure (falling back to CPU-ONNX STT + Fast model where the GPU is sub-spec)
 
 ### PERF — Latency (continued)

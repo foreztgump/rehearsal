@@ -99,13 +99,13 @@ Phase 7 was defined in the v1.0 plan but **never started** (0/2 plans). Its scop
 
 ### Phase 11: Consumer-GPU Deployment (Part E)
 
-**Goal**: Drop the Proxmox-VM assumption so `docker compose up` brings the full stack up directly on the user's consumer machine, with consumer-GPU detection/passthrough via the NVIDIA Container Toolkit and a preflight GPU "doctor" that gives a clear, actionable message on driver/CUDA/VRAM/non-NVIDIA failure (falling back to CPU-ONNX STT + Fast model where the GPU is sub-spec).
+**Goal**: Make `docker compose up` bring the full stack up directly on the user's own machine as the sole supported deployment (no VM/Proxmox/PCIe-passthrough path), with consumer-GPU detection/passthrough via the NVIDIA Container Toolkit and a preflight GPU "doctor" that gives a clear, actionable message on driver/CUDA/VRAM/non-NVIDIA failure (falling back to CPU-ONNX STT + Fast model where the GPU is sub-spec).
 **Mode:** mvp
 **Depends on**: Phase 10
 **Requirements**: DEPLOY-04, DEPLOY-05
 **Success Criteria** (what must be TRUE):
 
-  1. `docker compose up` runs the full stack on the user's consumer machine with no Proxmox-VM/PCIe-passthrough assumption; GPU exposure works via the NVIDIA Container Toolkit (`--gpus` / `deploy.resources.reservations.devices`) and the chosen STT runtime boots behind its Compose profile
+  1. `docker compose up` runs the full stack on the user's own machine as the sole supported deployment (no VM/PCIe-passthrough path); GPU exposure works via the NVIDIA Container Toolkit (`--gpus` / `deploy.resources.reservations.devices`) and the chosen STT runtime boots behind its Compose profile
   2. A preflight GPU doctor detects driver/CUDA/VRAM/non-NVIDIA problems and prints an exact, actionable remedy instead of a silent hang (NeMo image bloat/first-run download surfaced via healthcheck/`start_period`, not a hung-looking `up`)
   3. On a sub-spec or non-NVIDIA host the stack degrades to CPU-ONNX STT + the Fast model and still comes up usable
 
