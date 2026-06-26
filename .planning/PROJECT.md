@@ -34,6 +34,7 @@ The user can hold a natural spoken conversation with a credible expert persona a
 - ✓ Default Cybersecurity Trainer persona (practitioner voice, pulls user into articulating, gently corrects terminology) — Phase 3
 - ✓ Persona editor: role/instructions, name, behavior knobs (difficulty, verbosity, correction-aggressiveness), applied in-session — Phase 3
 - ✓ Voice selection per persona (Kokoro preset voices) — Phase 3
+- ✓ Sliding-window conversation history (`HistoryWindowAgent`, items capped each turn behind the frozen persona+KB prefix) keeps per-turn TTFT flat over long sessions — Phase 5 (flat-TTFT-over-time proof operator-gated on the VM)
 
 ### Active
 
@@ -133,4 +134,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-25 after Phase 3 (Persona Layer) complete*
+*Last updated: 2026-06-26 after Phase 5 (History Management) complete*
