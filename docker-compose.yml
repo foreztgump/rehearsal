@@ -7,7 +7,7 @@
 
 services:
   livekit-server:
-    image: livekit/livekit-server:v1.10.0
+    image: livekit/livekit-server:v1.10.1
     # Real self-host config (01-03): LAN-correct ICE via udp mux 7882 + node_ip.
     # --config loads livekit.yaml; --node-ip pins the advertised ICE host
     # candidate to the LAN VM IP (LIVEKIT_NODE_IP) with no STUN/WAN egress. Keys

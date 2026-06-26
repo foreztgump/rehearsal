@@ -42,5 +42,16 @@ rtc:
   # NOT discover it via STUN (would be WAN egress). Override at runtime with the
   # --node-ip flag from docker-compose.yml.
   use_external_ip: false
+  # Advertised ICE host candidate. Defaults to loopback for the local-first,
+  # single-box install (browser on the same machine as the stack). Overridden at
+  # runtime by --node-ip (LIVEKIT_NODE_IP in .env) for LAN/remote use.
+  #
+  # FIREFOX CAVEAT: Firefox refuses loopback ICE by default
+  # (media.peerconnection.ice.loopback=false) and silently drops a 127.0.0.1
+  # candidate, so an on-box Firefox client fails to pair ("could not establish pc
+  # connection") against this loopback default. To use Firefox (or any LAN device),
+  # set LIVEKIT_NODE_IP to the host's LAN IP in .env, re-mint certs/lan.pem to cover
+  # it (certs/README.md), and point LAN_BIND_IP / NEXT_PUBLIC_LIVEKIT_URL at the
+  # same IP. Chromium connects fine over loopback with no changes.
   node_ip: 127.0.0.1
   # use_ice_lite left off (default) for the initial single-node homelab deploy.
