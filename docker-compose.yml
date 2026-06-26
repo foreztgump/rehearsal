@@ -97,6 +97,14 @@ services:
     image: fedirz/faster-whisper-server@sha256:0b64050ad0b9244745746b652473ee42a8d5454d501877a252c3e65f631ffc99
     # No env_file (M3): the STT server takes its model/params per request (from the
     # agent + warmup), so it needs none of .env — and must not carry the LiveKit secret.
+    environment:
+      # Pre-resolve the STT model and KEEP IT RESIDENT. The image default offloads
+      # the model after WHISPER__TTL=300s idle and then pays a ~60s cold reload on
+      # the next utterance — during which the speaker's first turn is silently
+      # dropped and the agent appears stuck at "Listening". TTL=-1 pins it forever
+      # (mirrors OLLAMA_KEEP_ALIVE=-1), correct for a single-user local tool.
+      - WHISPER__MODEL=Systran/faster-whisper-large-v3
+      - WHISPER__TTL=-1
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:8000:8000"
     networks:
