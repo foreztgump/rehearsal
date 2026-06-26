@@ -6,7 +6,9 @@ call (eou_ms, stt_ms, tts_ttfb_ms, e2e_ms) are null until Phase 2.
 
 Design rules baked in here:
   * Subscribe to the NON-deprecated PER-PLUGIN `metrics_collected` event on each
-    plugin instance (llm/stt/tts/vad) — never the deprecated session-level event.
+    stage plugin instance (llm/stt/tts). EOUMetrics (end_of_utterance_delay +
+    speech_id) is emitted ONLY on the session-level `metrics_collected` event — not
+    by the VAD plugin — so EOU is taken from the session event, filtered by type.
   * LiveKit metric objects report seconds; we emit milliseconds.
   * Budget constants are the flat-TTFT alert thresholds; a stage over budget is
     flagged in the emitted line.
@@ -77,6 +79,17 @@ _turns: dict[str, _TurnBuffer] = {}
 _last_turn_key: str = _PENDING_KEY
 _turns_emitted = 0
 
+# Cap on simultaneously-open (un-flushed) turn buffers. A buffer is only popped on
+# the TTS flush (_flush_turn), so any turn that never reaches a TTS metric — a
+# barge-in / false-interruption cancel, an errored/aborted generation, or an
+# internal priming/greeting/mode-enter generate_reply whose stages don't end in a
+# TTS flush — would otherwise leak in `_turns` forever (unbounded dict growth +
+# stale half-filled buffers over a long open-mic session). We bound the dict by
+# dropping the OLDEST open buffer (insertion order) once the cap is exceeded:
+# cancelled turns are reclaimed and memory stays bounded. The cap is generous
+# enough that no in-flight real turn is evicted before its TTS flush.
+_MAX_OPEN_TURNS = 8
+
 
 def _turn_key(metric: Any) -> str:
     """Resolve a turn key from the metric's speech_id (falls back to pending)."""
@@ -91,8 +104,23 @@ def _buffer_for(metric: Any) -> _TurnBuffer:
     if buffer is None:
         buffer = _TurnBuffer()
         _turns[key] = buffer
+        _evict_stale_turns()
     _last_turn_key = key
     return buffer
+
+
+def _evict_stale_turns() -> None:
+    """Bound the open-buffer dict by dropping the oldest un-flushed turns.
+
+    Turns that never reach the TTS flush (barge-in / errored / internal turns) are
+    never popped by `_flush_turn`, so without this the dict grows unbounded. dict
+    preserves insertion order, so the oldest open buffers are the leftmost keys;
+    drop them (never the just-inserted newest) once we exceed the cap. The pending
+    no-speech_id buffer is also reclaimed this way so it cannot accumulate forever.
+    """
+    while len(_turns) > _MAX_OPEN_TURNS:
+        oldest_key = next(iter(_turns))
+        del _turns[oldest_key]
 
 
 def _flush_turn(key: str) -> None:
@@ -235,10 +263,16 @@ def _on_tts_metrics(metric: Any) -> None:
     _flush_turn(_turn_key(metric))
 
 
-def _on_vad_metrics(metric: Any) -> None:
-    """Per-plugin EOU handler: buffer the delay + anchor user-audio-end.
+def _on_eou_metrics(metric: Any) -> None:
+    """EOU handler: buffer end_of_utterance_delay + anchor user-audio-end.
 
-    The EOU decision marks the last user audio frame — the start of the
+    `end_of_utterance_delay` lives on `EOUMetrics` (`type="eou_metrics"`), NOT on
+    `VADMetrics` — the VAD plugin's `metrics_collected` emits `VADMetrics`
+    (idle_time / inference_*), which carries neither `end_of_utterance_delay` nor
+    `speech_id`. EOUMetrics is emitted on the SESSION-level `metrics_collected`
+    event (see `_on_session_metrics`), and critically it DOES carry `speech_id`,
+    so the buffer key anchors to the same turn as the LLM/TTS metrics and `e2e_ms`
+    correlates. The EOU decision marks the last user audio frame — the start of the
     voice-to-voice span — so we stamp user_audio_end here.
     """
     buffer = _buffer_for(metric)
@@ -247,23 +281,40 @@ def _on_vad_metrics(metric: Any) -> None:
         buffer.user_audio_end = time.monotonic()
 
 
-def attach(session: Any) -> None:
-    """Subscribe the per-plugin `metrics_collected` events on an AgentSession.
+def _on_session_metrics(ev: Any) -> None:
+    """Session-level `metrics_collected` dispatcher — routes EOUMetrics only.
 
-    Uses the NON-deprecated per-plugin surface (session.llm/stt/tts/vad) — never
-    the deprecated session-level `metrics_collected`. Plugins that are unset are
-    skipped so the scaffold attaches cleanly even before a full pipeline exists.
+    The session event delivers an object with a `.metrics` field (the agent metric
+    union). EOUMetrics is only emitted here, not by any single plugin, so we filter
+    on `type == "eou_metrics"` and forward it to the EOU handler. Every other metric
+    type (llm/stt/tts/vad) is already handled by its non-deprecated per-plugin
+    subscription, so we ignore them here to avoid double counting.
+    """
+    metric = getattr(ev, "metrics", ev)
+    if getattr(metric, "type", None) == "eou_metrics":
+        _on_eou_metrics(metric)
+
+
+def attach(session: Any) -> None:
+    """Subscribe per-plugin `metrics_collected` events + the session EOU surface.
+
+    Uses the NON-deprecated per-plugin surface (session.llm/stt/tts) for the stage
+    timings, plus the session-level `metrics_collected` event for EOUMetrics (the
+    only surface that emits `end_of_utterance_delay`/`speech_id` — it is NOT on the
+    VAD plugin). Plugins that are unset are skipped so the scaffold attaches cleanly
+    even before a full pipeline exists.
     """
     handlers = {
         "llm": _on_llm_metrics,
         "stt": _on_stt_metrics,
         "tts": _on_tts_metrics,
-        "vad": _on_vad_metrics,
     }
     for plugin_name, handler in handlers.items():
         plugin = getattr(session, plugin_name, None)
         if plugin is not None:
             plugin.on("metrics_collected", handler)
+    # EOUMetrics is emitted on the session, not a plugin — subscribe there for it.
+    session.on("metrics_collected", _on_session_metrics)
 
 
 def _self_check() -> None:
