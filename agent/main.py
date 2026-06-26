@@ -25,6 +25,7 @@ from livekit.agents import Agent, AgentSession, JobContext, JobProcess, WorkerOp
 from livekit.plugins import openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
+import history
 import metrics
 from kb import DistillError, KbParseError, ParsedDoc
 from kb import distill as kb_distill
@@ -242,6 +243,26 @@ def _concat_docs(docs: list[ParsedDoc]) -> str:
     return "\n\n".join(d.text for d in docs)
 
 
+class HistoryWindowAgent(Agent):
+    """Cap the conversation history ITEM list each turn so per-turn prefill stays
+    bounded (flat TTFT over a long session, Pitfall 10) WITHOUT touching the frozen
+    persona+KB prefix carried in ``instructions``.
+
+    ``on_user_turn_completed`` runs just before the LLM reply: a cheap SYNCHRONOUS
+    window-trim that keeps the last ``window_target()`` message items and drops the
+    OLDEST (cut from the FRONT — the cache-safe edge; never rewrite the middle). It
+    NEVER calls ``update_instructions`` — ``truncate`` preserves system instructions
+    by design, so the cached persona+KB prefix is untouched (Criterion 3, the §2
+    rule). The trim is persisted via ``update_chat_ctx`` so the window holds ACROSS
+    turns (a temporary ``turn_ctx`` edit would not persist).
+    """
+
+    async def on_user_turn_completed(self, turn_ctx, new_message):
+        if history.should_trim(len(self.chat_ctx.items)):
+            trimmed = self.chat_ctx.copy().truncate(max_items=history.window_target())
+            await self.update_chat_ctx(trimmed)
+
+
 async def entrypoint(ctx: JobContext) -> None:
     """Per-job entrypoint: connect, build the session, drive the agent's first turn.
 
@@ -259,7 +280,7 @@ async def entrypoint(ctx: JobContext) -> None:
     # hot-swap the persona via agent.update_instructions(...) without a restart.
     # render_prompt(DEFAULT_PERSONA, "") is byte-identical to the old
     # render_persona(DEFAULT_PERSONA) golden (the empty-KB seam).
-    agent = Agent(instructions=render_prompt(DEFAULT_PERSONA, ""))
+    agent = HistoryWindowAgent(instructions=render_prompt(DEFAULT_PERSONA, ""))
     await session.start(agent=agent, room=ctx.room)
 
     # Track the CURRENT persona so the KB inject and persona edits COMPOSE (Pattern
