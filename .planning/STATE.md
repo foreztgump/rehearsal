@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Local-First Pipeline Swap + Avatar
-current_phase: 12
-current_phase_name: optional-3d-avatar-part-d
-status: planned-ready-to-execute
+current_phase: 13
+current_phase_name: rolled in
+status: verifying
 stopped_at: Completed 12-01-PLAN.md
-last_updated: "2026-06-26T23:29:30.653Z"
+last_updated: "2026-06-26T23:35:31.711Z"
 last_activity: 2026-06-26
-last_activity_desc: "Phase 11 executed (commits feat(11-01)..21361d1). Next: discuss+plan+execute Phase 12 (Part D — avatar, frontend-only)."
+last_activity_desc: Phase 12 complete, transitioned to Phase 13
 progress:
   total_phases: 6
   completed_phases: 2
@@ -28,14 +28,14 @@ See: .planning/PROJECT.md (updated 2026-06-25)
 
 ## Current Position
 
-Phase: 12 (optional-3d-avatar-part-d) — DISCUSSED + PLANNED, not yet executed
-Plan: 2 of 2 executed (12-01 vendored TalkingHead+three.js importmap + dynamic-imported AvatarStage behind default-OFF toggle + clean unmount + framing; 12-02 Path-A lip-sync + barge-in + eye-contact/mood + client persona→GLB map + AVTR-07 verify). All 4 discuss grey areas = Accept-Recommended. HARD isolation gate: git diff -- agent/ stt/ tts/ docker-compose.yml empty across the phase. Next: execute 12-01 → 12-02.
+Phase: 13 — Deferred v1.0 Polish (rolled in)
+Plan: Not started
 
 ### (prior) Phase 11 — consumer-gpu-deployment-part-e — CODE-COMPLETE, operator GPU gate pending
 
 Plan: 2 of 2 (11-01 gpu-doctor.sh + ./up.sh wrapper + test harness, 11-02 README Consumer-GPU rewrite + compose-topology verify + 11-DEPLOY-VERIFY.md) — both executed, reviewed, verified.
 Status: CODE-COMPLETE. `docker compose up` on the user's own machine is the SOLE supported deployment — all Proxmox/VM/vfio/PCIe content deleted (README two-layer-passthrough section → single 'GPU setup (NVIDIA Container Toolkit)' section; repo-wide grep clean). `scripts/gpu-doctor.sh` = advise-only preflight (ordered nvidia-smi→`docker run --gpus all` toolkit→CUDA≥12.8→VRAM≥16384MB, single-sourced readonly floors, `|| true` + `case`-sanitize on nvidia-smi queries, always exit 0, never mutates .env, never switches runtime); emits GPU-ready `--profile stt-gpu` snippet or degraded `STT_FORCE_CPU=1`+Fast-model snippet. `./up.sh` = thin wrapper (cd dirname, doctor unless SKIP_DOCTOR=1, exec docker compose up "$@"). Default boot stays CPU-ONNX-safe (`nemo-stt-cpu`, no GPU reservation, no `nemo-stt`); GPU STT opt-in behind `--profile stt-gpu`. ollama/kokoro stay GPU-required (documented v1.1 limitation). docker-compose.yml UNCHANGED (P10 topology only verified). Sandbox: bash -n clean (4 scripts); scripts/test_gpu_doctor.sh 5/5 PASS (PATH-shim isolation); scripts/test_compose_topology.sh 9/9 PASS (docker compose config default vs --profile stt-gpu); real RTX 5090 doctor run RC=0 (CUDA 13.2 / 24463MB, live --gpus all probe OK). 11-VERIFICATION.md verdict: code-complete with operator gate pending. DEPLOY-04/05 satisfied-in-code. 7 GPU gates UNSIGNED in 11-DEPLOY-VERIFY.md.
-Last activity: 2026-06-26 — Phase 11 executed (commits feat(11-01)..21361d1). Next: discuss+plan+execute Phase 12 (Part D — avatar, frontend-only).
+Last activity: 2026-06-26 — Phase 12 complete, transitioned to Phase 13
 
 ### (prior) Phase 10 — vram-aware-stt-placement-part-c — CODE-COMPLETE, operator GPU gate pending
 
@@ -53,7 +53,7 @@ Last activity: 2026-06-26 — Phase 9 executed (commits 7efb550..3a6d849). Next:
 
 **Velocity:**
 
-- Total plans completed: 11
+- Total plans completed: 13
 - Average duration: —
 - Total execution time: 0.0 hours
 
@@ -66,6 +66,7 @@ Last activity: 2026-06-26 — Phase 9 executed (commits 7efb550..3a6d849). Next:
 | 03-persona-layer | 2 | - | - |
 | 05 | 1 | - | - |
 | 06 | 2 | - | - |
+| 12 | 2 | - | - |
 
 **Recent Trend:**
 

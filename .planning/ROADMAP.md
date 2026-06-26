@@ -163,5 +163,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → ~~7 (supers
 | 9. Nemotron Streaming ASR (Part B) | v1.1 | 2/2 | Code-complete (GPU gate pending) | 2026-06-26 |
 | 10. VRAM-Aware STT Placement (Part C) | v1.1 | 2/2 | Code-complete (GPU gate pending) | 2026-06-26 |
 | 11. Consumer-GPU Deployment (Part E) | v1.1 | 2/2 | Code-complete (GPU gate pending-operator) | 2026-06-26 |
-| 12. Optional 3D Avatar (Part D) | v1.1 | 2/2 | Complete   | 2026-06-26 |
+| 12. Optional 3D Avatar (Part D) | v1.1 | 2/2 | Complete    | 2026-06-26 |
 | 13. Deferred v1.0 Polish (rolled in) | v1.1 | 0/? | Not started | - |
