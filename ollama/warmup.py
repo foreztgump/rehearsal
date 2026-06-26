@@ -44,7 +44,7 @@ SAMPLE_MAX = 32767
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 WHISPER_BASE_URL = os.environ.get("WHISPER_BASE_URL", "http://127.0.0.1:8000")
 KOKORO_BASE_URL = os.environ.get("KOKORO_BASE_URL", "http://127.0.0.1:8880")
-WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "Systran/faster-whisper-large-v3-turbo")
+WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "Systran/faster-whisper-large-v3")
 KOKORO_MODEL = os.environ.get("KOKORO_MODEL", "kokoro")
 KOKORO_VOICE = os.environ.get("KOKORO_VOICE", "af_bella")
 
