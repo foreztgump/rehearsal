@@ -6,15 +6,15 @@ current_phase: 12
 current_phase_name: optional-3d-avatar-part-d
 status: planned-ready-to-execute
 stopped_at: Completed 12-01-PLAN.md
-last_updated: "2026-06-26T23:08:33.985Z"
+last_updated: "2026-06-26T23:29:30.653Z"
 last_activity: 2026-06-26
 last_activity_desc: "Phase 11 executed (commits feat(11-01)..21361d1). Next: discuss+plan+execute Phase 12 (Part D — avatar, frontend-only)."
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 10
-  completed_plans: 3
-  percent: 17
+  completed_plans: 4
+  percent: 33
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-25)
 ## Current Position
 
 Phase: 12 (optional-3d-avatar-part-d) — DISCUSSED + PLANNED, not yet executed
-Plan: 1 of 2 executed (12-01 vendored TalkingHead+three.js importmap + dynamic-imported AvatarStage behind default-OFF toggle + clean unmount + framing; 12-02 Path-A lip-sync + barge-in + eye-contact/mood + client persona→GLB map + AVTR-07 verify). All 4 discuss grey areas = Accept-Recommended. HARD isolation gate: git diff -- agent/ stt/ tts/ docker-compose.yml empty across the phase. Next: execute 12-01 → 12-02.
+Plan: 2 of 2 executed (12-01 vendored TalkingHead+three.js importmap + dynamic-imported AvatarStage behind default-OFF toggle + clean unmount + framing; 12-02 Path-A lip-sync + barge-in + eye-contact/mood + client persona→GLB map + AVTR-07 verify). All 4 discuss grey areas = Accept-Recommended. HARD isolation gate: git diff -- agent/ stt/ tts/ docker-compose.yml empty across the phase. Next: execute 12-01 → 12-02.
 
 ### (prior) Phase 11 — consumer-gpu-deployment-part-e — CODE-COMPLETE, operator GPU gate pending
 
