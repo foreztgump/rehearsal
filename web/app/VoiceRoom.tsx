@@ -38,6 +38,13 @@ export default function VoiceRoom() {
   const [error, setError] = useState<string | null>(null);
   // Default OFF = Voice only. Flipping ON mounts the dynamic-imported avatar (AVTR-01).
   const [avatarOn, setAvatarOn] = useState(false);
+  // Active persona display_name → AvatarStage resolves its GLB+mood (AVTR-06). Seeded
+  // to the DEFAULT_PERSONA name in PersonaPanel ("Cybersecurity Trainer") so Avatar
+  // mode works out of the box. PersonaPanel still owns its own editable persona state
+  // and the persona.update RPC (voice_id, etc.) — this is a client-only display_name
+  // lift for avatar selection, NO server change (isolation gate). Wiring point for
+  // full persona-change reactivity: lift PersonaPanel's display_name into this state.
+  const [personaName] = useState("Cybersecurity Trainer");
 
   if (!token) {
     return (
@@ -128,7 +135,7 @@ export default function VoiceRoom() {
       </div>
       {avatarOn && (
         <div style={{ width: "100%", height: "360px", marginTop: "1rem" }}>
-          <AvatarStage />
+          <AvatarStage persona={personaName} />
         </div>
       )}
       <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start", marginTop: "1rem" }}>
