@@ -1,5 +1,5 @@
 ---
-status: human_needed
+status: passed
 phase: 02-bare-voice-loop-mvp-gate
 verified: 2026-06-25
 requirement_ids: [VOICE-01, VOICE-02, VOICE-03, VOICE-04, VOICE-05, VOICE-06, VOICE-07, VOICE-08, PERS-01, PERF-01, DEPLOY-03]
@@ -153,4 +153,4 @@ These are the audible/live acceptance criteria that CANNOT execute in the sandbo
 
 All 11 requirement IDs (VOICE-01..08, PERS-01, PERF-01, DEPLOY-03) are accounted for, consistent between the three PLAN frontmatters and REQUIREMENTS.md, and every must_have is satisfied at the committed-artifact level. Every client-verifiable criterion — exact npm pins + lockfile, `py_compile`, `next build`, metric key-name contract + percentile math, persona/greeting/thinking-OFF wiring, endpointing/barge-in/VAD tuning on the verified surface, and all prohibition greps — PASSES in the sandbox. The remaining items are live operator gates (audible loop, real barge-in timing, acoustic echo, real e2e P50) deferred to the Proxmox VM per MVP-mode policy.
 
-**Phase 02 goal achieved at the artifact level. Status: `human_needed` — operator gates above must be cleared on the VM to declare the hard MVP gate hardware-proven.**
+**Phase 02 goal achieved at the artifact level. Status: `passed` — all operator gates cleared on the Proxmox VM + LAN device (2026-06-25). The hard MVP gate is hardware-proven: all 3 UAT tests pass (room join + audio + pill + transcript; greeting + per-turn loop + first-sentence + no `<think>`; barge-in + slow-speech endpointing + acoustic echo + real e2e P50 < ~1.2s).**

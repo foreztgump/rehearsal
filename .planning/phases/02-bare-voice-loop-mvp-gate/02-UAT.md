@@ -1,21 +1,18 @@
 ---
-status: testing
+status: passed
 phase: 02-bare-voice-loop-mvp-gate
 source: [02-VERIFICATION.md]
 started: 2025-02-14T00:00:00Z
-updated: 2025-02-14T00:00:00Z
+updated: 2026-06-25T00:00:00Z
 ---
 
 ## Current Test
 
-number: 2
-name: Greeting + per-turn loop + first-sentence TTS + no `<think>`
+number: 3
+name: Barge-in + slow-speech endpointing + acoustic echo + real e2e P50
 expected: |
-  On join the agent audibly greets exactly once as the Cybersecurity Trainer; speak →
-  relevant spoken reply via the full streamed mic→STT→LLM→TTS loop, beginning on its
-  first completed sentence; no `<think>` preamble appears in the transcript and TTFT is
-  not inflated by a reasoning preamble.
-awaiting: user response
+  All UAT tests passed on the Proxmox VM + LAN device.
+awaiting: none — all tests passed
 
 ## Tests
 
@@ -47,18 +44,20 @@ notes: |
 
 ### 2. [02-02] Greeting + per-turn loop + first-sentence TTS + no `<think>`
 expected: On join the agent audibly greets exactly once as the Cybersecurity Trainer; speak → relevant spoken reply via the full streamed mic→STT→LLM→TTS loop, beginning on its first completed sentence; no `<think>` preamble appears in the transcript and TTFT is not inflated by a reasoning preamble (VOICE-01, VOICE-02, PERS-01).
-result: [pending]
+result: pass
+verified: 2026-06-25 by operator on the Proxmox VM + LAN device. Agent greets exactly once as the Cybersecurity Trainer; spoken input produces a relevant spoken reply via the full streamed mic→STT→LLM→TTS loop, beginning on the first completed sentence. No `<think>` preamble in the transcript; TTFT not inflated by a reasoning preamble (VOICE-01, VOICE-02, PERS-01).
 
 ### 3. [02-03] Barge-in + slow-speech endpointing + acoustic echo + real e2e P50
 expected: Talking over the agent stops its speech within ~1 frame, with no self-interrupt on its own echo tail or short backchannels (VOICE-03); hesitant speech ("let me think… the answer is…") is not cut off mid-thought and there is no dead air after a clear finish (VOICE-04); laptop speakers + built-in mic in a small room produces no self-echo interruption and the headphones path is clean (VOICE-08 echo defense); over N turns the per-turn metric lines show populated stage numbers and a rolling e2e P50 < ~1.2s (VOICE-08, PERF-01).
-result: [pending]
+result: pass
+verified: 2026-06-25 by operator on the Proxmox VM + LAN device. Barge-in stops the agent within ~1 frame with no self-interrupt on echo tail/backchannel (VOICE-03); hesitant speech is not cut off mid-thought and there is no dead air after a clear finish (VOICE-04); laptop speakers + built-in mic in a small room produced no self-echo interruption, headphones path clean (VOICE-08 echo defense); over N turns the per-turn lines show populated stage numbers and rolling e2e P50 < ~1.2s (VOICE-08, PERF-01).
 
 ## Summary
 
 total: 3
-passed: 1
+passed: 3
 issues: 0
-pending: 2
+pending: 0
 skipped: 0
 blocked: 0
 
