@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Persona Layer** - Live-editable expert persona (role, name, knobs, voice) over the frozen-prefix prompt layout (completed 2026-06-25)
 - [ ] **Phase 4: Knowledge Base Layer** - Upload → distill → inline-and-cache ephemeral docs while preserving the flat-TTFT invariant (sandbox layer complete; awaiting operator UAT)
 - [x] **Phase 5: History Management** - Sliding-window / summarization behind the frozen prefix so long sessions keep flat TTFT (completed 2026-06-26)
-- [ ] **Phase 6: Interview Mode** - One-question-at-a-time role-play interview with critique and model answer
+- [x] **Phase 6: Interview Mode** - One-question-at-a-time role-play interview with critique and model answer (completed 2026-06-26)
 - [ ] **Phase 7: Polish & Reliability** - Session controls, transcript export, and graceful failure handling
 
 ## Phase Details
@@ -188,12 +188,12 @@ Plans:
   4. After each answer the agent gives a critique and demonstrates a strong model answer
   5. Endpointing is re-tuned for deliberate interview-answer speech so the agent does not cut in mid-thought
 
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans complete
 
 Plans:
 
 - [x] 06-01-PLAN.md
-- [ ] 06-02-PLAN.md
+- [x] 06-02-PLAN.md
 
 **Wave 1**
 
@@ -236,5 +236,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 3. Persona Layer | 2/2 | Complete   | 2026-06-25 |
 | 4. Knowledge Base Layer | 4/4 | Complete   | 2026-06-25 |
 | 5. History Management | 1/1 | Complete    | 2026-06-26 |
-| 6. Interview Mode | 1/2 | In Progress|  |
+| 6. Interview Mode | 2/2 | Complete   | 2026-06-26 |
 | 7. Polish & Reliability | 0/2 | Not started | - |
