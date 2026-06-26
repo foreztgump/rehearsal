@@ -16,6 +16,10 @@ livekit-plugins-turn-detector
 # Host-side warmup client (ollama/warmup.py logic reused at agent startup).
 httpx
 
+# Websocket client for the NemoSTT streaming plugin (NemoSpeechStream._run
+# streams int16 PCM to the nemo-stt service over ws://).
+aiohttp
+
 # KB parse deps (Plan 04-01), pinned tight (no :latest, no unbounded float).
 # PDF/TXT/MD are free via pymupdf4llm/stdlib; DOCX uses python-docx because
 # pymupdf4llm's Office support needs the PAID PyMuPDF Pro (PERF-03 / license —

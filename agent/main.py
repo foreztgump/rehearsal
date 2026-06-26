@@ -1,7 +1,7 @@
 """Adept LiveKit agent worker — AgentSession wiring + walking-skeleton gate.
 
 Phase 1 scope (Plan 01-03): construct an AgentSession against the three LOCAL
-model endpoints (faster-whisper STT, Ollama LLM, Kokoro TTS) with the LOCAL
+model endpoints (Nemotron streaming STT, Ollama LLM, Kokoro TTS) with the LOCAL
 MultilingualModel turn detector, run a startup warmup that emits exactly ONE
 real LLM-TTFT metric line through the scaffold, and register as a worker against
 the self-hosted livekit-server. NO live voice turn happens yet — no participant
@@ -29,6 +29,7 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 import history
 import interview
 import metrics
+from nemo_stt import NemoSTT
 from kb import KB_AGGREGATE_MAX_TOKENS, DistillError, KbParseError, ParsedDoc
 from kb import distill as kb_distill
 from kb import parse as kb_parse
@@ -48,29 +49,18 @@ logger = logging.getLogger("adept.agent")
 # In-stack model endpoints (Docker `adept` network — all LAN-local, no egress).
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://ollama:11434/v1")
 OLLAMA_GENERATE_URL = os.environ.get("OLLAMA_GENERATE_URL", "http://ollama:11434/api/generate")
-WHISPER_BASE_URL = os.environ.get("WHISPER_BASE_URL", "http://whisper:8000/v1")
+# NemoSTT websocket endpoint — a `ws://` URL (NOT `http://.../v1`), matching the
+# Wave-1 (09-01) server route on the `nemo-stt` service. The STT model itself is
+# single-sourced server-side via STT_MODEL (no model tag in agent code).
+NEMO_STT_URL = os.environ.get("NEMO_STT_URL", "ws://nemo-stt:8000/v1/audio/stream")
 KOKORO_BASE_URL = os.environ.get("KOKORO_BASE_URL", "http://kokoro:8880/v1")
 
-# Single-source the whisper model with the host warmer (ollama/warmup.py) and
-# docker-compose `.env` via the same env var + default, so the warmup forces the
-# SAME STT model resident the agent loads (no model drift / two STT models
-# co-resident in VRAM).
-WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "Systran/faster-whisper-large-v3")
 # Use "tts-1" (not "kokoro"): the livekit openai TTS plugin only routes tts-1 /
 # tts-1-hd through the plain audio-stream path. Any other model name takes the
 # SSE path (stream_format="sse"), which kokoro-fastapi ignores — it returns raw
 # audio/mpeg instead of SSE deltas, so zero frames are pushed ("no audio frames
 # were pushed"). kokoro selects the voice via the `voice` param, not the model.
 KOKORO_MODEL = "tts-1"
-
-# faster-whisper decode settings tuned for latency (forwarded to the server).
-# Greedy single-beam decode, no cross-segment conditioning, VAD pre-filter, en.
-WHISPER_PARAMS = {
-    "beam_size": 1,
-    "condition_on_previous_text": False,
-    "vad_filter": True,
-    "language": "en",
-}
 
 WARMUP_PROMPT = "Reply with the single word: ready."
 WARMUP_TIMEOUT_SECONDS = 120.0
@@ -207,12 +197,7 @@ def build_session(vad: silero.vad.VAD) -> AgentSession:
     """
     return AgentSession(
         vad=vad,
-        stt=openai.STT(
-            base_url=WHISPER_BASE_URL,
-            model=WHISPER_MODEL,
-            api_key="none",
-            language=WHISPER_PARAMS["language"],
-        ),
+        stt=NemoSTT(ws_url=NEMO_STT_URL, language="en"),
         # Thinking-OFF on the hot path (a <think> preamble destroys TTFT and
         # breaks first-sentence TTS). with_ollama connects over Ollama's
         # OpenAI-compat /v1 endpoint, which IGNORES the native `think` field but
