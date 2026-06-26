@@ -8,7 +8,7 @@ last_activity: 2026-06-26
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
+  total_plans: 2
   completed_plans: 0
   percent: 0
 ---
@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-25)
 
 ## Current Position
 
-Phase: 8 — LLM Speed Selector (Part A) — Not started
-Plan: —
-Status: Roadmap created (6 phases, Phase 8-13); v1.0 Phase 7 superseded → folded into Phase 13
-Last activity: 2026-06-26 — v1.1 roadmap created
+Phase: 8 — LLM Speed Selector (Part A) — Ready to execute
+Plan: 2 plans (Wave 1: 08-01 picker+agent-swap; Wave 2: 08-02 pull-pin+verify-build)
+Status: Phase 8 planned — plans APPROVED by plan-checker (iteration 2); ready to execute
+Last activity: 2026-06-26 — v1.1 Phase 8 planned (2 plans, 2 waves)
 
 ## Performance Metrics
 
