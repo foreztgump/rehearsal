@@ -54,7 +54,25 @@ except KeyError as exc:  # pragma: no cover - exercised only at process start
 # att_context_size = [left, right] in 80 ms encoder frames (STT-04). Balanced
 # default [56,3]; set ONCE on the encoder at load. `right` trades latency vs
 # accuracy (lower = snappier, higher = more accurate).
-ATT_CONTEXT_SIZE = ast.literal_eval(os.environ.get("STT_ATT_CONTEXT_SIZE", "[56,3]"))
+def _parse_att_context_size(raw: str) -> list[int]:
+    """Parse + validate the [left, right] env value, failing fast on bad input.
+
+    ast.literal_eval is code-exec-safe (not eval); we additionally require a
+    2-element list of ints so a malformed value fails at import with a clear
+    message instead of deep inside set_default_att_context_size at the GPU gate
+    (matches the STT_MODEL SystemExit posture).
+    """
+    try:
+        value = ast.literal_eval(raw)
+    except (ValueError, SyntaxError) as exc:
+        raise SystemExit(f"STT_ATT_CONTEXT_SIZE is not a valid literal: {raw!r}") from exc
+    if (not isinstance(value, list) or len(value) != 2
+            or not all(isinstance(n, int) for n in value)):
+        raise SystemExit(f"STT_ATT_CONTEXT_SIZE must be a 2-element list of ints, got {raw!r}")
+    return value
+
+
+ATT_CONTEXT_SIZE = _parse_att_context_size(os.environ.get("STT_ATT_CONTEXT_SIZE", "[56,3]"))
 
 # RNNT decoder-stall watchdog (09-RESEARCH §1, PITFALL B2). Named constants, no
 # magic values. If cumulative text stops growing for STALL_FRAMES while audio is
