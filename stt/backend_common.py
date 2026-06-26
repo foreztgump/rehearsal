@@ -1,0 +1,34 @@
+"""backend_common — tag-free shared constants/helpers for BOTH STT backends.
+
+This module holds the streaming constants both `backend_nemo` (GPU) and
+`backend_onnx` (CPU) need, with NO module-scope required-env read that could break
+the other runtime. Specifically it does NOT read `STT_MODEL` (GPU-only) or
+`STT_ONNX_MODEL` (CPU-only) and carries NO hardcoded model tag — so importing it on
+the CPU path never triggers the GPU backend's `STT_MODEL` SystemExit (Phase 10 C1).
+
+`backend_onnx` imports the shared constants from HERE instead of from `backend_nemo`,
+so the CPU server never transitively imports `backend_nemo` (whose module body
+hard-requires `STT_MODEL`, which the CPU image deliberately never sets — it sets
+`STT_ONNX_MODEL`). `backend_nemo` re-exports these names so its own public surface is
+unchanged.
+
+The only env reads here are the optional, defaulted stall-watchdog knobs
+(STT_STALL_FRAMES / STT_RECYCLE_*) — all have safe defaults, none is required, and
+none is a model tag.
+"""
+from __future__ import annotations
+
+import os
+
+SAMPLE_RATE = 16000
+INT16_FULL_SCALE = 32768.0
+
+# RNNT decoder-stall watchdog (09-RESEARCH §1, PITFALL B2). Named constants, no
+# magic values. If cumulative text stops growing for STALL_FRAMES while audio is
+# STILL arriving, recycle decoder state and CONTINUE — the server NEVER auto-emits
+# FINAL (the turn detector owns finalize). STT_RECYCLE_* bound the recycle so it
+# stays stall-recovery only. BOTH backends import these so the watchdog thresholds
+# (and thus the stall semantics) are identical across the GPU and CPU runtimes.
+STALL_FRAMES = int(os.environ.get("STT_STALL_FRAMES", "50"))
+RECYCLE_MIN_CHARS = int(os.environ.get("STT_RECYCLE_MIN_CHARS", "120"))
+RECYCLE_HARD_CHARS = int(os.environ.get("STT_RECYCLE_HARD_CHARS", "400"))

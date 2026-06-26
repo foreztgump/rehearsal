@@ -29,12 +29,13 @@ import logging
 import os
 from typing import Any
 
-# Share the watchdog thresholds + streaming constants with the GPU backend so the
-# stall semantics are identical across both runtimes (RESEARCH §2).
-from backend_nemo import (
+# Share the watchdog thresholds + streaming constants via the TAG-FREE common module
+# so the stall semantics are identical across both runtimes WITHOUT importing
+# backend_nemo (whose module body hard-requires STT_MODEL, which the CPU image never
+# sets — importing it on the CPU path would SystemExit at startup; Phase 10 C1).
+from backend_common import (
     INT16_FULL_SCALE,
     RECYCLE_MIN_CHARS,
-    SAMPLE_RATE,
     STALL_FRAMES,
 )
 

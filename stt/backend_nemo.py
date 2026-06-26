@@ -27,6 +27,17 @@ import logging
 import os
 from typing import Any
 
+# Shared streaming constants live in the tag-free common module so neither backend
+# depends on the other (Phase 10 C1). backend_nemo re-exports them for continuity;
+# the watchdog thresholds are defined ONCE in backend_common.
+from backend_common import (
+    INT16_FULL_SCALE,
+    RECYCLE_HARD_CHARS,
+    RECYCLE_MIN_CHARS,
+    SAMPLE_RATE,
+    STALL_FRAMES,
+)
+
 logger = logging.getLogger("nemo-stt")
 
 # --- Config (module scope, no hardcoded tag) ----------------------------------
@@ -61,19 +72,6 @@ def _parse_att_context_size(raw: str) -> list[int]:
 
 
 ATT_CONTEXT_SIZE = _parse_att_context_size(os.environ.get("STT_ATT_CONTEXT_SIZE", "[56,3]"))
-
-# RNNT decoder-stall watchdog (09-RESEARCH §1, PITFALL B2). Named constants, no
-# magic values. If cumulative text stops growing for STALL_FRAMES while audio is
-# STILL arriving, recycle decoder state and CONTINUE — the server NEVER auto-emits
-# FINAL (the turn detector owns finalize). STT_RECYCLE_* bound the recycle so it
-# stays stall-recovery only. backend_onnx imports these so both backends share the
-# watchdog thresholds.
-STALL_FRAMES = int(os.environ.get("STT_STALL_FRAMES", "50"))
-RECYCLE_MIN_CHARS = int(os.environ.get("STT_RECYCLE_MIN_CHARS", "120"))
-RECYCLE_HARD_CHARS = int(os.environ.get("STT_RECYCLE_HARD_CHARS", "400"))
-
-SAMPLE_RATE = 16000
-INT16_FULL_SCALE = 32768.0
 
 
 def load_model() -> Any:

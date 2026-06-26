@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import os
+import subprocess
 import sys
 import types
 
@@ -108,10 +109,32 @@ def _run_exchange():
     return ws.sent
 
 
+def _assert_cpu_import_needs_no_stt_model() -> None:
+    """C1 regression: the REAL backend_onnx must import with only STT_ONNX_MODEL set.
+
+    The stub backend in _run_exchange masks the real backend_onnx→backend_nemo
+    coupling (L1), so assert separately that importing the real module with
+    STT_MODEL UNSET does NOT SystemExit. Phase 10 C1 made this pass by routing the
+    shared constants through the tag-free backend_common module.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    proc = subprocess.run(
+        [sys.executable, "-c", "import backend_onnx"],
+        cwd=here,
+        env={k: v for k, v in os.environ.items() if k != "STT_MODEL"}
+        | {"STT_ONNX_MODEL": "x", "STT_QUANT": "int8-dynamic", "STT_RUNTIME": "cpu"},
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, (
+        f"real backend_onnx must import without STT_MODEL (C1), got rc={proc.returncode}: "
+        f"{proc.stderr.strip()}")
+
+
 def _self_check() -> None:
     os.environ["STT_RUNTIME"] = "cpu"
     os.environ.setdefault("STT_ONNX_MODEL", "stub-onnx-model")
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    _assert_cpu_import_needs_no_stt_model()
     _install_fastapi_stub()
     _install_backend_stub()
     sent = _run_exchange()

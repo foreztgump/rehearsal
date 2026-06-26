@@ -39,9 +39,12 @@ ARG STT_QUANT=int8-dynamic
 COPY requirements-cpu.txt ./
 RUN pip install --no-cache-dir -r requirements-cpu.txt
 
-# Both backends are copied so STT_RUNTIME can switch without a rebuild; server.py
-# imports the chosen one lazily, and only backend_onnx is exercised at cpu runtime.
-COPY server.py backend_nemo.py backend_onnx.py ./
+# Both backends + the tag-free shared constants are copied so STT_RUNTIME can switch
+# without a rebuild; server.py imports the chosen one lazily, and only backend_onnx
+# (+ backend_common) is exercised at cpu runtime. backend_common holds the shared
+# streaming constants so the CPU path never imports backend_nemo (which requires
+# STT_MODEL, unset in this image; Phase 10 C1).
+COPY server.py backend_common.py backend_nemo.py backend_onnx.py ./
 
 # Bake the exported ONNX bundle from the builder stage (the four artifacts
 # backend_onnx.load_model loads). No first-run download — offline/local-first.
