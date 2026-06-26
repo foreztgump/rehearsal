@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Local-First Pipeline Swap + Avatar
-current_phase: 10
-current_phase_name: vram-aware-stt-placement-part-c
-status: code-complete-operator-gate-pending
-stopped_at: Phase 10 code-complete; 10-PLACEMENT-VERIFY.md GPU gate unsigned (no GPU/Docker/ONNX in sandbox — mirrors Phases 8/9 pre-operator-sign)
-last_updated: "2026-06-26T21:30:00.000Z"
+current_phase: 11
+current_phase_name: consumer-gpu-deployment-part-e
+status: planned-ready-to-execute
+stopped_at: Phase 11 discussed + planned (11-01 gpu-doctor+up.sh, 11-02 README rewrite + compose verify + DEPLOY-VERIFY); not yet executed
+last_updated: "2026-06-26T22:15:00.000Z"
 last_activity: 2026-06-26
-last_activity_desc: "Phase 10 CODE-COMPLETE: STT_RUNTIME=gpu|cpu backend split (backend_common/nemo/onnx), CPU ONNX 3-graph cache loop + numpy Slaney mel, nemo-stt-cpu service (CPU default / GPU behind stt-gpu profile), agent/placement.py pure resolver (FORCE_CPU-first, worst-case-LLM no-thrash lock, default-CPU). Review 1C/1H fixed (+3M/3L); C1 import-SystemExit closed. 10-VERIFICATION.md verdict code-complete. 8 gates deferred in 10-PLACEMENT-VERIFY.md. Next: Phase 11 (Part E Consumer-GPU Deployment)."
+last_activity_desc: "Phase 11 (Consumer-GPU Deployment / Part E) DISCUSSED (4 grey areas all Accept-Recommended) + PLANNED. 11-CONTEXT.md + 2 plans written: 11-01 = scripts/gpu-doctor.sh (ordered nvidia-smi→toolkit→CUDA12.8-floor→16GB-VRAM-floor chain, non-blocking ADVISE, copyable env snippet, never mutates .env) + thin ./up.sh wrapper (doctor→docker compose up, SKIP_DOCTOR=1) + scripts/test_gpu_doctor.sh PATH-shim harness; 11-02 = README Proxmox two-layer rewrite→one Consumer-GPU section (keep one-line VM note) + scripts/test_compose_topology.sh (docker compose config default vs --profile stt-gpu) + 11-DEPLOY-VERIFY.md (7 unsigned operator gates). Default up stays CPU-ONNX-safe; ollama/kokoro GPU-required (documented limitation). Next: execute 11-01 then 11-02."
 progress:
   total_phases: 6
   completed_phases: 2
@@ -24,11 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-25)
 
 **Core value:** The user can hold a natural spoken conversation with a credible expert persona at voice-to-voice latency that feels live (P50 < 1.0s) — practicing speaking a domain out loud.
-**Current focus:** Phase 10 — vram-aware-stt-placement-part-c
+**Current focus:** Phase 11 — consumer-gpu-deployment-part-e (PLANNED, ready to execute)
 
 ## Current Position
 
-Phase: 10 (vram-aware-stt-placement-part-c) — CODE-COMPLETE, operator GPU gate pending
+Phase: 11 (consumer-gpu-deployment-part-e) — DISCUSSED + PLANNED, not yet executed
+Plan: 0 of 2 executed (11-01 gpu-doctor.sh + ./up.sh wrapper + test harness, 11-02 README Consumer-GPU rewrite + compose-topology verify + 11-DEPLOY-VERIFY.md). All 4 discuss grey areas = Accept-Recommended. Next: execute 11-01 → 11-02.
+
+### (prior) Phase 10 — vram-aware-stt-placement-part-c — CODE-COMPLETE, operator GPU gate pending
 Plan: 2 of 2 (10-01 ONNX CPU backend + runtime switch + nemo-stt-cpu service, 10-02 placement resolver + agent wiring) — both executed, reviewed, fixed, verified
 Status: CODE-COMPLETE. `STT_RUNTIME=gpu|cpu` dispatch behind shared callables (stt/backend_common.py tag-free + backend_nemo.py GPU + backend_onnx.py CPU ORT 3-graph cache loop w/ numpy-only 128-band Slaney mel incl. NeMo per_feature normalization). New `nemo-stt-cpu` Compose service is the DEFAULT (host 8001, no GPU reservation); GPU `nemo-stt` gated behind the `stt-gpu` profile so the unused image doesn't occupy VRAM. `agent/placement.py` pure `resolve_stt_placement(llm_choice, env)` — STT_FORCE_CPU short-circuits FIRST, then STT_HEADROOM_MEASURED gate, worst-case-LLM headroom table (E2B 7408MB / E4B 8912MB vs 16GB−1GB) returns the SAME decision for fast/better (no mid-session thrash), defaults CPU when unmeasured, never raises. Called ONCE in build_session; model.update RPC + VAD/turn_handling + metrics.py untouched. Quant honesty: int8-dynamic ~0.88GB reproducible default; int4-kquant ~0.67GB (literal STT-05) operator-gated stretch. Review: 1 Critical (CPU backend SystemExit-at-import via STT_MODEL coupling) + 1 High (mel per_feature normalization) FIXED, +3 Medium (incl. M5 compose profiles) +3 Low; M2/M3 mel sub-items (STFT center, Hann periodicity) flagged for operator Gate 2. 10-VERIFICATION.md verdict: code-complete with operator gate pending. STT-05/06/07 satisfied-in-code. 8 GPU gates UNSIGNED in 10-PLACEMENT-VERIFY.md.
 Last activity: 2026-06-26 — Phase 10 executed (Waves 1+2 + review fixes). Next: discuss+plan+execute Phase 11 (Part E — Consumer-GPU Deployment).
