@@ -16,7 +16,7 @@ files_modified:
 
 ## User Story
 
-**As** a user dropping the stack onto my own consumer machine (no Proxmox, no homelab),
+**As** a user dropping the stack onto my own machine and running it purely via `docker compose`,
 **I want** one command that checks my GPU/driver/toolkit/VRAM before `docker compose up` and,
 on any problem, prints the EXACT remedy plus a copy-paste degraded-mode command instead of
 letting `up` hang or crash cryptically, **so that** I either boot the full GPU stack with

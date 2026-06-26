@@ -22,7 +22,8 @@ is sub-spec).
 ## Requirements owned
 
 - **DEPLOY-04** — `docker compose up` runs the full stack directly on the user's consumer
-  machine; the Proxmox-VM assumption is dropped.
+  machine. **`docker compose` is the ONLY supported deployment** — there is no Proxmox/VM
+  path to preserve; all VM/PCIe/vfio assumptions are deleted, not migrated.
 - **DEPLOY-05** — Consumer-GPU detection/passthrough via the NVIDIA Container Toolkit
   (`--gpus` / `deploy.resources.reservations.devices`), with a preflight GPU "doctor" giving a
   clear, actionable message on driver/CUDA/VRAM/non-NVIDIA failure (falling back to CPU-ONNX
@@ -65,8 +66,11 @@ is sub-spec).
 ### Area 4 — Docs & verification
 - README: replace the entire Proxmox two-layer section with one "Consumer GPU setup"
   (nvidia-ctk install + `docker run --gpus all` verify + `gpu-doctor.sh`); keep LiveKit/TLS
-  sections. Keep a one-line "Running under a VM/Proxmox? the same toolkit step applies" note
-  (no vfio walkthrough).
+  sections. **Drop Proxmox/VM entirely** — the only supported deployment is `docker compose`
+  on the user's machine. No vfio walkthrough, no one-line VM note, no Proxmox references
+  anywhere in the new docs or the Phase-11 verify file. (Operator clarification 2026-06-26:
+  "we are not intending to use this on Proxmox. only docker compose deploy." — this overrides
+  the earlier "keep a one-line VM note" answer.)
 - Sandbox-verifiable: `bash -n` the doctor + `up.sh`; `docker compose config` (default +
   `--profile stt-gpu`); a stubbed-PATH doctor dry-run (PATH shim for `nvidia-smi`/`docker`)
   asserting each remedy message fires.
@@ -105,6 +109,9 @@ is sub-spec).
 - No networking/`node_ip`/TLS changes.
 - No new compose GPU-exposure mechanism (keep `reservations.devices`).
 - No re-proving the P10 STT placement logic here.
+- **No Proxmox / VM / vfio / PCIe-passthrough content** anywhere — not in the README, not in
+  the doctor, not in `11-DEPLOY-VERIFY.md`. `docker compose` on the user's machine is the sole
+  deployment story.
 
 ## Verification split
 - **Sandbox (executor proves):** `bash -n` both scripts; stubbed-PATH dry-run of the doctor
