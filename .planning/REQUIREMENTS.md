@@ -31,14 +31,14 @@ Requirements for the v1.1 milestone. Each maps to a roadmap phase.
 
 ### AVTR — Optional 3D Avatar (Part D, frontend-only)
 
-- [ ] **AVTR-01**: A "Voice only / Avatar" UI toggle (default **Voice only**) renders an optional met4citizen/TalkingHead (Three.js/WebGL) talking head inside the existing voice UI; turning it off fully restores voice-only with no residual overhead or running avatar code
+- [x] **AVTR-01**: A "Voice only / Avatar" UI toggle (default **Voice only**) renders an optional met4citizen/TalkingHead (Three.js/WebGL) talking head inside the existing voice UI; turning it off fully restores voice-only with no residual overhead or running avatar code
 - [ ] **AVTR-02**: Avatar lip-sync is Path-A audio-driven — LiveKit's INBOUND Kokoro WebRTC audio is routed through the HeadAudio worklet for real-time viseme detection — with NO server change, no transcription, and no timestamps (audio plays normally in parallel)
 - [ ] **AVTR-03**: Avatar barge-in reuses the existing LiveKit user-speech-start interrupt to call `streamInterrupt()`, stopping avatar audio + lip-sync instantly — no second VAD
 - [ ] **AVTR-04**: The avatar holds eye contact while speaking AND listening (`makeEyeContact`, speaking/listening eye-contact factors, `lookAtCamera` on sentence start) and applies persona mood via `setMood`
-- [ ] **AVTR-05**: Camera framing is interview-appropriate (`cameraView` "upper" or "head")
+- [x] **AVTR-05**: Camera framing is interview-appropriate (`cameraView` "upper" or "head")
 - [ ] **AVTR-06**: Persona config is extended so each persona may specify an avatar (GLB url) + mood, reusing its existing Kokoro voice; the default cyber-trainer persona ships a default avatar so Avatar mode works out of the box
 - [ ] **AVTR-07**: Each avatar GLB is verified to have a Mixamo-compatible rig + ARKit (52) and Oculus viseme (15) blend shapes before lip-sync is wired, and its license is confirmed to permit the intended (personal/internal) use
-- [ ] **AVTR-08**: Rendering is client-side WebGL with ZERO server VRAM/GPU cost; it targets ~30fps with Meshopt/Draco-compressed GLBs and degrades gracefully on weak devices (the toggle is the escape hatch)
+- [x] **AVTR-08**: Rendering is client-side WebGL with ZERO server VRAM/GPU cost; it targets ~30fps with Meshopt/Draco-compressed GLBs and degrades gracefully on weak devices (the toggle is the escape hatch)
 
 ### SESS — Session Lifecycle (deferred v1.0 polish, rolled in)
 
@@ -118,14 +118,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | STT-05 | Phase 10 | Pending |
 | STT-06 | Phase 10 | Pending |
 | STT-07 | Phase 10 | Pending |
-| AVTR-01 | Phase 12 | Pending |
+| AVTR-01 | Phase 12 | Complete |
 | AVTR-02 | Phase 12 | Pending |
 | AVTR-03 | Phase 12 | Pending |
 | AVTR-04 | Phase 12 | Pending |
-| AVTR-05 | Phase 12 | Pending |
+| AVTR-05 | Phase 12 | Complete |
 | AVTR-06 | Phase 12 | Pending |
 | AVTR-07 | Phase 12 | Pending |
-| AVTR-08 | Phase 12 | Pending |
+| AVTR-08 | Phase 12 | Complete |
 | SESS-01 | Phase 13 | Pending |
 | SESS-02 | Phase 13 | Pending |
 | SESS-03 | Phase 13 | Pending |

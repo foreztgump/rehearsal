@@ -5,16 +5,16 @@ milestone_name: Local-First Pipeline Swap + Avatar
 current_phase: 12
 current_phase_name: optional-3d-avatar-part-d
 status: planned-ready-to-execute
-stopped_at: Phase 12 discussed (4 grey areas all Accept-Recommended) + planned (12-01 scaffold+isolation, 12-02 lipsync+persona); not yet executed. Phase 11 remains code-complete (operator GPU gate pending).
-last_updated: "2026-06-27T00:30:00.000Z"
-last_activity: 2026-06-27
-last_activity_desc: "Phase 12 (Optional 3D Avatar / Part D, frontend-only) DISCUSSED + PLANNED. 4 grey areas all Accept-Recommended: (1) vendor TalkingHead+three.js under web/public via same-origin importmap (offline/local-first, dynamic-imported so voice-only bundle untouched) — NO CDN; (2) default GLB = Ready Player Me half-body exported morphTargets=ARKit,Oculus, Meshopt/Draco-compressed into web/public/avatars + AVTR-07 attestation; (3) persona→GLB+mood map is PURE CLIENT-SIDE in web/ (zero agent/persona.py change — honors empty-server-diff isolation gate); (4) two plans. 12-CONTEXT.md + 2 plans written: 12-01 = vendored lib + importmap + dynamic-imported AvatarStage behind default-OFF Voice-only/Avatar toggle + clean unmount + cameraView framing (AVTR-01/05/08 + isolation gate); 12-02 = Path-A HeadAudio lip-sync on inbound Kokoro track + barge-in on existing user-speech-start interrupt + eye-contact/setMood + client persona→GLB map + AVTR-07 GLB verify + 12-AVATAR-VERIFY.md (AVTR-02/03/04/06/07). HARD ISOLATION GATE: git diff -- agent/ stt/ tts/ docker-compose.yml MUST be empty across the phase; zero server VRAM cost. Frontend greenfield (no avatar refs exist). Next: execute 12-01 then 12-02."
+stopped_at: Completed 12-01-PLAN.md
+last_updated: "2026-06-26T23:08:33.985Z"
+last_activity: 2026-06-26
+last_activity_desc: "Phase 11 executed (commits feat(11-01)..21361d1). Next: discuss+plan+execute Phase 12 (Part D — avatar, frontend-only)."
 progress:
   total_phases: 6
-  completed_phases: 3
-  total_plans: 8
-  completed_plans: 8
-  percent: 50
+  completed_phases: 1
+  total_plans: 10
+  completed_plans: 3
+  percent: 17
 ---
 
 # Project State
@@ -29,19 +29,22 @@ See: .planning/PROJECT.md (updated 2026-06-25)
 ## Current Position
 
 Phase: 12 (optional-3d-avatar-part-d) — DISCUSSED + PLANNED, not yet executed
-Plan: 0 of 2 executed (12-01 vendored TalkingHead+three.js importmap + dynamic-imported AvatarStage behind default-OFF toggle + clean unmount + framing; 12-02 Path-A lip-sync + barge-in + eye-contact/mood + client persona→GLB map + AVTR-07 verify). All 4 discuss grey areas = Accept-Recommended. HARD isolation gate: git diff -- agent/ stt/ tts/ docker-compose.yml empty across the phase. Next: execute 12-01 → 12-02.
+Plan: 1 of 2 executed (12-01 vendored TalkingHead+three.js importmap + dynamic-imported AvatarStage behind default-OFF toggle + clean unmount + framing; 12-02 Path-A lip-sync + barge-in + eye-contact/mood + client persona→GLB map + AVTR-07 verify). All 4 discuss grey areas = Accept-Recommended. HARD isolation gate: git diff -- agent/ stt/ tts/ docker-compose.yml empty across the phase. Next: execute 12-01 → 12-02.
 
 ### (prior) Phase 11 — consumer-gpu-deployment-part-e — CODE-COMPLETE, operator GPU gate pending
+
 Plan: 2 of 2 (11-01 gpu-doctor.sh + ./up.sh wrapper + test harness, 11-02 README Consumer-GPU rewrite + compose-topology verify + 11-DEPLOY-VERIFY.md) — both executed, reviewed, verified.
 Status: CODE-COMPLETE. `docker compose up` on the user's own machine is the SOLE supported deployment — all Proxmox/VM/vfio/PCIe content deleted (README two-layer-passthrough section → single 'GPU setup (NVIDIA Container Toolkit)' section; repo-wide grep clean). `scripts/gpu-doctor.sh` = advise-only preflight (ordered nvidia-smi→`docker run --gpus all` toolkit→CUDA≥12.8→VRAM≥16384MB, single-sourced readonly floors, `|| true` + `case`-sanitize on nvidia-smi queries, always exit 0, never mutates .env, never switches runtime); emits GPU-ready `--profile stt-gpu` snippet or degraded `STT_FORCE_CPU=1`+Fast-model snippet. `./up.sh` = thin wrapper (cd dirname, doctor unless SKIP_DOCTOR=1, exec docker compose up "$@"). Default boot stays CPU-ONNX-safe (`nemo-stt-cpu`, no GPU reservation, no `nemo-stt`); GPU STT opt-in behind `--profile stt-gpu`. ollama/kokoro stay GPU-required (documented v1.1 limitation). docker-compose.yml UNCHANGED (P10 topology only verified). Sandbox: bash -n clean (4 scripts); scripts/test_gpu_doctor.sh 5/5 PASS (PATH-shim isolation); scripts/test_compose_topology.sh 9/9 PASS (docker compose config default vs --profile stt-gpu); real RTX 5090 doctor run RC=0 (CUDA 13.2 / 24463MB, live --gpus all probe OK). 11-VERIFICATION.md verdict: code-complete with operator gate pending. DEPLOY-04/05 satisfied-in-code. 7 GPU gates UNSIGNED in 11-DEPLOY-VERIFY.md.
 Last activity: 2026-06-26 — Phase 11 executed (commits feat(11-01)..21361d1). Next: discuss+plan+execute Phase 12 (Part D — avatar, frontend-only).
 
 ### (prior) Phase 10 — vram-aware-stt-placement-part-c — CODE-COMPLETE, operator GPU gate pending
+
 Plan: 2 of 2 (10-01 ONNX CPU backend + runtime switch + nemo-stt-cpu service, 10-02 placement resolver + agent wiring) — both executed, reviewed, fixed, verified
 Status: CODE-COMPLETE. `STT_RUNTIME=gpu|cpu` dispatch behind shared callables (stt/backend_common.py tag-free + backend_nemo.py GPU + backend_onnx.py CPU ORT 3-graph cache loop w/ numpy-only 128-band Slaney mel incl. NeMo per_feature normalization). New `nemo-stt-cpu` Compose service is the DEFAULT (host 8001, no GPU reservation); GPU `nemo-stt` gated behind the `stt-gpu` profile so the unused image doesn't occupy VRAM. `agent/placement.py` pure `resolve_stt_placement(llm_choice, env)` — STT_FORCE_CPU short-circuits FIRST, then STT_HEADROOM_MEASURED gate, worst-case-LLM headroom table (E2B 7408MB / E4B 8912MB vs 16GB−1GB) returns the SAME decision for fast/better (no mid-session thrash), defaults CPU when unmeasured, never raises. Called ONCE in build_session; model.update RPC + VAD/turn_handling + metrics.py untouched. Quant honesty: int8-dynamic ~0.88GB reproducible default; int4-kquant ~0.67GB (literal STT-05) operator-gated stretch. Review: 1 Critical (CPU backend SystemExit-at-import via STT_MODEL coupling) + 1 High (mel per_feature normalization) FIXED, +3 Medium (incl. M5 compose profiles) +3 Low; M2/M3 mel sub-items (STFT center, Hann periodicity) flagged for operator Gate 2. 10-VERIFICATION.md verdict: code-complete with operator gate pending. STT-05/06/07 satisfied-in-code. 8 GPU gates UNSIGNED in 10-PLACEMENT-VERIFY.md.
 Last activity: 2026-06-26 — Phase 10 executed (Waves 1+2 + review fixes). Next: discuss+plan+execute Phase 11 (Part E — Consumer-GPU Deployment).
 
 ### (prior) Phase 09 — nemotron-streaming-asr-part-b — CODE-COMPLETE, operator GPU gate pending
+
 Plan: 2 of 2 (09-01 server/compose, 09-02 plugin/agent wiring) — both executed
 Status: CODE-COMPLETE. faster-whisper fully removed (compose service, agent code, warmup.py, vram-validate.sh, README). New `nemo-stt` FastAPI websocket NeMo streaming server (stt/server.py, Dockerfile, requirements) keep-resident, /health-gated; `NemoSTT`/`NemoSpeechStream` true streaming plugin (agent/nemo_stt.py) wired into build_session replacing openai.STT. The load-bearing STTMetrics emit in `_emit_final` keeps stt_ms non-null. att_context_size knob (STT_ATT_CONTEXT_SIZE default [56,3]) + cyber-vocab fine-tune hook. Code review: 1 Critical (decoder state not reset per turn) + 2 High (WS frame robustness) FIXED, +4 Medium +2 Low; 2 Low skipped out-of-scope. 09-VERIFICATION.md verdict: code-complete with operator gate pending (STT-01..04 satisfied-in-code, PERF-04 operator-gated). Single-source no-hardcoded-tag, metrics.py-untouched, endpoint-authority-unchanged invariants all HOLD. 6 GPU gates UNSIGNED in 09-STT-VERIFY.md (status pending-operator).
 Last activity: 2026-06-26 — Phase 9 executed (commits 7efb550..3a6d849). Next: discuss+plan+execute Phase 10 (Part C — VRAM-aware STT placement).
@@ -153,8 +156,8 @@ Acknowledged at v1.0-rc1 close (2026-06-26) and carried into Phase 7 / v1.0:
 
 ## Session Continuity
 
-Last session: 2026-06-26T21:30:00.000Z
-Stopped at: Phase 10 code-complete (10-01 + 10-02 executed, reviewed, fixed, verified); 10-PLACEMENT-VERIFY.md pending-operator
+Last session: 2026-06-26T23:08:33.980Z
+Stopped at: Completed 12-01-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
