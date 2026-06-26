@@ -1,178 +1,176 @@
 # Project Research Summary
 
 **Project:** Adept — Near-Real-Time Voice Persona Trainer
-**Domain:** Local-first, near-real-time voice-to-voice conversational AI agent (LiveKit Agents pipeline) on a single 16GB-VRAM GPU
-**Researched:** 2026-06-24
-**Confidence:** HIGH
+**Milestone:** v1.1 Local-First Pipeline Swap + Avatar
+**Domain:** Subsequent-milestone swap/extension of a shipped local-first LiveKit voice-agent stack (two selectable Ollama LLMs + Nemotron streaming ASR + VRAM-aware STT placement + optional frontend TalkingHead avatar) on a 16GB consumer GPU via `docker compose up`
+**Researched:** 2026-06-26
+**Confidence:** HIGH (with two flagged MEDIUM sourcing/API items)
 
 ## Executive Summary
 
-Adept is a voice-first, local-first spoken practice tool: a single user holds a near-real-time conversation (P50 < 1.0s voice-to-voice) with a configurable expert persona, can attach ephemeral documents as a knowledge base, and can flip into an Interview Mode. Experts build this class of product as a **streaming STT→LLM→TTS pipeline** orchestrated by LiveKit Agents (`AgentSession`), with all models self-hosted on one GPU behind OpenAI-compatible HTTP endpoints. The entire design is organized around one metric — latency that "feels live" — which dictates streaming every stage, keeping models resident, and keeping per-turn context lean.
+v1.1 is an **integration milestone, not a greenfield one**: the shipped v1.0 pipeline (LiveKit Agents, Silero VAD + MultilingualModel turn-detection, Ollama brain with thinking-off/keep-alive/flash-attn, Kokoro TTS, Next.js client, ephemeral KB, per-turn speech_id metrics) is the substrate and stays byte-for-byte. Four parts bolt onto it: **A** swaps the single stock LLM for two user-selectable Ollama models (Fast `evalengine/unbound-e2b` 3.4GB default / Better `defyma85/gemma-4-E4B…heretic-Q4_K_M` 5.3GB — both lighter than stock E4B, both abliterated); **B** replaces faster-whisper with NVIDIA `nemotron-speech-streaming-en-0.6b` served behind a local OpenAI-compatible HTTP server; **C** resolves GPU-NeMo vs CPU-ONNX STT placement **once at session start** from VRAM headroom; **D** adds an OPTIONAL, default-OFF, **frontend-only** TalkingHead/HeadAudio Path-A avatar that lip-syncs off the inbound Kokoro audio. Deployment drops the Proxmox VM for consumer-GPU `docker compose up` via the NVIDIA Container Toolkit. Deferred v1.0 polish (session new/reset/end, transcript export, mic/STT graceful failure, final latency tuning) folds in.
 
-The recommended approach is confirmed and largely matches PROJECT.md: LiveKit Agents + faster-whisper turbo (int8) + Gemma 4 via Ollama + Kokoro TTS, wired with Silero VAD and a **local** semantic turn detector. The knowledge base is handled by "inline-and-cache" — distill docs once at upload into a compact brief, inject once, and rely on Ollama's prefix/KV cache — explicitly **not** per-turn vector RAG, which would inflate the time-to-first-token (TTFT) the whole design depends on.
+The recommended approach keeps every change surgical and reuses verified v1.0 idioms. Part A clones the verified `persona.update` RPC pattern and **mutates the existing LLM plugin in place** (`session.llm.update_options(model=)`) rather than reassigning it — reassignment orphans the metrics subscription and silently breaks the flat-TTFT instrument. Part B keeps the agent pointed at a **single STT `base_url`** and hides GPU-vs-CPU inside the sidecar, so Part C's placement decision never touches agent pipeline code. Part D is gated at the React mount boundary (`next/dynamic ssr:false`) so voice-only loads zero avatar JS. The keystone invariant carried forward: **voice-to-voice P50 < 1.0s / P95 < 1.5s must hold for BOTH LLMs**, and the avatar must add **zero** server VRAM and **zero** latency.
 
-**Three PRD assumptions are now wrong and must be corrected before roadmap planning** (all from STACK.md): (1) the real `gemma4:e4b` is **9.6GB, not ~5GB** — that raises the resident-model total to ~14GB and makes the 16GB floor *tight*, not comfortable; (2) Gemma 4 ships a **thinking/reasoning mode that must be explicitly disabled** or it destroys TTFT; (3) the **standalone turn-detector plugin is deprecated** and its official replacement defaults to LiveKit *Cloud* — violating local-first — so the local `MultilingualModel` must be pinned. Beyond these, the keystone architectural constraint is the **flat-TTFT invariant** (TTFT must not climb as a session grows), the single biggest P50 lever is **`min_endpointing_delay` tuning** (~500ms default ≈ half the budget), and the KB cache only pays off if the **prompt prefix stays byte-identical** across turns.
+The dominant risks are concentrated in the abliterated community GGUFs and the streaming ASR. Both LLM tags are third-party `:latest` re-quants that frequently ship a **wrong chat template** (the documented `---`-repeat failure) and can **leak reasoning artifacts** despite `reasoning_effort="none"` — and because abliteration removes model-level refusals, **the persona prompt's ethical clause is now the SOLE content guardrail**. This mandates a per-build A-gate (template diff + raw-token artifact check + per-model red-team) with a stock `gemma4` fallback ladder and digest pinning. On the ASR side, `nemotron-speech-streaming-en-0.6b` has a **documented RNNT decoder stall** after sentence boundaries that can strand long interview answers — mitigate with endpoint-coupled finalize + a stall watchdog, and treat the CPU-ONNX port as the safer default if unresolved. The 16GB co-residency math must be **measured** (KV pre-alloc + a 4th GPU process lie in static param math), with global CPU-ONNX as the simplest-robust fallback.
 
 ## Key Findings
 
 ### Recommended Stack
 
-The stack is the de-facto 2026 realtime-voice approach: LiveKit Agents runs the four pipeline stages concurrently so the user never waits on a prior stage, with native barge-in and per-turn latency metrics that directly satisfy the instrumented P50/P95 requirement. Only STT and TTS need the "OpenAI-compatible sidecar" pattern (faster-whisper-server and Kokoro-FastAPI); no bespoke plugin code is required for v1. See **STACK.md** for full version matrix and VRAM math.
+Three swaps + one addition; everything else unchanged. The two new Ollama tags are verified-real and both lighter than stock E4B (frees STT co-residency headroom). Nemotron is served via NeMo behind an OpenAI-compatible `/v1/audio/transcriptions` + `/v1/audio/stream` server (LiveKit's own documented path, ref repo `ShayneP/local-teleprompter`); a ~150 LOC vendored `LocalNemotronSTT` plugin gives true word-by-word streaming, with `openai.STT(base_url=...)` finalize-only as the safe fallback. The CPU-ONNX port is a **community export, not NVIDIA first-party** (flagged). The avatar is pure client JS pinned against Three.js r0.180.0.
 
-**Core technologies:**
-- **livekit-agents `~=1.5`** (+ `livekit-server v1.10.x`): orchestration, WebRTC transport, streaming pipeline, barge-in, per-turn metrics — the keystone framework; self-hosted from day one.
-- **faster-whisper `1.2.1` (large-v3-turbo, int8)**: STT, ~2GB VRAM, <180ms — fits latency + VRAM budget; served behind an OpenAI-compatible endpoint.
-- **Ollama `0.6+` + Gemma 4**: local LLM, OpenAI-compatible; keep-alive + flash-attention + KV-cache quant are what protect the cache the KB strategy relies on.
-- **Kokoro-82M** (pinned Docker tag): TTS, ~2–3GB, RTF ~0.03, preset voices; swappable for VoxCPM behind the same interface.
-- **livekit-plugins-silero (VAD)** + **livekit-plugins-turn-detector (`MultilingualModel`, local CPU <500MB)**: open-mic VAD + semantic endpointing + correct barge-in.
+**Core technologies (NEW/CHANGED):**
+- **Ollama Fast** `evalengine/unbound-e2b:latest` (3.4GB, Apache-2.0) — default LLM, lowest latency, smallest footprint
+- **Ollama Better** `defyma85/gemma-4-E4B-it-ultra-uncensored-heretic-Q4_K_M_gguf:latest` (5.3GB) — higher-quality E4B; no readme → highest template risk
+- **Stock fallbacks** `gemma4:e2b` (7.2GB) / `gemma4:e4b` (9.6GB) — guaranteed-sane template/thinking-off escape hatch
+- **NVIDIA NeMo** `nemo_toolkit[asr]>=2.5.0` + `nemotron-speech-streaming-en-0.6b` — native cache-aware streaming, ~100ms finalize, native punctuation/caps, `att_context_size [56,3]`
+- **onnxruntime ~=1.21** + CPU-ONNX port (`danielbodart` int8-dynamic ~0.88GB, or Foundry int4 ~0.67GB) — off-GPU VRAM fallback
+- **@met4citizen/talkinghead@1.7.0 + @met4citizen/headaudio@0.1.0 + three@0.180.0** (MIT) — client WebGL avatar, audio-driven Path-A visemes, zero server cost
+- **NVIDIA Container Toolkit** — replaces Proxmox PCIe passthrough; existing compose `deploy.resources.reservations.devices` blocks are already correct
 
-> **Three PRD corrections (surface prominently — these reshape the roadmap):**
-> 1. **Gemma 4 E4B real size ≈ 9.6GB, not ~5GB.** The "~5GB" figure was the older Gemma **3n** E4B. Real `gemma4:e4b` = 9.6GB. New resident-model total: 9.6 (LLM) + 2.0 (Whisper) + 2.5 (Kokoro) ≈ **14.1GB → fits 16GB but headroom is thin**, before KV-cache growth + CUDA overhead. On a strict 16GB floor, prefer `gemma3:4b-it-qat` (~3.3GB) for KV headroom, or run `gemma4:e4b` only with `OLLAMA_FLASH_ATTENTION=1` + `OLLAMA_KV_CACHE_TYPE=q8_0`. 24GB makes E4B comfortable.
-> 2. **Gemma 4 thinking-mode must be disabled.** Gemma 4 is a reasoning model; thinking emits a long internal preamble before the first user-visible token — catastrophic for TTFT and first-sentence TTS. Omit the `<|think|>` token and don't carry prior-turn thoughts in history.
-> 3. **The standalone turn-detector plugin is deprecated; its official replacement is cloud-routed.** `inference.TurnDetector` defaults to LiveKit Cloud → breaks local-first. Pin the local `MultilingualModel` from `livekit-plugins-turn-detector` until an open-weight local v1 path is confirmed.
+See [STACK.md](STACK.md) for verified tags, install costs, and version-compatibility matrix.
 
 ### Expected Features
 
-Full landscape in **FEATURES.md** (grounded in Yoodli, Google Interview Warmup, Speak/Talkpal/Langua). Net differentiation: Adept fuses live spoken dialogue + one-question-at-a-time interviews + a **model answer** (which competitors omit) + **live-editable any-domain persona** + **your-own-docs grounding** + **local/private/unlimited** practice.
+Scope is strictly the four new parts plus rolled-in deferred polish. See [FEATURES.md](FEATURES.md).
 
 **Must have (table stakes):**
-- Full streamed voice loop (mic→STT→LLM→TTS), first-sentence TTS — the product premise
-- Low voice-to-voice latency (P50 < 1.0s) — drives architecture, not a later add-on
-- Barge-in, semantic turn detection + open-mic VAD — natural turn-taking
-- Agent-state indicator + live two-sided transcript — users must know whose turn it is
-- Default Cybersecurity Trainer persona, voice selection, session controls, graceful failure
+- **A** Persistent Fast/Better selector, plain-language labels (hide tags), default Fast, session-persisted, next-turn swap without session teardown
+- **B** Growing interim transcript while speaking + ~100ms finalize + native punctuation/caps surfaced as-is
+- **C** Invisible STT placement decided once at session start (no GPU/CPU user choice, no thrash, no OOM)
+- **D** Default-OFF "Voice only / Avatar" toggle; audio-driven lip-sync tracking Kokoro; instant barge-in stop via existing interrupt
+- **SESS-01/02/03** New / reset / end (end clears ephemeral KB) · **SESS-04** transcript export (txt/md, labels+timestamps)
+- **REL-01** Graceful mic-permission-denied prompt · **REL-02** garbled/empty-transcription reprompt gate
 
-**Should have (competitive differentiators):**
-- Live-editable expert persona + behavior knobs (difficulty/verbosity/correction) — the signature flexibility
-- Ephemeral per-session KB (upload → distill → inline-cache) — grounded, private, no per-turn RAG
-- Interview Mode (ask → critique → **model answer**) — the teaching moment competitors miss
-- History management (sliding-window/summarize) — not user-facing, but protects the latency target
+**Should have (differentiators):**
+- **A** User-owned latency↔quality dial live in-session (no fixed-model local app offers this)
+- **B** True dictation-like streaming feel on a local English ASR
+- **D** Eye contact held while speaking AND listening (the interview point), persona→mood mapping, upper/head framing, persona↔GLB mapping
 
-**Defer (v2+):**
-- Post-session delivery coaching (filler words, pacing) — needs word-level timestamps; keep off the live path
-- Cloned trainer voice (VoxCPM), larger model on 24GB, saved persona library, true vector RAG, scoring rubric
+**Defer (v1.x / v2+):**
+- Per-persona model defaults; more avatar moods/gestures; user-selectable GLB per session; operator `att_context_size` profiles
+- Larger "Best" 24GB tier; Nemotron cyber-vocab fine-tune; multilingual STT; in-browser TTS / Path B; GLB redistribution bundle
 
 ### Architecture Approach
 
-Full design in **ARCHITECTURE.md**. A thin browser SPA (LiveKit SDK owns media; custom code owns UI state + a data-channel control protocol) connects through a self-hosted livekit-server SFU to a single Python agent worker. The worker hosts one `AgentSession` and layers persona, KB, history, and modes *over the same pipeline* — never as separate pipelines. All three models share one GPU via local HTTP.
+An *integration* document, not greenfield: map Parts A–D onto the verified six-service Compose / single `AgentSession` / `persona.update`-style RPC substrate. Parts A/B/C touch the server pipeline; **Part D must not** (its server diff is provably empty). The cleanest seams: a `model.update` RPC clone for A that mutates the LLM plugin in place; a single STT `base_url` for B with placement hidden in the sidecar; a pure livekit-free `agent/placement.py` for C resolved once in `entrypoint` before `build_session()`; a dynamic-imported, mount-gated `<AvatarStage>` for D. See [ARCHITECTURE.md](ARCHITECTURE.md) for verified file:line anchors and the New-vs-Modified inventory.
 
 **Major components:**
-1. **AgentSession (orchestrator)** — wires VAD→turn-detector→STT→LLM→TTS; streams every stage; barge-in cancel; emits state events.
-2. **Persona config** — renders to system prompt + Kokoro voice id; hot-swappable via `update_instructions` (accepts one-turn re-prefill cost).
-3. **KB distiller + inline-cache** — upload→parse→guard→distill once→inject once; relies on Ollama prefix/KV cache.
-4. **History manager** — sliding-window/summarize *behind* the frozen KB/persona prefix to keep prefill bounded.
-5. **Mode state machines** — Interview Mode is a constrained dialogue flow over the same pipeline, not a second stack.
-
-**The flat-TTFT invariant is the keystone architectural constraint.** Streaming makes turn latency `max(VAD,STT,LLM,TTS)` + first-sentence overhead, *not* the sum — but only if LLM TTFT stays flat across the session. Instrument TTFT per turn and assert it does not climb. If it climbs, either the prefix cache is being invalidated (volatile data in the prefix) or history isn't windowed. Everything else (KB caching, history management, prompt layout) exists to protect this invariant.
+1. **Part A — LLM selector** — NEW `web/app/ModelPanel.tsx` + `model.update` handler + `current_model` holder + two-tag env; mutate-in-place re-target (`[VERIFY]` the `update_options(model=)` setter)
+2. **Part B — Nemotron STT service** — NEW `nemo-stt` GPU Compose service + STT plugin rewire in `build_session()`; remove `whisper`
+3. **Part C — VRAM-aware placement** — NEW `agent/placement.py` (pure) + `nemo-stt-cpu` service + `STT_FORCE_CPU` flag + Compose profiles (`stt-gpu`/`stt-cpu`)
+4. **Part D — Avatar** — NEW `web/app/avatar/*` (TalkingHead + HeadAudio Path-A tap + client-side persona→GLB map); MODIFIES only `VoiceRoom.tsx` (toggle + gated mount)
+5. **Part E — Deployment** — NVIDIA Container Toolkit + GPU preflight doctor; existing `deploy.devices` blocks unchanged
 
 ### Critical Pitfalls
 
-Top items from **PITFALLS.md** (14 detailed, with phase mapping):
+Top risks from [PITFALLS.md](PITFALLS.md) (v1.1 set replaces v1.0; v1.0 pitfalls are now regression surfaces):
 
-1. **`min_endpointing_delay` is the single biggest P50 contributor** — its 500ms default is ~half the entire 1.0s budget. Lower it to ~250–350ms *under the semantic turn-detector's guard* (the model lets you be faster and safer simultaneously). Instrument every stage from day one; never ship with only one timer around the LLM.
-2. **KB prefix-cache invalidation** — Ollama's prefix cache requires a **byte-identical** prefix. Lay the prompt out as `[static persona] + [static KB brief] + [rolling history] + [new turn]`; freeze everything before history; put timestamps/turn-counters/mode-state at the very end or out of the prompt. A live persona edit re-prefills one turn (show "applying…") — never edit per turn. Verify empirically: turn-2 TTFT must drop sharply vs turn-1 with a large KB.
-3. **VRAM OOM on 16GB under load** — static math ignores KV-cache pre-allocation (`num_ctx` reserves VRAM upfront) + ~0.5–1GB CUDA overhead per process. Size `num_ctx` to the real worst case, enable Flash Attention + `q8_0` KV cache, plan ~12–13GB usable, add an `nvidia-smi` watchdog. The KB-load moment is peak memory.
-4. **Cold start / keep-alive eviction** — `keep_alive=-1`, warm all three models at session start, fire a KB priming turn while the user reads "ready."
-5. **Open-mic risks (false triggers + echo)** — enable browser AEC/noise-suppression in `getUserMedia`, tune Silero threshold, gate barge-in sensitivity during agent speech; recommend headphones. Plus the **HTTPS/LAN blocker**: `getUserMedia` only works in a secure context, so plain `http://192.168.x.x` breaks the mic entirely — plan HTTPS (mkcert) in Phase 0.
+1. **A1/A2/A3 — Community GGUF template drift + reasoning leak + sole-guardrail abliteration** — a wrong chat template degrades silently (`---`-repeat, KB-prefix byte drift); `reasoning_effort="none"` may not suppress baked-in reasoning (first-sentence TTS speaks "`<think>`"); abliteration removes the only refusal so the persona clause is the SOLE guardrail. **Avoid:** a single per-build A-gate — `ollama show --template` diff vs stock + raw-token artifact regex check across ≥20 reasoning-bait prompts + per-model red-team boundary probes; stock `gemma4` fallback ladder; pin by digest, not `:latest`.
+2. **B2 — RNNT decoder stall after sentence boundaries** — documented HF issue: transcript freezes ~2–3s and spoken content is lost on long run-on (interview) answers. **Avoid:** couple finalize to LiveKit's VAD/semantic endpoint (not decoder end-punctuation), add a watchdog that force-finalizes on K identical partials while VAD active, pin a mitigated NeMo version; fall to CPU-ONNX if unresolved.
+3. **C1 — 16GB co-residency OOM from static param math** — KV pre-alloc (`num_ctx=8192` upfront) + a 4th torch GPU process + fragmentation bust the budget at the KB-load prefill peak. **Avoid:** extend `scripts/vram-validate.sh` into a `{E2B,E4B}×{GPU-NeMo,CPU-ONNX}` peak-measurement matrix (q8_0 engaged, < total−1GB), record in STATE.md; adopt global CPU-ONNX if E4B×GPU-NeMo fails. **Operator gate — needs the real GPU.**
+4. **D1 — Avatar quietly touches the server** — lip-sync "wants" phoneme/timestamp data and the easy source is server-side, breaking byte-for-byte voice-only. **Avoid:** CI diff guard (`git diff -- agent/ stt/ tts/` must be empty for avatar changes) + byte-for-byte voice-only proof + identical server VRAM ON/OFF; Path A audio-driven only; reuse the existing interrupt (no second VAD).
+5. **B1 / DEPLOY1 — NeMo image bloat + GPU driver/CUDA mismatch** — `nemo_toolkit[all]` + first-run checkpoint download makes `compose up` look hung; consumer driver/CUDA mismatch breaks `--gpus all`. **Avoid:** `[asr]` extra + multi-stage + baked checkpoint + healthcheck/`start_period`; pin container CUDA ≤ host max; ship a preflight `nvidia-smi` doctor with exact remedy text; sub-spec/non-NVIDIA → force CPU-ONNX + Fast.
 
 ## Implications for Roadmap
 
-The build-order dependency chain from ARCHITECTURE.md is strict and non-negotiable — **each layer needs the one above working first**:
+Research strongly converges on a single ordering (ARCHITECTURE.md "Suggested Build Order"), chosen so each server change re-proves the latency/VRAM gates before the next stacks on, and the frontend-only avatar comes last so its "changed nothing server-side" claim is trivially auditable (empty server diff after step 4).
 
-> **bare voice loop → persona → KB → history → interview → polish**
+### Phase 1: Part A — LLM Speed Selector
+**Rationale:** Lowest risk; clones the verified `persona.update` RPC pattern; doesn't perturb the latency path's structure.
+**Delivers:** Two-tag env + extended pull/pin ladder with the per-build A-gate; `model.update` RPC + `current_model` holder; `ModelPanel.tsx`.
+**Addresses:** A. persistent Fast/Better picker, plain labels, next-turn swap, user-owned latency dial.
+**Avoids:** A1/A2/A3/A4 (template diff + raw-token artifact gate + per-model red-team + digest pin); Anti-Pattern 1 (mutate-in-place, never reassign `session.llm`).
 
-### Phase 0: Environment & Infrastructure
-**Rationale:** Several pitfalls are hard blockers that must be solved before any voice flows — HTTPS secure-context (Pitfall 12), VRAM config (Pitfall 9), keep-alive (Pitfall 3), and the metrics scaffold (Pitfall 1).
-**Delivers:** Docker Compose stack with GPU passthrough; HTTPS on LAN (mkcert); LiveKit network/ICE config; Ollama env (`keep_alive=-1`, `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=q8_0`, tightly-sized `num_ctx`); per-stage metric logging scaffold; **the deliberate model-tag decision** (gemma4:e4b vs gemma3:4b-it-qat) given the 9.6GB correction.
-**Avoids:** Pitfalls 1, 3, 9, 12.
+### Phase 2: Part B — Nemotron Streaming ASR Service + Rewire
+**Rationale:** Replaces a pipeline stage; must re-prove the STT latency budget before placement can be measured (C depends on B existing).
+**Delivers:** `nemo-stt` GPU service (baked checkpoint, healthcheck); STT plugin rewire in `build_session()`; vendored `LocalNemotronSTT` streaming plugin; remove `whisper`.
+**Uses:** NeMo + `nemotron-speech-streaming-en-0.6b`, OpenAI-compatible server, `att_context_size [56,3]`.
+**Avoids:** B1 (image diet), B2 (decoder-stall watchdog + endpoint-coupled finalize), B3 (non-overlapping cache-reuse loop, measured finalize/punct), B4 (interim emission + async, validated against v1.0 metrics).
 
-### Phase 1: Bare Voice Loop (hard MVP gate)
-**Rationale:** PROJECT.md mandates shipping this before anything else; everything downstream layers on it.
-**Delivers:** WebRTC client ↔ livekit-server ↔ agent worker with default-persona `AgentSession` (VAD→turn-detect→STT→LLM→TTS), fully streamed with first-sentence TTS; barge-in; agent-state pill; two-sided transcript.
-**Uses:** livekit-agents, faster-whisper sidecar, Ollama/Gemma (**thinking disabled**), Kokoro, Silero VAD, local `MultilingualModel`.
-**Addresses:** All table-stakes voice features.
-**Avoids:** Pitfalls 2 (first-sentence TTS gate), 4 + 5 (open-mic false triggers + echo), 6 (**tune `min_endpointing_delay`** — the biggest P50 lever), 13 (faster-whisper streaming settings), basic Pitfall 10 (initial history window).
+### Phase 3: Part C — VRAM-Aware STT Placement + CPU-ONNX Fallback
+**Rationale:** Needs B's service to exist and the consumer-GPU co-fit measurement to set its default.
+**Delivers:** `nemo-stt-cpu` service + `agent/placement.py` + `STT_FORCE_CPU` + Compose profiles; the co-residency matrix run on the target GPU; safe default set (global CPU-ONNX unless E4B+GPU-STT+Kokoro proves to co-fit).
+**Implements:** Part C placement resolver; single-`base_url` agent isolation.
+**Avoids:** C1 (measured matrix, not param math), C2 (resolve once, no migration path), C3 (CPU-ONNX benchmarked under contention).
 
-### Phase 2: Persona Layer
-**Rationale:** First behavioral layer over the working loop; cheapest high-value differentiator.
-**Delivers:** Persona config → system prompt + voice id; behavior knobs; live edit via data channel (`update_instructions` + voice swap) with "applying…" feedback.
-**Implements:** Persona config component (Architecture Pattern 2).
-**Avoids:** Pitfall 7 — establish the frozen-prefix prompt layout *here*, before KB depends on it.
+### Phase 4: Part E — Consumer-GPU Deployment
+**Rationale:** Folds in with C since C's default depends on the target-GPU measurement; drops Proxmox.
+**Delivers:** NVIDIA Container Toolkit path, GPU preflight doctor + clear failure message, `.env`/README shift, `agent.depends_on` updates.
+**Avoids:** DEPLOY1 (pinned CUDA + preflight), DEPLOY2 (VRAM/vendor detection → CPU-ONNX + Fast).
 
-### Phase 3: Knowledge Base Layer
-**Rationale:** Highest-complexity differentiator; depends on a stable prompt prefix from Phase 2. This is the peak-VRAM moment, so re-validate Phase 0 budgets here.
-**Delivers:** Upload (PDF/TXT/MD/DOCX) → parse → size guard → distill → inject once → KB-active indicator; ephemeral teardown.
-**Uses:** pymupdf/pymupdf4llm + python-docx; one setup-time LLM distillation pass.
-**Avoids:** Pitfall 7 (**prefix-cache-invalidation rule** — verify turn-2 TTFT ≪ turn-1), 8 (distillation drops fact anchors), 9 (re-check OOM at KB-load peak), 14 (document-parsing quality gate — reject scanned PDFs clearly).
+### Phase 5: Part D — Avatar (OPTIONAL, frontend-only, isolated)
+**Rationale:** LAST and isolated — the server pipeline must be frozen and proven before a frontend-only layer observes it, making the empty-server-diff claim auditable.
+**Delivers:** Dynamic-imported `<AvatarStage>` + HeadAudio Path-A tap + existing-interrupt barge-in + client-side persona→GLB map + default-OFF toggle; eye-contact/mood/framing bundle.
+**Avoids:** D1 (server-diff guard + byte-for-byte voice-only), D2 (no second VAD), D3 (Mixamo+ARKit-52+Oculus-15 blendshape assert), D4 (Meshopt/Draco + FPS floor + degrade-to-voice), D5 (no non-redistributable GLB bundled).
 
-### Phase 4: History Management
-**Rationale:** Can land alongside KB; needed once sessions run long. Protects the flat-TTFT invariant.
-**Delivers:** Sliding-window + async summarization placed *behind* the frozen KB/persona prefix.
-**Avoids:** Pitfall 10 (TTFT creep / `num_ctx` eviction) without busting the KB cache (Pitfall 7 tension).
-
-### Phase 5: Interview Mode
-**Rationale:** Behavioral state machine over the same pipeline; depends on persona + KB + a re-tuned slow-speech endpointing profile.
-**Delivers:** ask → listen → critique → model-answer → next; role picked at entry.
-**Avoids:** Pitfall 6 re-tune (deliberate "let me think…" speech), Pitfall 11 (E4B critique depth — rubric-structured prompts; document the 24GB fallback).
-
-### Phase 6: Polish
-**Delivers:** Session controls (new/reset/end), transcript export, graceful failure handling (mic-denial, garbled STT, KB failure), ephemeral-teardown audit.
+### Phase 6: Deferred v1.0 Polish (rolled in)
+**Rationale:** Slots after the pipeline is stable; REL-02 couples to Part B's finalize behavior.
+**Delivers:** SESS-01/02/03 (new/reset/end + ephemeral teardown incl. KB), SESS-04 export, REL-01 mic-denied, REL-02 garbled/empty reprompt, final P50<1.0s/P95<1.5s tuning for both LLMs.
+**Avoids:** POLISH1 (extend teardown to v1.1 state — LLM choice, decoder cache, avatar, placement — + privacy re-audit of the NeMo server).
 
 ### Phase Ordering Rationale
 
-- **Strict downward dependency:** the chain (voice loop → persona → KB → history → interview → polish) is dictated by ARCHITECTURE.md; each layer is testable only once the layer above works.
-- **Frozen-prefix layout must exist before KB:** persona (Phase 2) establishes the byte-stable prompt layout that KB caching (Phase 3) depends on — building KB first would force a rework.
-- **Metrics + VRAM + HTTPS go to Phase 0:** they are blockers or cheap-now/expensive-later, and the flat-TTFT invariant can't be defended without per-stage instrumentation existing from turn one.
-- **Endpointing tuning recurs:** set in Phase 1, re-tuned in Phase 5 (interview slow-speech differs) — it's the largest single P50 contributor, so it earns explicit attention twice.
+- **A before B** — A is a contained RPC clone; B restructures the latency path, so prove A's flat-TTFT first.
+- **B before C** — placement cannot be measured without the NeMo service existing.
+- **C with/before E** — the consumer-GPU co-fit measurement sets C's safe default; E's hardware detection feeds C.
+- **D strictly last** — server frozen after step 4 ⇒ Part D's server diff is provably empty.
+- **Polish after the pipeline is stable** — REL-02 builds on B's finalize, teardown must cover all new v1.1 state.
 
 ### Research Flags
 
-Phases likely needing deeper research during planning:
-- **Phase 0:** Confirm Gemma 4 is on Ollama's flash-attn allowlist (else `q8_0` silently falls back to F16, breaking the VRAM budget); validate the local `MultilingualModel` path and LiveKit ICE/`node_ip` config on the Proxmox VM.
-- **Phase 3:** KB distillation quality — fact-anchor preservation and the size-vs-fidelity threshold; document-parser selection for scanned/multi-column/encoding edge cases.
-- **Phase 5:** Whether E4B critique meets a feedback-quality bar; define the model-by-mode / 24GB swap trigger.
+Phases likely needing deeper research/verification during planning:
+- **Phase 1 (A):** `[VERIFY]` `session.llm.update_options(model=)` exists in the installed `livekit-plugins-openai` (introspect; fallback = reassign + `metrics.reattach_llm()`). The A-gate harness design (raw-token capture + red-team set) is net-new.
+- **Phase 2 (B):** `[VERIFY]` the exact LiveKit Nemotron/`openai.STT` plugin shape and interim/final contract; reproduce + mitigate the B2 RNNT stall; tune `att_context_size` on a dev-set.
+- **Phase 3 (C):** **Operator gate** — co-residency matrix MUST be captured on the real consumer GPU (sandbox has no GPU/Docker). CPU-ONNX port sourcing is MEDIUM (community, not first-party).
+- **Phase 5 (D):** GLB rig/blendshape validation + licensing per persona; consumer-laptop FPS validation.
 
 Phases with standard patterns (lighter research):
-- **Phase 2 (persona):** straightforward system-prompt assembly + `update_instructions`.
-- **Phase 6 (polish):** conventional UI/session lifecycle work.
+- **Phase 4 (E):** Well-documented NVIDIA Container Toolkit setup; existing compose blocks already correct.
+- **Phase 6 (Polish):** Mostly known v1.0 deferrals; main novelty is auditing the v1.1 state teardown.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All versions verified against live PyPI / Ollama / Docker Hub / official docs (June 2026); three PRD corrections explicitly resolved. |
-| Features | HIGH | Grounded in named comparables (Yoodli, Interview Warmup, Speak/Talkpal/Langua) + platform guidance. |
-| Architecture | HIGH | LiveKit `AgentSession` 1.x pipeline + Ollama caching well-documented; persona/KB layering is project-specific design on confirmed primitives. |
-| Pitfalls | HIGH | Stack-specific behaviors verified; a few VRAM numbers are estimates flagged inline. |
+| Stack | HIGH | Ollama tags, NeMo serving path, LiveKit STT integration, TalkingHead/HeadAudio, consumer-GPU passthrough all verified live June 2026. MEDIUM only on exact 4-bit ONNX CPU port sourcing (community export). |
+| Features | HIGH | Grounded in TalkingHead/HeadAudio API surface, Nemotron streaming semantics, LiveKit interrupt model, ASR partial/final UX precedent, model-selector product precedent. |
+| Architecture | HIGH | Verified against real agent/web/compose code (file:line anchors). MEDIUM `[VERIFY]` on two installed-API signatures (LLM model setter, Nemotron STT plugin shape) — sandbox cannot import livekit. |
+| Pitfalls | HIGH | Verified against the Nemotron model card + open RNNT-stall discussion, Ollama/GGUF template-drift threads, TalkingHead rig requirements, NVIDIA Container Toolkit tracker. VRAM numbers are estimates flagged for per-GPU measurement. |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **Gemma 4 flash-attn allowlist + KV-quant sensitivity:** if Gemma 4 isn't on the allowlist, `q8_0` silently reverts to F16 and the 16GB budget breaks. Validate empirically in Phase 0 before committing to `gemma4:e4b`.
-- **Local turn-detector longevity:** the local `MultilingualModel` is officially deprecated (cloud is the steer). Pin it for v1; track LiveKit's open-weight local v1-mini as the eventual replacement.
-- **E4B coaching depth:** unresolved until tested in Interview Mode — gate the phase on a strong-vs-weak-answer check; keep the 24GB larger-model swap behind LiveKit's interface.
-- **faster-whisper word-level timestamps:** confirm exposed before committing v2 delivery coaching.
+- **`update_options(model=)` setter existence** — introspect the installed plugin first thing in Phase 1; ship the reassign+`reattach_llm` fallback if absent.
+- **CPU-ONNX port production-readiness + WER/latency on the real CPU** — community export; benchmark on target CPU under contention (Phase 3); int8-dynamic (~0.88GB) is the lower-risk alternative to int4 (~0.67GB).
+- **16GB co-residency peak** — must be measured on the consumer GPU (operator gate); global CPU-ONNX is the safe default until the matrix proves a GPU split fits.
+- **RNNT decoder-stall mitigation durability** — track upstream HF discussion; CPU-ONNX is the structural fallback if the stall persists.
+- **Per-build chat-template/thinking/guardrail validity of mutable `:latest` community tags** — A-gate + digest pin; `igorls/gemma-4-E4B-it-heretic-GGUF` is a documented lower-risk Better alternative.
+- **GLB blendshape rig + licensing per persona** — validate at config time (Mixamo+ARKit-52+Oculus-15); ship only redistribution-cleared assets.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- Ollama library — `gemma4` page (verified `e4b`=9.6GB, `26b`=18GB, thinking mode, sampling params), `gemma3n:e4b`=7.5GB, `gemma3` tags
-- PyPI — `livekit-plugins-turn-detector` (deprecation notice, local CPU <500MB), `livekit-plugins-openai`, `markitdown` 0.1.6
-- LiveKit docs — Ollama plugin (`with_ollama`), OpenAI-compatible LLM/STT/TTS (`base_url`), turn detection (VAD/endpointing/model), `AgentSession`/events, noise & echo cancellation, self-hosting
-- LiveKit blogs — sequential pipeline `max(...)` model + barge-in; transformer end-of-turn detection (`min_endpointing_delay` default 500ms)
-- GitHub — `livekit/agents` (`with_ollama`, `AgentSession`), `livekit/livekit` CHANGELOG (server v1.10.1), `SYSTRAN/faster-whisper` v1.2.1, `remsky/Kokoro-FastAPI`
-- Ollama docs — `OLLAMA_FLASH_ATTENTION`, `OLLAMA_KV_CACHE_TYPE` (q8_0 needs flash attn), keep-alive, prefix caching byte-match + `num_ctx` pre-allocation
-- MDN — getUserMedia secure-context (HTTPS/localhost) requirement
-- Competitor sources — Yoodli, Google Interview Warmup, Speak/Talkpal/Langua; Telnyx/Inworld latency guidance
+- Ollama library — `evalengine/unbound-e2b`, `defyma85/…heretic-Q4_K_M`, `gemma4:e2b/e4b` (sizes, ctx, licenses, Modelfile defaults) — fetched June 2026
+- HF `nvidia/nemotron-speech-streaming-en-0.6b` model card + discussion #5 (RNNT decoder stall) + #6 (no official quant)
+- LiveKit blog "Multilingual speech-to-text on your laptop" + `ShayneP/local-teleprompter` (NeMo serving, `openai.STT` finalize + `LocalNemotronSTT` streaming)
+- GitHub `met4citizen/talkinghead` + `HeadAudio` README + `examples/minimal.html` (three@0.180.0 importmap, Path-A worklet, rig/blendshape requirements)
+- Docker Compose GPU docs + NVIDIA Container Toolkit install (`deploy.resources.reservations.devices`, `nvidia-ctk runtime configure`)
+- Real repository code — `agent/main.py`, `agent/persona.py`, `agent/metrics.py`, `docker-compose.yml`, `web/app/*`, `ollama/*`, `scripts/vram-validate.sh` (verified file:line integration anchors)
 
 ### Secondary (MEDIUM confidence)
-- LiveKit blog "Solving end-of-turn detection v1" — cloud-default for new turn detector; local v1-mini open weights (confirm local execution before relying on it)
-- KV-cache quantization (q8_0/q4_0) high-attention-head sensitivity notes — verify Gemma 4 behaves
+- HF `danielbodart/nemotron-speech-600m-onnx` (int8-dynamic ~0.88GB CPU) — exists/loads HIGH, production-readiness MEDIUM
+- Microsoft Foundry Local int4 (~0.67GB) + arXiv 2604.14493 — matches PROJECT's number; needs Foundry 1.1.x SDK + manual transcribe path
+- GitHub `pmarreck/gemma4-heretical` + HF discuss threads — community Gemma-4 GGUF wrong-template `---`-repeat failure and `RENDERER/PARSER gemma4` fix
+- Streaming-ASR UX (Deepgram, AssemblyAI, Forasoft 2026); model-selector precedent (ChatGPT, Perplexity, Copilot)
 
-### Tertiary (LOW confidence)
-- VRAM point estimates (per-process CUDA overhead, Kokoro 2–3GB) — flagged inline; validate with `nvidia-smi` under real load
+### Tertiary (LOW confidence / needs validation)
+- Installed `livekit-plugins-openai` LLM `update_options(model=)` setter signature — `[VERIFY]` by introspection in Phase 1
+- Exact LiveKit Nemotron STT plugin shape vs `openai.STT` repoint — `[VERIFY]` against installed packages
+- Per-consumer-GPU VRAM co-residency peaks — operator measurement required
 
 ---
-*Research completed: 2026-06-24*
+*Research completed: 2026-06-26*
 *Ready for roadmap: yes*
