@@ -1,6 +1,7 @@
 "use client";
 
 import { LiveKitRoom, RoomAudioRenderer, StartAudio } from "@livekit/components-react";
+import dynamic from "next/dynamic";
 import { useState } from "react";
 import AgentStatePill from "./AgentStatePill";
 import InterviewPanel from "./InterviewPanel";
@@ -8,6 +9,11 @@ import KbPanel from "./KbPanel";
 import ModelPanel from "./ModelPanel";
 import PersonaPanel from "./PersonaPanel";
 import Transcript from "./Transcript";
+
+// Dynamic-import the OPTIONAL 3D avatar so it is ABSENT from the voice-only bundle
+// (AVTR-01). ssr:false: WebGL/TalkingHead is browser-only. When the toggle is OFF the
+// component is unmounted, which runs AvatarStage's full teardown cleanup.
+const AvatarStage = dynamic(() => import("./AvatarStage"), { ssr: false });
 
 // Browser-visible LiveKit WS endpoint (Caddy 7443 vhost → livekit-server:7880).
 const SERVER_URL = process.env.NEXT_PUBLIC_LIVEKIT_URL!;
@@ -30,6 +36,8 @@ const AUDIO_CAPTURE_DEFAULTS = {
 export default function VoiceRoom() {
   const [token, setToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Default OFF = Voice only. Flipping ON mounts the dynamic-imported avatar (AVTR-01).
+  const [avatarOn, setAvatarOn] = useState(false);
 
   if (!token) {
     return (
@@ -81,7 +89,48 @@ export default function VoiceRoom() {
     >
       <RoomAudioRenderer />
       <StartAudio label="Click to enable audio" />
-      <AgentStatePill />
+      <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+        <AgentStatePill />
+        {/* Default-OFF "Voice only / Avatar" toggle (AVTR-01). Audio always plays
+            normally via <RoomAudioRenderer/> regardless of this toggle (AVTR-02). */}
+        <div
+          role="group"
+          aria-label="Voice only / Avatar"
+          style={{
+            display: "inline-flex",
+            borderRadius: "999px",
+            overflow: "hidden",
+            border: "1px solid #30363d",
+            fontSize: "0.85rem",
+          }}
+        >
+          {([
+            ["Voice only", false],
+            ["Avatar", true],
+          ] as const).map(([label, on]) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => setAvatarOn(on)}
+              style={{
+                padding: "0.25rem 0.75rem",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: 600,
+                background: avatarOn === on ? "#58a6ff" : "transparent",
+                color: avatarOn === on ? "#0b0f14" : "#8b949e",
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {avatarOn && (
+        <div style={{ width: "100%", height: "360px", marginTop: "1rem" }}>
+          <AvatarStage />
+        </div>
+      )}
       <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start", marginTop: "1rem" }}>
         <PersonaPanel />
         <InterviewPanel />
