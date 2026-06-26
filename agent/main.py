@@ -143,11 +143,17 @@ MODEL_CHOICES = ("fast", "better")
 DEFAULT_MODEL_CHOICE = "fast"
 _MODEL_ENV = {"fast": "OLLAMA_MODEL_FAST", "better": "OLLAMA_MODEL_BETTER"}
 
-# Live hot-path num_predict cap (LLM-04 "capped num_predict"). Sized to the
+# Live hot-path generation cap (LLM-04 "capped num_predict"). Sized to the
 # SPOKEN_STYLE_FOOTER "a sentence or two at a time" budget (persona.py:71) — it
-# bounds runaway generation uniformly on BOTH models. with_ollama does NOT accept
-# max_completion_tokens, so it is set on _opts after construction (RESEARCH §1.5);
-# chat() forwards max_completion_tokens → OpenAI → Ollama num_predict when given.
+# bounds runaway generation uniformly on BOTH models.
+#
+# WIRE FORMAT (Phase-8 Gate C finding, Ollama 0.30.10): Ollama's OpenAI-compat
+# /v1/chat endpoint honors the top-level `max_tokens` field and IGNORES
+# `max_completion_tokens`. The earlier code set `_opts.max_completion_tokens`,
+# which the plugin faithfully forwards — but Ollama drops it, so the cap was a
+# silent NO-OP (a verbose model ran to 1892 tokens on a "count to 500" probe).
+# The fix sets `_opts.extra_body = {"max_tokens": CAP}`; the plugin forwards
+# extra_body verbatim into the request body, landing the cap where Ollama reads it.
 LIVE_NUM_PREDICT_CAP: int = 256
 
 
@@ -378,13 +384,16 @@ async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
     session = build_session(ctx.proc.userdata["vad"])
     metrics.attach(session)
-    # Live num_predict cap (LLM-04) — the SINGLE site it is set, applied exactly
-    # once at startup. with_ollama does NOT accept max_completion_tokens, so the
-    # live hot-path LLM otherwise caps NOTHING (only warmup/distill cap num_predict
-    # off the hot path). Set it here, where session.llm is reachable, to close that
-    # pre-existing gap; chat() forwards max_completion_tokens → Ollama num_predict.
-    # Applies equally to BOTH models and survives the in-place _opts.model swap.
-    session.llm._opts.max_completion_tokens = LIVE_NUM_PREDICT_CAP
+    # Live generation cap (LLM-04) — the SINGLE site it is set, applied exactly
+    # once at startup. with_ollama does NOT accept the cap, so the live hot-path LLM
+    # otherwise caps NOTHING (only warmup/distill cap num_predict off the hot path).
+    # Set it here, where session.llm is reachable, to close that pre-existing gap.
+    # MUST go through extra_body's `max_tokens`, NOT `max_completion_tokens`: Ollama
+    # 0.30's /v1 ignores the latter (Phase-8 Gate C finding) — the plugin forwards
+    # extra_body verbatim, so this lands the cap where Ollama actually reads it.
+    # Applies equally to BOTH models and survives the in-place _opts.model swap
+    # (extra_body lives in the same _opts the swap mutates only .model on).
+    session.llm._opts.extra_body = {"max_tokens": LIVE_NUM_PREDICT_CAP}
     # Named local ref (was inline): 03-02's RPC handler will close over `agent` to
     # hot-swap the persona via agent.update_instructions(...) without a restart.
     # render_prompt(DEFAULT_PERSONA, "") is byte-identical to the old

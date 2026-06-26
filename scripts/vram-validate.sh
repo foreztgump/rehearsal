@@ -133,11 +133,22 @@ assert_kv_quant_engaged() {
   logs="$(docker compose logs "${OLLAMA_CONTAINER}" 2>/dev/null || docker logs "${OLLAMA_CONTAINER}" 2>/dev/null || true)"
   [ -n "${logs}" ] || fail "could not read ollama container logs to verify KV quant"
 
+  # NOTE: grep the captured logs via a here-string (`<<<`), NOT `echo "$logs" | grep -q`.
+  # Under `set -o pipefail` with a large log, `grep -q` closes the pipe on first match,
+  # the upstream `echo` takes SIGPIPE (exit 141), and pipefail propagates that 141 — so
+  # a TRUE match read as a (non-zero) MISS. The here-string removes the pipe entirely.
+  # (Latent bug surfaced when the 0.30.x engine bump enlarged the logs — Phase 8.)
+  #
   # A silent F16 fallback emits a warning that flash-attn/KV-quant was not used.
-  if echo "${logs}" | grep -iqE 'flash.?attention.*(disabled|not enabled|unavailable)|kv.?cache.*f16.*fallback|requested .*q8_0.*falling back'; then
+  # (Negative-evidence guard: covers both 0.6.x and 0.30.x phrasings.)
+  if grep -iqE 'flash.?attention.*(disabled|not enabled|unavailable)|flash_attn[ ]*=[ ]*disabled|kv.?cache.*f16.*fallback|requested .*q8_0.*falling back|cache.?type.*f16' <<< "${logs}"; then
     fail "q8_0 KV cache fell back to F16 (gemma4 off the flash-attn allowlist) — 16GB budget broken. Fall back to a smaller num_ctx or the gemma3:4b-it-qat rung."
   fi
-  if echo "${logs}" | grep -iqE 'flash.?attention.*enabl|kv.?cache.?type.*q8_0|using q8_0'; then
+  # Positive evidence. 0.6.x logged 'flash attention enabled' / 'kv cache type q8_0';
+  # 0.30.x (Phase-8 engine bump) logs 'flash_attn = enabled', the per-cache
+  # 'K (q8_0)' / 'V (q8_0)' buffer lines, and the runner cmd flags
+  # '--cache-type-k q8_0 --cache-type-v q8_0 --flash-attn on'. Accept any of them.
+  if grep -iqE 'flash.?attention.*enabl|flash_attn[ ]*=[ ]*enabled|kv.?cache.?type.*q8_0|using q8_0|[KV] \(q8_0\)|cache-type-[kv][ ]+q8_0' <<< "${logs}"; then
     echo "q8_0 KV engaged" >&2
     return 0
   fi
