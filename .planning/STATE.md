@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Local-First Pipeline Swap + Avatar
-current_phase: 08
-current_phase_name: llm-speed-selector-part-a
-status: shipped
-stopped_at: Phase 8 shipped (local-only repo — no PR); all 5 operator gates signed, VERIFICATION.md passed
-last_updated: "2026-06-26T18:40:00.000Z"
+current_phase: 09
+current_phase_name: nemotron-streaming-asr-part-b
+status: code-complete-operator-gate-pending
+stopped_at: Phase 9 code-complete; 09-STT-VERIFY.md GPU gate unsigned (no GPU/Docker in sandbox — mirrors Phase 8 pre-operator-sign)
+last_updated: "2026-06-26T20:10:00.000Z"
 last_activity: 2026-06-26
-last_activity_desc: "Phase 8 SHIPPED: 5 operator gates signed on RTX 5090 (1/A/C/D PASS, B risk-accepted); VERIFICATION.md + UAT status → passed. Whisper cold-start fixed (WHISPER__TTL=-1). Next: plan Phase 9 (Part B — Nemotron STT)."
+last_activity_desc: "Phase 9 CODE-COMPLETE: faster-whisper fully removed, nemo-stt FastAPI WS server + NemoSTT streaming plugin wired; STTMetrics emit so stt_ms non-null; code review (1C/2H fixed +4M/2L) clean; 09-VERIFICATION.md verdict code-complete. 6 GPU gates deferred in 09-STT-VERIFY.md (pending-operator). Next: Phase 10 (Part C VRAM-aware STT placement)."
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 4
+  completed_plans: 4
   percent: 33
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-25)
 
 **Core value:** The user can hold a natural spoken conversation with a credible expert persona at voice-to-voice latency that feels live (P50 < 1.0s) — practicing speaking a domain out loud.
-**Current focus:** Phase 08 — llm-speed-selector-part-a
+**Current focus:** Phase 09 — nemotron-streaming-asr-part-b
 
 ## Current Position
 
-Phase: 08 (llm-speed-selector-part-a) — SHIPPED
-Plan: 2 of 2
-Status: COMPLETE. All 5 operator gates signed on RTX 5090 — Gate 1/A/C/D PASS, Gate B FAIL→risk-accepted (operator-approved, document-only). Gate C live mid-TTS swap confirmed by operator on http://localhost:3000. VERIFICATION.md + 08-UAT.md status → passed. Local-only repo (no remote) so no PR — shipped via state close. Deployment is zero-cert localhost (commit 615a6e7).
-Last activity: 2026-06-26 — Phase 8 closed; whisper STT cold-start drop fixed (WHISPER__TTL=-1, commit 06920c5). Next: `/gsd-plan-phase 9` (Part B — Nemotron STT).
+Phase: 09 (nemotron-streaming-asr-part-b) — CODE-COMPLETE, operator GPU gate pending
+Plan: 2 of 2 (09-01 server/compose, 09-02 plugin/agent wiring) — both executed
+Status: CODE-COMPLETE. faster-whisper fully removed (compose service, agent code, warmup.py, vram-validate.sh, README). New `nemo-stt` FastAPI websocket NeMo streaming server (stt/server.py, Dockerfile, requirements) keep-resident, /health-gated; `NemoSTT`/`NemoSpeechStream` true streaming plugin (agent/nemo_stt.py) wired into build_session replacing openai.STT. The load-bearing STTMetrics emit in `_emit_final` keeps stt_ms non-null. att_context_size knob (STT_ATT_CONTEXT_SIZE default [56,3]) + cyber-vocab fine-tune hook. Code review: 1 Critical (decoder state not reset per turn) + 2 High (WS frame robustness) FIXED, +4 Medium +2 Low; 2 Low skipped out-of-scope. 09-VERIFICATION.md verdict: code-complete with operator gate pending (STT-01..04 satisfied-in-code, PERF-04 operator-gated). Single-source no-hardcoded-tag, metrics.py-untouched, endpoint-authority-unchanged invariants all HOLD. 6 GPU gates UNSIGNED in 09-STT-VERIFY.md (status pending-operator).
+Last activity: 2026-06-26 — Phase 9 executed (commits 7efb550..3a6d849). Next: discuss+plan+execute Phase 10 (Part C — VRAM-aware STT placement).
 
 ## Performance Metrics
 
@@ -73,6 +73,8 @@ Last activity: 2026-06-26 — Phase 8 closed; whisper STT cold-start drop fixed 
 | Phase 06 P02 | 9 min | 3 tasks | 3 files |
 | Phase 08 P01 | 18 min | 4 tasks | 4 files |
 | Phase 08 P02 | 12 min | 3 tasks | 3 files |
+| Phase 09 P01 | — | 5 tasks | 5 files |
+| Phase 09 P02 | — | 4 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -112,6 +114,8 @@ None yet.
 - [RESOLVED 2026-06-26 — Phase 8 Gate D] Two `scripts/vram-validate.sh` fixes needed for the bumped engine: (1) positive KV matcher only knew 0.6.x phrasing — extended to accept 0.30.x `flash_attn = enabled` / `K (q8_0)`/`V (q8_0)` / `--cache-type-k q8_0` runner flags; (2) LATENT pipefail/SIGPIPE bug surfaced by the larger 0.30 logs — `echo "$logs" | grep -q` under `set -o pipefail` read a TRUE match as a MISS (grep closes pipe → echo SIGPIPE 141 → pipefail propagates); switched to here-string `grep <<< "$logs"`. Both tags now PASS Gate D: Fast 7408 MB, Better 8912 MB, q8_0 engaged, 3 GPU procs (after `restart ollama` between tags to clear keep_alive=-1 pinned models).
 - [RESOLVED 2026-06-26 — Phase 8 whisper STT cold-start, commit 06920c5] Gate C live retry: agent stuck at "Listening" after talking, despite a healthy WebRTC connect (signal connected, track published). Agent logs showed `stt_ms: null` on every turn — no transcription. ROOT CAUSE: `fedirz/faster-whisper-server` defaults to `WHISPER__TTL=300`, OFFLOADING the `Systran/faster-whisper-large-v3` model after 300s idle and paying a ~60s cold reload on the next utterance; the speaker's first turn is silently dropped during reload (the earlier `docker compose up` that removed the proxy had restarted whisper, which then idled out). FIXED: added `WHISPER__MODEL` + `WHISPER__TTL=-1` to the whisper service in docker-compose.yml — pins the model resident forever (mirrors `OLLAMA_KEEP_ALIVE=-1`), correct for a single-user local tool. Confirmed via log `is idle, not unloading`. Operator re-ran Gate C successfully ("it is working now"). Lesson saved (lsn_ed652180c3212c1a). NOT an open action item.
 - [RESOLVED 2026-06-26 — Phase 8 SHIPPED] All five deferred operator gates signed on the RTX 5090. Final verdict PASS: Gate 1 (swap-surface) PASS, Gate A (verify-build both tags) PASS, Gate B (persona red-team) FAIL→RISK ACCEPTED (document-only), Gate C (live mid-TTS swap + cap) PASS, Gate D (q8_0 KV both tags) PASS. `08-VERIFICATION.md` status human_needed→passed (resolution section appended; original audit body untouched), `08-UAT.md` status testing→passed (4 passed / 1 risk-accepted / 0 blocking gaps). Local-only repo (no `origin` remote) so `/gsd-ship`'s PR path N/A — shipped via state-close. STATE frontmatter: status executing→shipped, completed_phases 1→2, percent 17→33. NEXT: `/gsd-plan-phase 9` (v1.1 Part B — Nemotron STT) per build order 8→9→10→11→12→13.
+- [Phase 9 / 09-02] Operator GPU gates PENDING in `09-STT-VERIFY.md` (status: pending-operator) — run on the consumer RTX 5090 after `docker compose build nemo-stt agent && up -d`: Gate 1 `conformer_stream_step` signature confirmation vs in-container NeMo; Gate 2 Blackwell sm_120 torch (no "no kernel image" — Kokoro-class); Gate 3 live growing-interim + native PnC + ~100ms finalize + `stt_ms` non-null; Gate 4 voice-to-voice P50<1.0s (PERF-04 headline); Gate 5 RNNT stall watchdog no-premature-FINAL on a run-on; Gate 6 VRAM co-residency (3 procs ollama/nemo-stt/kokoro under 16GB with +2.4GB model). NONE marked passed by the executor. `stt_ms` semantics PINNED = finalize latency (flush→final). Sandbox has no GPU/Docker/NeMo so all 6 are legitimately deferred (mirrors Phase 8 pre-operator-sign).
+- [Phase 9 design note] Endpoint authority UNCHANGED: Silero VAD + MultilingualModel turn detector remain sole finalize authority; the nemo-stt server NEVER auto-finalizes (stall watchdog recycles decoder state, no FINAL) — FINAL only on the agent's `flush` (turn-detector-driven). Per-turn decode state resets on flush (C1 fix) so each FINAL is that turn only, not cumulative-session.
 - [RESOLVED 2026-06-26 — deployment simplification, commit 615a6e7] Gate C live-test surfaced an ICE/WebRTC connect failure in Firefox ("could not establish pc connection") even on-box. Root cause PROVEN via headless Chromium over CDP (Chromium connected over the identical stack, Firefox did not): **Firefox refuses loopback ICE by default** (`media.peerconnection.ice.loopback=false`) and silently drops the server's `127.0.0.1` host candidate. Initial fix advertised the LAN IP — but that's wrong for a local-first tool. FINAL FIX (user-directed): **removed the TLS reverse proxy (Caddy + mkcert) entirely from the default stack.** The whole TLS chain existed ONLY to give the mic a secure context over `https://<lan-ip>`; `localhost` is ALREADY a secure context, so mic + WebRTC work over plain `http://localhost` with NO certs. `proxy` service deleted (docker-compose.yml, 7→6 services); `NEXT_PUBLIC_LIVEKIT_URL` → `ws://localhost:7880`; `livekit.yaml node_ip` back to `127.0.0.1`. mkcert/Caddy reframed as OPTIONAL for serving OTHER LAN devices (`certs/README.md`, `proxy/Caddyfile`, README "Serving other LAN devices (optional TLS)"). Verified end-to-end via CDP against `http://localhost:3000`: ICE paired on `ws://localhost:7880`, agent joined room, TTS reply generated, all on the RTX 5090. Default install is now `cp .env.example .env && docker compose up` → open `http://localhost:3000` in Chromium. KNOWN: Firefox local use still needs the `about:config` loopback pref (we recommend Chromium instead); the Firefox-global pref I briefly set was reverted on user direction. Also bumped livekit-server v1.10.0→v1.10.1 (v1.10.0 mis-formats the embedded-TURN NodeIP URL). NOT an open action item.
 
 ## Deferred Items
@@ -132,14 +136,14 @@ Acknowledged at v1.0-rc1 close (2026-06-26) and carried into Phase 7 / v1.0:
 
 ## Session Continuity
 
-Last session: 2026-06-26T06:32:57.364Z
-Stopped at: Completed 08-02-PLAN.md
+Last session: 2026-06-26T20:10:00.000Z
+Stopped at: Phase 9 code-complete (09-01 + 09-02 executed, reviewed, fixed, verified); 09-STT-VERIFY.md pending-operator
 Resume file: None
 
 ## Operator Next Steps
 
 - v1.1 roadmap created (Phases 8-13). The unstarted v1.0 Phase 7 is SUPERSEDED — its SESS/REL/latency scope is folded into v1.1 Phase 13. Do not plan a standalone Phase 7.
-- Begin v1.1 by planning Phase 8 (LLM Speed Selector / Part A): `/gsd-plan-phase 8`
-- v1.1 build order: 8 (Part A LLM) → 9 (Part B Nemotron STT) → 10 (Part C placement) → 11 (Part E deployment) → 12 (Part D avatar, frontend-only/isolated) → 13 (rolled-in polish + final latency tuning).
+- Phase 9 is CODE-COMPLETE. When on the RTX 5090: `docker compose build nemo-stt agent && docker compose up -d`, then walk the 6 gates in `09-STT-VERIFY.md` (expect the multi-GB nemo-stt image build + first conformer_stream_step signature confirmation). Sign each gate result table when passed.
+- v1.1 build order: 8 (Part A LLM) ✓ → 9 (Part B Nemotron STT) ✓ code-complete → 10 (Part C placement) → 11 (Part E deployment) → 12 (Part D avatar, frontend-only/isolated) → 13 (rolled-in polish + final latency tuning).
 - Two phases carry operator GPU gates verifiable only on the real consumer GPU: Phase 10 (16GB co-residency matrix, global-CPU-ONNX default) and Phase 13 (PERF-04 P50<1.0s for both LLMs).
 - Operator-gated VM proofs from v1.0 remain (KB flat-TTFT, three-models-under-16GB, P50<1.0s, interview strong-vs-weak critique) — run the documented runbooks on the target GPU when available.

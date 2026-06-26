@@ -38,8 +38,8 @@ Phase 7 was defined in the v1.0 plan but **never started** (0/2 plans). Its scop
 
 ### 🚧 v1.1 Local-First Pipeline Swap + Avatar (In Progress)
 
-- [ ] **Phase 8: LLM Speed Selector (Part A)** — Two user-selectable Ollama models with per-build verification and the sole-guardrail persona check
-- [ ] **Phase 9: Nemotron Streaming ASR (Part B)** — Replace faster-whisper with NeMo streaming STT behind a local server
+- [x] **Phase 8: LLM Speed Selector (Part A)** — Two user-selectable Ollama models with per-build verification and the sole-guardrail persona check
+- [x] **Phase 9: Nemotron Streaming ASR (Part B)** — Replace faster-whisper with NeMo streaming STT behind a local server *(code-complete; GPU gate pending-operator)*
 - [ ] **Phase 10: VRAM-Aware STT Placement (Part C)** — GPU-NeMo vs CPU-ONNX resolved once at session start, with global-CPU-ONNX fallback
 - [ ] **Phase 11: Consumer-GPU Deployment (Part E)** — `docker compose up` on the user's machine with GPU detection/preflight doctor
 - [ ] **Phase 12: Optional 3D Avatar (Part D, frontend-only)** — TalkingHead Path-A avatar that must not touch the server pipeline
@@ -156,8 +156,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → ~~7 (supers
 | 5. History Management | v1.0-rc1 | 1/1 | Complete | 2026-06-26 |
 | 6. Interview Mode | v1.0-rc1 | 2/2 | Complete | 2026-06-26 |
 | 7. Polish & Reliability | — | — | Superseded → folded into Phase 13 | - |
-| 8. LLM Speed Selector (Part A) | v1.1 | 1/2 | In Progress|  |
-| 9. Nemotron Streaming ASR (Part B) | v1.1 | 0/? | Not started | - |
+| 8. LLM Speed Selector (Part A) | v1.1 | 2/2 | Complete | 2026-06-26 |
+| 9. Nemotron Streaming ASR (Part B) | v1.1 | 2/2 | Code-complete (GPU gate pending) | 2026-06-26 |
 | 10. VRAM-Aware STT Placement (Part C) | v1.1 | 0/? | Not started | - |
 | 11. Consumer-GPU Deployment (Part E) | v1.1 | 0/? | Not started | - |
 | 12. Optional 3D Avatar (Part D) | v1.1 | 0/? | Not started | - |
