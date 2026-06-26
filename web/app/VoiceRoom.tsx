@@ -3,6 +3,7 @@
 import { LiveKitRoom, RoomAudioRenderer, StartAudio } from "@livekit/components-react";
 import { useState } from "react";
 import AgentStatePill from "./AgentStatePill";
+import InterviewPanel from "./InterviewPanel";
 import KbPanel from "./KbPanel";
 import PersonaPanel from "./PersonaPanel";
 import Transcript from "./Transcript";
@@ -82,6 +83,7 @@ export default function VoiceRoom() {
       <AgentStatePill />
       <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start", marginTop: "1rem" }}>
         <PersonaPanel />
+        <InterviewPanel />
         <KbPanel />
         <Transcript />
       </div>
