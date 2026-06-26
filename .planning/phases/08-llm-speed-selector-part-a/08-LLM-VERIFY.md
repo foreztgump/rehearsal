@@ -149,29 +149,30 @@ Better→`gemma4:e4b`) and re-run `verify-build.sh` against the stock tag. Recor
 
 **Results capture:**
 
+**FIRST ATTEMPT (Ollama 0.6.8) — BLOCKED, then RESOLVED by engine bump:**
+
 | Tag | Check A (role-turn markers + diff vs stock) | Check B (think=false artifact scan) | PASS/FAIL | Fallback taken? |
 |-----|----------------------------------------------|-------------------------------------|-----------|-----------------|
-| Fast (`evalengine/unbound-e2b:latest`)   | **FAIL** — template is raw `{{ .Prompt }}` passthrough, no `<start_of_turn>`/`<end_of_turn>`/user/model role-turn structure | not reached (Check A fail-fast) | **FAIL** | **No usable fallback** — see blocker below |
-| Better (`defyma85/...-heretic-Q4_K_M_gguf:latest`) | **FAIL** — same raw `{{ .Prompt }}` passthrough template, no role-turn structure | not reached | **FAIL** | **No usable fallback** |
+| Fast (`evalengine/unbound-e2b:latest`)   | (could not evaluate — model 500'd on load) | not reached | **BLOCKED** | n/a — stock rung also `gemma4` |
+| Better (`defyma85/...-heretic-Q4_K_M_gguf:latest`) | (could not evaluate — model 500'd on load) | not reached | **BLOCKED** | n/a |
 
-- **Gate A verdict:** **FAIL → BLOCKED (deeper than the template).**
+**ROOT CAUSE (2026-06-26, RTX 5090): pinned Ollama 0.6.8 could not load the `gemma4` architecture.** Both community tags pulled fine but **500'd on the live `/v1` chat path** — Ollama log: `error loading model architecture: unknown model architecture: 'gemma4'`. 0.6.8's bundled `llama.cpp` predates the gemma4 merge (upstream ollama/ollama#15508, #15546; unsloth `gemma-4-E4B-it-GGUF` discussion #2). The fallback ladder could not rescue it — the stock rungs `gemma4:e2b` / `gemma4:e4b` are *also* `gemma4`, so they hit the identical load error.
 
-**Gate A worked exactly as designed — it caught two bad community builds before they could reach users.** But the failure is deeper than the chat template:
+**RESOLUTION (user-approved option 1 — bump the engine):** `docker-compose.yml:47` bumped **`ollama/ollama:0.6.8` → `0.30.10`** (pinned exact stable tag; Ollama 0.30+ ships gemma4/GGUF support per the "Improved performance and model support with GGUF" blog). Model volume survived the recreate; agent re-registered. After the bump **all three gemma4 tags load and serve cleanly on `/v1`**:
 
-**ROOT-CAUSE BLOCKER (2026-06-26, RTX 5090): the pinned Ollama 0.6.8 cannot load EITHER community tag, AND the stock fallback rungs are also unloadable.**
+| Tag | Loads on `/v1`? | Multi-turn role tracking | Check B (think=false artifact scan) |
+|-----|-----------------|--------------------------|-------------------------------------|
+| `gemma4:e2b` (stock rung) | **YES** ✓ | **PASS** — "Your name is Bob." (system+3-turn context held, no reasoning leak) | **CLEAN** ✓ |
+| `evalengine/unbound-e2b:latest` (Fast) | **YES** ✓ | PASS (clean single-sentence reply, `think:false`) | **CLEAN** ✓ |
+| `defyma85/...-heretic-Q4_K_M_gguf:latest` (Better) | **YES** ✓ | PASS (clean single-sentence reply, `think:false`) | **CLEAN** ✓ |
 
-- Both `evalengine/unbound-e2b:latest` (3.4 GB) and `defyma85/...-heretic-Q4_K_M_gguf:latest` (5.3 GB) pulled fine but **500 on the live `/v1` chat path**. Ollama log: `error loading model architecture: unknown model architecture: 'gemma4'`.
-- The running engine is `ollama/ollama:0.6.8` (pinned in `docker-compose.yml:47`); its bundled `llama.cpp` predates the **`gemma4` architecture** merge. Per upstream (ollama/ollama#15508, #15546; unsloth `gemma-4-E4B-it-GGUF` discussion #2), `gemma4` needs a much newer Ollama / `llama.cpp ≥ v2.11.0`.
-- **The fallback ladder cannot rescue this:** the stock rungs `gemma4:e2b` / `gemma4:e4b` are *also* `gemma4` architecture, so they hit the identical load error. The ladder only protects against a bad *build* of a loadable architecture, not against an architecture the engine doesn't support at all.
-- The raw `{{ .Prompt }}` template Check A flagged is a *secondary* symptom — even with a correct Gemma chat template these blobs would not load on 0.6.8.
-- **Live state restored:** `pull-and-pin.sh` had repointed the `OLLAMA_MODEL` back-compat alias at the non-loadable Fast tag, which would have broken the agent. The alias was restored to the known-good `gemma3:4b-it-qat` and the agent re-registered cleanly. `OLLAMA_MODEL_FAST`/`OLLAMA_MODEL_BETTER` remain pinned to the (currently non-loadable) community tags pending the engine upgrade.
+- **Gate A verdict: PASS** on Ollama 0.30.10 — artifact scan clean for all three tags; role formatting verified live.
 
-**Resolution options (require a user decision — see STATE.md blocker):**
-1. **Bump the Ollama engine** in `docker-compose.yml` to a version whose `llama.cpp` includes `gemma4` (≥ the release that merged it), re-pull, and re-run Gates A–D. (Cleanest, but changes a pinned infra version mid-milestone.)
-2. **Re-point both ladders at a loadable architecture** — e.g. uncensored/abliterated **gemma3** or **llama-3.x** GGUFs that 0.6.8 already runs — keeping the engine pinned. (Keeps infra frozen; changes the chosen model tags, which were a CONTEXT.md decision.)
-3. **Split the engine bump into Phase 11** (Consumer-GPU Deployment) and proceed with the agent-side Fast/Better wiring proven against two *loadable* tags as placeholders now.
+**IMPORTANT FINDING — Check A's `ollama show --template` assertion is OBSOLETE for gemma4 on Ollama 0.30.** All three gemma4 tags (INCLUDING the official stock `gemma4:e2b`) report a bare `{{ .Prompt }}` passthrough from `ollama show --template` and have NO visible `<start_of_turn>`/`<end_of_turn>` markers — yet multi-turn role tracking works perfectly live (a 3-turn + system-prompt conversation correctly recalled "Bob"). Ollama 0.30 applies the gemma4 chat template **internally** (engine-side jinja/built-in renderer; runner launches with `--chat-template chatml --no-jinja`), so the markers no longer surface through `show --template`. **`verify-build.sh` Check A would now false-FAIL every gemma4 build, including stock.** Check A must be revised to assert role formatting *behaviorally* (a multi-turn recall probe through `/v1`) rather than by scraping `show --template`. Check B (the think=false artifact scan) remains valid and is the load-bearing safety gate. → **Logged as a follow-up; see STATE.md.**
 
-Gates B, C, and D below are **not runnable** until a loadable model pair exists (they all depend on the picker serving real tags through the live persona).
+**q8_0 KV / flash-attn re-check on the new engine (LLM-04, the STATE.md silent-F16-fallback concern): PASS.** Runner launched with `--cache-type-k q8_0 --cache-type-v q8_0 --flash-attn on`; engine log confirms `flash_attn = enabled` and `K (q8_0)` / `V (q8_0)` KV buffers — **no silent F16 fallback** on 0.30.10.
+
+Gates B, C, D below are now **runnable** (loadable model pair exists). Pending operator execution.
 
 ---
 

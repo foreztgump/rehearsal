@@ -44,7 +44,12 @@ services:
     restart: unless-stopped
 
   ollama:
-    image: ollama/ollama:0.6.8
+    # Bumped 0.6.8 -> 0.30.10 (Phase 8): 0.6.8's bundled llama.cpp predates the
+    # gemma4 architecture merge, so the Fast/Better tags 500'd with
+    # `unknown model architecture: 'gemma4'`. Ollama 0.30+ ships gemma4/GGUF
+    # support (ollama blog "Improved performance and model support with GGUF").
+    # Pinned to an exact stable tag (not :latest / -rc) for reproducibility.
+    image: ollama/ollama:0.30.10
     # No env_file (M3): this pure model server needs none of .env's vars — all its
     # config is in the explicit `environment:` block below. Dropping env_file keeps
     # LIVEKIT_API_SECRET (and other secrets) out of a container that never uses them.

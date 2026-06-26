@@ -6,15 +6,15 @@ current_phase: 08
 current_phase_name: llm-speed-selector-part-a
 status: executing
 stopped_at: Completed 08-02-PLAN.md
-last_updated: "2026-06-26T06:32:57.368Z"
+last_updated: "2026-06-26T07:10:53.353Z"
 last_activity: 2026-06-26
-last_activity_desc: Phase 08 plan 08-02 executed (pull/pin both tags + verify-build gate + operator runbook)
+last_activity_desc: Plan 08-02 executed (two-model pull/pin + verify-build gate + operator runbook)
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
   completed_plans: 2
-  percent: 0
+  percent: 17
 ---
 
 # Project State
@@ -104,7 +104,9 @@ None yet.
 
 - [Phase 1 / 01-02]: Flash-attn allowlist + VRAM-under-load are now INSTRUMENTED, not assumed — `scripts/vram-validate.sh` warms all 3 models, drives concurrent load, asserts peak used-VRAM < 16384 MB (with 1GB headroom), greps ollama logs and FAILS LOUDLY if q8_0 silently falls back to F16, and asserts exactly 3 GPU processes (no embedder/vector store). The empirical run is an OPERATOR GATE: this sandbox has no Docker daemon (same limit as 01-01), so the full-stack co-residency measurement must be captured on the Proxmox VM. Rung-1 tag itself was verified against the real RTX 5090 host Ollama (manifest resolved). Record peak VRAM + q8_0-engaged result here when the operator runs the script on the VM.
 - [Phase 6]: E4B critique depth unproven — gate on a strong-vs-weak answer check; keep 24GB larger-model swap behind LiveKit's interface
-- [Phase 8 / 08-02]: Operator [VM-*] gates PENDING in `08-LLM-VERIFY.md` — run on the Proxmox VM + RTX 5090 after `docker compose build web agent && up -d` and `./ollama/pull-and-pin.sh`: Gate 1 [VM-INTROSPECT] swap-surface probe, Gate A (LLM-05 `verify-build.sh` both tags), Gate B (LLM-06 persona red-team), Gate C (live Fast↔Better swap + num_predict cap), Gate D (per-tag q8_0→F16 re-check via `vram-validate.sh`). NONE marked passed by the executor.
+- [Phase 8 / 08-02]: Operator [VM-*] gates PENDING in `08-LLM-VERIFY.md` — run on the Proxmox VM + RTX 5090 after `docker compose build web agent && up -d` and `./ollama/pull-and-pin.sh`: Gate 1 [VM-INTROSPECT] swap-surface probe, Gate A (LLM-05 `verify-build.sh` both tags), Gate B (LLM-06 persona red-team), Gate C (live Fast↔Better swap + num_predict cap), Gate D (per-tag q8_0→F16 re-check via `vram-validate.sh`). marked passed by the executor.
+- [RESOLVED 2026-06-26] Phase 8 Gate A gemma4 load blocker: pinned Ollama 0.6.8 could not load the gemma4 architecture (both community tags + stock gemma4:e2b/e4b all 500'd: `unknown model architecture: 'gemma4'`). FIXED by bumping `docker-compose.yml:47` `ollama/ollama:0.6.8 → 0.30.10` (user-approved option 1; Ollama 0.30+ ships gemma4/GGUF support). Model volume survived; agent re-registered. Post-bump all 3 gemma4 tags load + serve cleanly on `/v1`, multi-turn role tracking verified, think=false artifact scan CLEAN on all 3. q8_0 KV + flash-attn re-confirmed engaged on 0.30.10 (no silent F16 fallback). Gate 1 PASSED. Gates B/C/D now runnable (operator-pending).
+- [Phase 8 follow-up] `verify-build.sh` Check A is OBSOLETE for gemma4 on Ollama 0.30: `ollama show --template` returns bare `{{ .Prompt }}` (no role-turn markers) for ALL gemma4 tags incl. official stock — the engine applies the chat template internally — so Check A would false-FAIL every gemma4 build. Revise Check A to assert role formatting BEHAVIORALLY (multi-turn recall probe via `/v1`) instead of scraping `show --template`. Check B (artifact scan) remains valid + load-bearing.
 
 ## Deferred Items
 
