@@ -1,0 +1,15 @@
+# nemo-stt FastAPI websocket STT server deps (Plan 09-01).
+# Mirrors agent/requirements.txt pinning posture: explicit pins, no :latest, no
+# unbounded float. torch + CUDA are NOT pip-installed here — they come from the
+# Blackwell-capable base image (nvcr.io/nvidia/nemo:25.11). Installing torch via
+# pip would pull a stock build with sm_50..sm_90 kernels only and crash on the
+# RTX 5090 (sm_120) with "no kernel image is available" (09-RESEARCH §6).
+fastapi~=0.115
+uvicorn[standard]~=0.34
+numpy~=1.26
+soundfile~=0.12
+# NeMo ASR toolkit — [asr] ONLY, never [all] (image-bloat PITFALL B1). Needed
+# only if the base image does not already ship NeMo. The nvcr.io/nvidia/nemo:25.11
+# base PROVIDES NeMo, so this is commented out for that base; uncomment it (and
+# pin to the base's CUDA-12.8 torch) only when building on a plain pytorch base.
+# nemo_toolkit[asr]~=2.0
