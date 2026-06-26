@@ -81,13 +81,36 @@ ONE_QUESTION_RULE: str = (
     "your own question, and do not move on until they have responded."
 )
 
-# The basic Layer-1 critique contract (MODE-05). The rubric-structured DEPTH
-# (technical-accuracy / completeness / precise-terminology / structure) and the
-# strong-vs-weak quality gate are added in Plan 06-02 — not here.
+# The rubric-structured critique contract (MODE-05 DEPTH, Plan 06-02). Replaces
+# 06-01's basic contract in the SAME render slot (join order unchanged, byte-stability
+# preserved — only the bytes of this constant change). The depth comes from PROMPT
+# STRUCTURE, not model size or reasoning tokens (thinking stays OFF on the hot path):
+# an explicit QUALITATIVE rubric the 4B model assesses against, then a fixed
+# critique -> strong model answer -> next question template. Frozen multiline prose
+# mirroring kb/distill.DISTILL_INSTRUCTION (explicit structure + an example-of-shape).
+#
+# NUMERIC SCORING IS PERMANENTLY OUT OF SCOPE (REQUIREMENTS line 107): no number, no
+# rating, no "X out of ten" anywhere — a number invites gaming and is less instructive
+# than a concrete qualitative critique plus a strong model answer. The rubric is a
+# QUALITATIVE structure of four dimensions, never a graded number. (This comment is the
+# only place the word appears; the rendered prompt carries no scoring token — asserted
+# in _self_check.)
 CRITIQUE_CONTRACT: str = (
-    "After the candidate answers, give a SHORT spoken critique of their answer, THEN "
-    "demonstrate a strong model answer to the same question, THEN ask the next single "
-    "question. Keep the critique brief, specific, and constructive."
+    "After the candidate answers, assess their answer against four qualitative "
+    "dimensions: technical accuracy — is what they said correct; completeness — did "
+    "they cover the parts that matter or leave gaps; precise practitioner terminology "
+    "— did they use the right terms exactly or stay vague; and the structure and "
+    "clarity of the answer — was it organised and easy to follow. Do NOT attach a "
+    "number or grade; judge the answer qualitatively, in words only. Then respond in "
+    "this fixed order, spoken aloud and never as a written list. First, give a SHORT "
+    "critique that names what was genuinely strong AND what was missing or imprecise — "
+    "be concrete and specific to what they actually said, not generic praise. Second, "
+    "demonstrate a STRONG model answer to the same question, the kind an expert in this "
+    "role would give. Third, ask the next single role-relevant question, then stop and "
+    "wait. Example of the shape only (use their real answer, not this): you were "
+    "accurate on the detection step and used the right term, but you skipped the "
+    "containment stage; a strong answer would also walk through isolating the host; "
+    "next question, …"
 )
 
 
@@ -124,9 +147,21 @@ EXPECTED_DEFAULT_INTERVIEW: str = (
     "Ask EXACTLY ONE role-relevant question at a time, then STOP and WAIT for the "
     "candidate's spoken answer. Do not ask several questions at once, do not answer "
     "your own question, and do not move on until they have responded. "
-    "After the candidate answers, give a SHORT spoken critique of their answer, THEN "
-    "demonstrate a strong model answer to the same question, THEN ask the next single "
-    "question. Keep the critique brief, specific, and constructive. "
+    "After the candidate answers, assess their answer against four qualitative "
+    "dimensions: technical accuracy — is what they said correct; completeness — did "
+    "they cover the parts that matter or leave gaps; precise practitioner terminology "
+    "— did they use the right terms exactly or stay vague; and the structure and "
+    "clarity of the answer — was it organised and easy to follow. Do NOT attach a "
+    "number or grade; judge the answer qualitatively, in words only. Then respond in "
+    "this fixed order, spoken aloud and never as a written list. First, give a SHORT "
+    "critique that names what was genuinely strong AND what was missing or imprecise — "
+    "be concrete and specific to what they actually said, not generic praise. Second, "
+    "demonstrate a STRONG model answer to the same question, the kind an expert in this "
+    "role would give. Third, ask the next single role-relevant question, then stop and "
+    "wait. Example of the shape only (use their real answer, not this): you were "
+    "accurate on the detection step and used the right term, but you skipped the "
+    "containment stage; a strong answer would also walk through isolating the host; "
+    "next question, … "
     "Keep replies short and spoken-friendly: a sentence or two at a time, no bullet lists, "
     "no markdown, no code blocks. You are a conversation partner, not a written document."
 )
@@ -145,6 +180,26 @@ def _self_check() -> None:
     assert a == b, "render_interview_prompt is not deterministic"
     assert a == EXPECTED_DEFAULT_INTERVIEW, "default interview text drifted from golden"
     assert "{" not in a and "}" not in a, "format placeholder leaked into prefix"
+
+    # The four QUALITATIVE rubric dimensions must land in the render (the depth that
+    # compensates for the 4B model's shallow default critique — Pitfall 11 / §6).
+    for dimension in ("technical accuracy", "completeness", "terminology", "structure"):
+        assert dimension in a, f"rubric dimension {dimension!r} missing from render"
+
+    # The fixed critique -> strong model answer -> next question ordering phrasing.
+    assert "critique" in a, "critique step missing from render"
+    assert "model answer" in a, "strong model answer step missing from render"
+    assert "next single role-relevant question" in a, "next-question step missing from render"
+    crit_at = a.index("critique")
+    model_at = a.index("model answer")
+    next_at = a.index("next single role-relevant question")
+    assert crit_at < model_at < next_at, "critique/model-answer/next ordering drifted"
+
+    # NO numeric-score token may leak into the spoken prompt — scoring is permanently
+    # out of scope (REQUIREMENTS line 107); the rubric is qualitative structure only.
+    lowered = a.lower()
+    for token in ("score", "rating", "/10", "out of 10", "points", "grade out of"):
+        assert token not in lowered, f"numeric-score token {token!r} leaked into prompt"
 
     # Every role descriptor must land in its render and render byte-stably.
     for role_key, descriptor in ROLES.items():
