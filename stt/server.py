@@ -86,6 +86,11 @@ RECYCLE_HARD_CHARS = int(os.environ.get("STT_RECYCLE_HARD_CHARS", "400"))
 PORT = 8000
 SAMPLE_RATE = 16000
 INT16_FULL_SCALE = 32768.0
+# Offline-path window: feed whole-file PCM through the per-chunk decode loop in
+# fixed ~560 ms slices (the live cache-aware step size) rather than one giant
+# step, so the VERIFY offline path exercises the same code path as live.
+OFFLINE_CHUNK_MS = int(os.environ.get("STT_OFFLINE_CHUNK_MS", "560"))
+_BYTES_PER_SAMPLE = 2  # int16 mono
 
 # Module-level model handles + readiness gate + GPU serialization lock.
 _model: Any = None
@@ -323,9 +328,16 @@ async def transcribe_file(file: UploadFile) -> dict:
 
 
 def _transcribe_wav(raw: bytes) -> str:
-    """Decode a 16 kHz mono int16 WAV through the same per-chunk decode loop."""
+    """Decode a 16 kHz mono int16 WAV through the same per-chunk decode loop.
+
+    The file PCM is sliced into fixed OFFLINE_CHUNK_MS windows and fed through
+    decode_chunk one at a time — the SAME cache-aware per-chunk path the live
+    websocket loop uses — instead of one multi-second conformer_stream_step.
+    """
     with wave.open(io.BytesIO(raw), "rb") as wav:
         pcm = wav.readframes(wav.getnframes())
     state = new_stream_state()
-    decode_chunk(state, pcm)
+    step = (SAMPLE_RATE * OFFLINE_CHUNK_MS // 1000) * _BYTES_PER_SAMPLE
+    for start in range(0, len(pcm), step):
+        decode_chunk(state, pcm[start:start + step])
     return finalize(state)
