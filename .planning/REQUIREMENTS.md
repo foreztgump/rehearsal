@@ -105,41 +105,49 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LLM-01 | TBD | Pending |
-| LLM-02 | TBD | Pending |
-| LLM-03 | TBD | Pending |
-| LLM-04 | TBD | Pending |
-| LLM-05 | TBD | Pending |
-| LLM-06 | TBD | Pending |
-| STT-01 | TBD | Pending |
-| STT-02 | TBD | Pending |
-| STT-03 | TBD | Pending |
-| STT-04 | TBD | Pending |
-| STT-05 | TBD | Pending |
-| STT-06 | TBD | Pending |
-| STT-07 | TBD | Pending |
-| AVTR-01 | TBD | Pending |
-| AVTR-02 | TBD | Pending |
-| AVTR-03 | TBD | Pending |
-| AVTR-04 | TBD | Pending |
-| AVTR-05 | TBD | Pending |
-| AVTR-06 | TBD | Pending |
-| AVTR-07 | TBD | Pending |
-| AVTR-08 | TBD | Pending |
-| SESS-01 | TBD | Pending |
-| SESS-02 | TBD | Pending |
-| SESS-03 | TBD | Pending |
-| SESS-04 | TBD | Pending |
-| REL-01 | TBD | Pending |
-| REL-02 | TBD | Pending |
-| DEPLOY-04 | TBD | Pending |
-| DEPLOY-05 | TBD | Pending |
-| PERF-04 | TBD | Pending |
+| LLM-01 | Phase 8 | Pending |
+| LLM-02 | Phase 8 | Pending |
+| LLM-03 | Phase 8 | Pending |
+| LLM-04 | Phase 8 | Pending |
+| LLM-05 | Phase 8 | Pending |
+| LLM-06 | Phase 8 | Pending |
+| STT-01 | Phase 9 | Pending |
+| STT-02 | Phase 9 | Pending |
+| STT-03 | Phase 9 | Pending |
+| STT-04 | Phase 9 | Pending |
+| STT-05 | Phase 10 | Pending |
+| STT-06 | Phase 10 | Pending |
+| STT-07 | Phase 10 | Pending |
+| AVTR-01 | Phase 12 | Pending |
+| AVTR-02 | Phase 12 | Pending |
+| AVTR-03 | Phase 12 | Pending |
+| AVTR-04 | Phase 12 | Pending |
+| AVTR-05 | Phase 12 | Pending |
+| AVTR-06 | Phase 12 | Pending |
+| AVTR-07 | Phase 12 | Pending |
+| AVTR-08 | Phase 12 | Pending |
+| SESS-01 | Phase 13 | Pending |
+| SESS-02 | Phase 13 | Pending |
+| SESS-03 | Phase 13 | Pending |
+| SESS-04 | Phase 13 | Pending |
+| REL-01 | Phase 13 | Pending |
+| REL-02 | Phase 13 | Pending |
+| DEPLOY-04 | Phase 11 | Pending |
+| DEPLOY-05 | Phase 11 | Pending |
+| PERF-04 | Phase 13 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 30 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 30 ⚠️
+- Mapped to phases: 30 (100%) ✓
+- Unmapped: 0
+
+**Phase distribution:**
+- Phase 8 (LLM Speed Selector / Part A): LLM-01..06 (6)
+- Phase 9 (Nemotron Streaming ASR / Part B): STT-01..04 (4)
+- Phase 10 (VRAM-Aware STT Placement / Part C): STT-05..07 (3)
+- Phase 11 (Consumer-GPU Deployment / Part E): DEPLOY-04, DEPLOY-05 (2)
+- Phase 12 (Optional 3D Avatar / Part D): AVTR-01..08 (8)
+- Phase 13 (Deferred v1.0 Polish, rolled in): SESS-01..04, REL-01/02, PERF-04 (7)
 
 ---
 *Requirements defined: 2026-06-26*

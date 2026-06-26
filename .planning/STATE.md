@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-06-26T05:28:45.557Z"
 last_activity: 2026-06-26
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-25)
 
 **Core value:** The user can hold a natural spoken conversation with a credible expert persona at voice-to-voice latency that feels live (P50 < 1.0s) — practicing speaking a domain out loud.
-**Current focus:** Phase 7 — Polish & Reliability (the remaining v1.0 work after the v1.0-rc1 RC)
+**Current focus:** v1.1 Local-First Pipeline Swap + Avatar — roadmap created (Phases 8-13); ready to plan Phase 8 (LLM Speed Selector / Part A)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 8 — LLM Speed Selector (Part A) — Not started
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-26 — Milestone v1.1 started
+Status: Roadmap created (6 phases, Phase 8-13); v1.0 Phase 7 superseded → folded into Phase 13
+Last activity: 2026-06-26 — v1.1 roadmap created
 
 ## Performance Metrics
 
@@ -122,5 +122,8 @@ Resume file: None
 
 ## Operator Next Steps
 
-- v1.0-rc1 (Phases 1-6) shipped and tagged. Continue v1.0 by planning Phase 7 (Polish & Reliability): `/gsd-plan-phase 7`
-- Operator-gated VM proofs remain (KB flat-TTFT, three-models-under-16GB, P50<1.0s, interview strong-vs-weak critique) — run the documented runbooks on the Proxmox VM when available.
+- v1.1 roadmap created (Phases 8-13). The unstarted v1.0 Phase 7 is SUPERSEDED — its SESS/REL/latency scope is folded into v1.1 Phase 13. Do not plan a standalone Phase 7.
+- Begin v1.1 by planning Phase 8 (LLM Speed Selector / Part A): `/gsd-plan-phase 8`
+- v1.1 build order: 8 (Part A LLM) → 9 (Part B Nemotron STT) → 10 (Part C placement) → 11 (Part E deployment) → 12 (Part D avatar, frontend-only/isolated) → 13 (rolled-in polish + final latency tuning).
+- Two phases carry operator GPU gates verifiable only on the real consumer GPU: Phase 10 (16GB co-residency matrix, global-CPU-ONNX default) and Phase 13 (PERF-04 P50<1.0s for both LLMs).
+- Operator-gated VM proofs from v1.0 remain (KB flat-TTFT, three-models-under-16GB, P50<1.0s, interview strong-vs-weak critique) — run the documented runbooks on the target GPU when available.
