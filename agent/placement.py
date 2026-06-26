@@ -83,6 +83,11 @@ def resolve_stt_placement(llm_choice: str, env: Mapping[str, str]) -> str:
     Read ONCE at session start (build_session). The worst-case-LLM math makes a later
     Fast↔Better swap VRAM-safe, so placement is never re-consulted (STT-06).
     """
+    # NOTE (L3): `llm_choice` is intentionally UNUSED — the decision keys off
+    # max(LLM_PEAK_MB) (the worst-case-LLM no-thrash lock, STT-06), so it is identical
+    # for fast/better. The param is kept to document the call site's intent (placement
+    # is a function of the chosen LLM) and to keep the signature stable if a future
+    # non-worst-case policy needs it; it is NOT a bug that it goes unread.
     # (1) STT_FORCE_CPU first — the global pin, before ANY headroom logic (STT-07).
     if _truthy(env, "STT_FORCE_CPU"):
         return "cpu"

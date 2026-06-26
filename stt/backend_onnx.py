@@ -152,7 +152,6 @@ def new_stream_state(model) -> dict:
         "dec_state": [np.zeros(_DEC_STATE_SHAPE, dtype=np.float32),
                       np.zeros(_DEC_STATE_SHAPE, dtype=np.float32)],
         "emitted_token_ids": [],
-        "prev_text": "",
         "frames_since_growth": 0,
         "last_text_len": 0,
     }
@@ -243,7 +242,6 @@ def decode_chunk(model, state, pcm) -> str:
     enc_out, state["cache_last_channel"], state["cache_last_time"], state["cache_last_channel_len"] = enc
     _greedy_rnnt(model, state, enc_out)
     text = model["tokenizer"].decode(state["emitted_token_ids"])
-    state["prev_text"] = text
     _track_stall(state, text)
     return text
 
@@ -321,6 +319,5 @@ def reset_turn_state(state) -> None:
     state["dec_state"] = [np.zeros(_DEC_STATE_SHAPE, dtype=np.float32),
                           np.zeros(_DEC_STATE_SHAPE, dtype=np.float32)]
     state["emitted_token_ids"] = []
-    state["prev_text"] = ""
     state["frames_since_growth"] = 0
     state["last_text_len"] = 0
