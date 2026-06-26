@@ -24,8 +24,10 @@ RUN python -m livekit.agents download-files
 
 # Worker entrypoint + metrics scaffold (main.py reuses the warmup logic inline).
 # persona.py provides the persona model + render_persona used by the runtime
-# persona.update RPC handler.
-COPY metrics.py persona.py main.py ./
+# persona.update RPC handler. history.py + interview.py are flat local modules
+# imported by main.py (sliding-window history + Interview mode) — without them the
+# container ImportErrors at startup.
+COPY metrics.py persona.py history.py interview.py main.py ./
 # The KB parser package (Plan 04-01) — pure, livekit-free; copied as a directory.
 COPY kb/ ./kb/
 
