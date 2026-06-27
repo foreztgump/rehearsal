@@ -43,7 +43,7 @@ Phase 7 was defined in the v1.0 plan but **never started** (0/2 plans). Its scop
 - [x] **Phase 10: VRAM-Aware STT Placement (Part C)** — GPU-NeMo vs CPU-ONNX resolved once at session start, with global-CPU-ONNX fallback *(code-complete; GPU gate pending-operator)*
 - [x] **Phase 11: Consumer-GPU Deployment (Part E)** — `docker compose up` on the user's machine with GPU detection/preflight doctor *(code-complete; GPU gate pending-operator)*
 - [x] **Phase 12: Optional 3D Avatar (Part D, frontend-only)** — TalkingHead Path-A avatar that must not touch the server pipeline (completed 2026-06-26)
-- [ ] **Phase 13: UI/UX Overhaul (Landing/Setup + Talking)** — Dedicated landing/setup screen to configure everything before connecting, plus clean/animated talking-screen polish with auto-scrolling transcript
+- [x] **Phase 13: UI/UX Overhaul (Landing/Setup + Talking)** — Dedicated landing/setup screen to configure everything before connecting, plus clean/animated talking-screen polish with auto-scrolling transcript (completed 2026-06-27)
 - [ ] **Phase 14: Deferred v1.0 Polish, Optimization & Pre-Release Hardening** — Session lifecycle, graceful failure, and final latency tuning for both LLMs (last phase before release)
 
 ## Phase Details
@@ -145,11 +145,11 @@ Phase 7 was defined in the v1.0 plan but **never started** (0/2 plans). Its scop
   4. On the talking screen the live transcript auto-scrolls to keep the newest line in view while the user is at the bottom, and does not yank the view when the user has scrolled up to read history
   5. The experience is responsive and accessible — usable on common viewport sizes, keyboard-navigable for primary actions, with no console errors during the setup → connect → talk flow
 
-**Plans**: 1/3 plans executed
+**Plans**: 3/3 plans complete
 
 - [x] 13-01-foundation-token-dedup-PLAN.md
 - [x] 13-02-setup-before-connect-PLAN.md
-- [ ] 13-03-talking-screen-polish-PLAN.md
+- [x] 13-03-talking-screen-polish-PLAN.md
 
 ## Progress
 
@@ -170,7 +170,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → ~~7 (supers
 | 10. VRAM-Aware STT Placement (Part C) | v1.1 | 2/2 | Code-complete (GPU gate pending) | 2026-06-26 |
 | 11. Consumer-GPU Deployment (Part E) | v1.1 | 2/2 | Code-complete (GPU gate pending-operator) | 2026-06-26 |
 | 12. Optional 3D Avatar (Part D) | v1.1 | 2/2 | Complete    | 2026-06-26 |
-| 13. UI/UX Overhaul (Landing/Setup + Talking) | v1.1 | 1/3 | In Progress|  |
+| 13. UI/UX Overhaul (Landing/Setup + Talking) | v1.1 | 3/3 | Complete   | 2026-06-27 |
 | 14. Deferred v1.0 Polish, Optimization & Pre-Release Hardening | v1.1 | 0/? | Not started | - |
 
 ### Phase 14: Deferred v1.0 Polish, Optimization & Pre-Release Hardening
