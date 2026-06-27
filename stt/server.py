@@ -67,6 +67,13 @@ SAMPLE_RATE = 16000
 # step, so the VERIFY offline path exercises the same code path as live.
 OFFLINE_CHUNK_MS = int(os.environ.get("STT_OFFLINE_CHUNK_MS", "560"))
 _BYTES_PER_SAMPLE = 2  # int16 mono
+# Live cache-aware streaming step. LiveKit forwards tiny (~10-20 ms) audio frames;
+# the FastConformer encoder subsamples 8x, so a sub-chunk PCM frame yields ZERO
+# post-subsampling frames and the quantized ConvInteger node errors with
+# "Invalid input shape: {0}". Buffer incoming PCM to this fixed step (the same size
+# the offline path uses) before invoking the encoder.
+STREAM_CHUNK_MS = int(os.environ.get("STT_STREAM_CHUNK_MS", "560"))
+_STREAM_CHUNK_BYTES = (SAMPLE_RATE * STREAM_CHUNK_MS // 1000) * _BYTES_PER_SAMPLE
 
 # Module-level model handle + readiness gate + decode serialization lock. The
 # _gpu_lock name is kept for continuity but it now serializes the single decode
@@ -136,6 +143,7 @@ async def ws_stream(websocket: WebSocket) -> None:
 
 async def _stream_loop(websocket: WebSocket, state: dict) -> None:
     """Receive loop: JSON control frames vs binary PCM frames (nesting ≤3)."""
+    buf = bytearray()
     while True:
         message = await websocket.receive()
         if message.get("type") == "websocket.disconnect":
@@ -144,12 +152,32 @@ async def _stream_loop(websocket: WebSocket, state: dict) -> None:
             # receive() (which would RuntimeError on a noisy traceback).
             raise WebSocketDisconnect()
         if message.get("text") is not None:
+            buf = await _drain_buffer(websocket, state, buf)
             state = await _handle_control_frame(websocket, state, message["text"])
             continue
         pcm = message.get("bytes")
         if pcm is None:
             continue
-        await _emit_delta(websocket, state, pcm)
+        buf.extend(pcm)
+        # Only invoke the encoder once a full streaming chunk has accumulated; the
+        # FastConformer 8x subsampling needs >= one chunk of samples or the
+        # quantized ConvInteger node sees a zero-length time axis.
+        while len(buf) >= _STREAM_CHUNK_BYTES:
+            await _emit_delta(websocket, state, bytes(buf[:_STREAM_CHUNK_BYTES]))
+            del buf[:_STREAM_CHUNK_BYTES]
+
+
+async def _drain_buffer(websocket: WebSocket, state: dict, buf: bytearray) -> bytearray:
+    """Decode any sub-chunk PCM tail before a control frame (e.g. flush) lands.
+
+    Pad the partial tail up to one full streaming chunk so the encoder still sees a
+    valid (non-zero) time axis — the remainder would otherwise be lost on flush.
+    """
+    if not buf:
+        return buf
+    padded = bytes(buf) + b"\x00" * (_STREAM_CHUNK_BYTES - len(buf))
+    await _emit_delta(websocket, state, padded)
+    return bytearray()
 
 
 async def _handle_control_frame(websocket: WebSocket, state: dict, text: str) -> dict:
