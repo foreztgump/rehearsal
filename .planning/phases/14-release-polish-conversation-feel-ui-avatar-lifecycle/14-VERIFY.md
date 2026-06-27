@@ -134,6 +134,24 @@ The branch is **self-checkable-green** and ready for the operator pass.
 
 ---
 
+## PART A2 — Browser UAT (SIGNED, no GPU — dev server on :3001)
+
+Driven against `npm run dev` (no LiveKit backend needed for the setup-screen
+surface) via Chrome DevTools. These cover the client-only slice of B5; the
+talking-screen items (orb pulse, avatar idle/lip-sync, Reset/Export) still need
+the live stack and remain in B5.
+
+| Check | Requirement | Evidence | Verdict |
+|-------|-------------|----------|---------|
+| Setup screen renders; console clean | UI-01 | first paint + `list_console_messages` empty across the whole session | **PASS** |
+| Theme switch | UI-01 | Prism Wave → `data-theme=prism-wave`, `--accent=#8775cc` | **PASS** |
+| Theme persists across reload | UI-02 | reload → `data-theme` + `localStorage["adept.theme"]` both `prism-wave` | **PASS** |
+| Preset pre-fill | 14-05 (AVTR presets) | SOC Analyst Coach → Display Name `SOC Analyst Coach`, Voice `am_michael` | **PASS** |
+| Prefilled fields stay editable | 14-05 | injected edit persisted; a later preset pick overrode it | **PASS** |
+| Mic-denied prompt | **REL-01** | stubbed `getUserMedia` NotAllowedError + Start → "Microphone access is blocked. Click the mic/camera icon… press Start again."; stayed on setup | **PASS** |
+
+---
+
 ## PART B — OPERATOR runbook (PENDING HARDWARE — RTX 5090)
 
 > **OPERATOR-ONLY.** Every gate below needs the running 7-service stack on the
