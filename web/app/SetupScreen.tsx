@@ -7,6 +7,7 @@ import KbPanel from "./KbPanel";
 import MicPicker from "./MicPicker";
 import ModelPanel from "./ModelPanel";
 import { PersonaFields } from "./PersonaPanel";
+import PersonaPresetPicker from "./PersonaPresetPicker";
 import SegmentedToggle from "./SegmentedToggle";
 import ThemeDots from "./ThemeDots";
 import type { SessionConfig } from "./VoiceRoom";
@@ -15,8 +16,6 @@ import type { SessionConfig } from "./VoiceRoom";
 const TAGLINE = "Set up your session, then start talking.";
 const HEADPHONES_TIP =
   "Tip: use headphones for the cleanest experience — they stop the agent from hearing (and interrupting) itself.";
-const CONNECT_ERROR =
-  "Couldn't reach the session server. Check the stack is running, then try again.";
 
 const AVATAR_OPTIONS = [
   { label: "Voice only", value: "voice" },
@@ -131,6 +130,10 @@ export default function SetupScreen({
               <div style={{ overflow: "hidden" }}>
                 <div style={{ paddingTop: customizeOpen ? "18px" : 0 }}>
                   <div className="grid-2">
+                    <PersonaPresetPicker
+                      activeDisplayName={config.persona.display_name}
+                      onSelect={(preset) => onChange({ ...config, persona: preset.persona })}
+                    />
                     <PersonaFields
                       value={config.persona}
                       onChange={(persona) => onChange({ ...config, persona })}
@@ -168,7 +171,7 @@ export default function SetupScreen({
 
           {error && (
             <p style={{ gridColumn: "1 / -1", color: "var(--destructive)", margin: 0, textAlign: "center" }}>
-              {CONNECT_ERROR}
+              {error}
             </p>
           )}
         </div>

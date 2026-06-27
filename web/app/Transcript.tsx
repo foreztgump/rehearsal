@@ -32,8 +32,24 @@ const THRESHOLD = 32;
  * false-trigger shows as visible-but-tentative rather than a hidden LLM call.
  * Token streaming is rendered instantly (no animation) regardless of motion prefs.
  */
-export default function Transcript() {
+export default function Transcript({ resetAfter = 0 }: { resetAfter?: number }) {
   const segments = useTranscriptions();
+
+  // SESS-02 reset: record when each segment was first seen, then hide everything that
+  // predates the latest Reset. The room keeps accumulating transcriptions across a
+  // same-room Reset; this is how the view "forgets" the prior conversation. A brand-new
+  // (not-yet-recorded) segment falls back to "now" so it shows immediately.
+  const firstSeenRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    for (const segment of segments) {
+      if (!firstSeenRef.current.has(segment.streamInfo.id)) {
+        firstSeenRef.current.set(segment.streamInfo.id, Date.now());
+      }
+    }
+  }, [segments]);
+  const visibleSegments = segments.filter(
+    (segment) => (firstSeenRef.current.get(segment.streamInfo.id) ?? Date.now()) >= resetAfter,
+  );
 
   const containerRef = useRef<HTMLDivElement>(null);
   // atBottom lives in a ref (not state) so recomputing it on every scroll event
@@ -80,7 +96,7 @@ export default function Transcript() {
         onScroll={recomputeAtBottom}
         style={{ flex: 1, minHeight: 0, overflowY: "auto", textAlign: "left" }}
       >
-        {segments.length === 0 ? (
+        {visibleSegments.length === 0 ? (
           <div
             style={{
               height: "100%",
@@ -102,7 +118,7 @@ export default function Transcript() {
           </div>
         ) : (
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {segments.map((segment) => {
+            {visibleSegments.map((segment) => {
               const identity = segment.participantInfo.identity;
               const isUser = identity.startsWith(USER_IDENTITY_PREFIX);
               const isFinal =

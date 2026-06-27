@@ -12,6 +12,12 @@ export const CAMERA_VIEW: "upper" | "head" = "upper";
 // keeping it out of the voice-only chunk (AVTR-01).
 export const TALKINGHEAD_SPECIFIER = "talkinghead";
 
+// LiveKit data-channel topic the agent's CaptionedTTS publishes word schedules on
+// (mirrors agent/captioned_tts.py LIPSYNC_TOPIC). Payload is JSON
+// {seq, request_id, words:[{w,s,e}]} with sentence-relative seconds; AvatarStage
+// re-anchors each schedule to the measured audio onset so jitter never desyncs.
+export const LIPSYNC_TOPIC = "lk.avatar.lipsync";
+
 // Same-origin Draco decoder path (vendored, offline). The default GLB is Draco-
 // geometry + WebP-texture compressed (AVTR-08); TalkingHead's GLTFLoader needs the
 // decoder for KHR_draco_mesh_compression. WebP needs no decoder (browser-native).
@@ -41,8 +47,15 @@ export const DEFAULT_AVATAR: AvatarSpec = {
 // change — honors the Phase 12 isolation gate (empty server diff). Voice (`voice_id`)
 // stays owned by persona state and is untouched here. Add personas by display_name;
 // anything unmapped falls back to DEFAULT_AVATAR via avatarForPersona().
+// Preset display_names (web/app/personaPresets.ts) all reuse the default GLB; only
+// the resting mood varies per preset, so the avatar's expression follows the chosen
+// persona with no new asset. Keys MUST match the preset display_names exactly.
 export const PERSONA_AVATARS: Record<string, AvatarSpec> = {
   "Cybersecurity Trainer": DEFAULT_AVATAR,
+  "SOC Analyst Coach": { glb: DEFAULT_AVATAR.glb, mood: "neutral", body: "F" },
+  "Security Engineer Coach": { glb: DEFAULT_AVATAR.glb, mood: "neutral", body: "F" },
+  "GRC Advisor": { glb: DEFAULT_AVATAR.glb, mood: "neutral", body: "F" },
+  "Domain Expert": { glb: DEFAULT_AVATAR.glb, mood: "happy", body: "F" },
 };
 
 // Resolve a persona display_name to its avatar, defaulting so Avatar mode never
@@ -52,4 +65,17 @@ export function avatarForPersona(name: string | null | undefined): AvatarSpec {
     return PERSONA_AVATARS[name];
   }
   return DEFAULT_AVATAR;
+}
+
+// Responsive framing (AVTR-10). The default GLB is a half-body model; frame tighter
+// on small viewports so the face stays readable. TalkingHead views: head < upper <
+// mid < full. Mobile → head; tablet → upper (head-and-shoulders); desktop → full
+// (half-body). Pure helper so the breakpoints are named, not magic.
+export const AVATAR_VIEW_MOBILE_MAX_PX = 600;
+export const AVATAR_VIEW_TABLET_MAX_PX = 1024;
+
+export function viewForWidth(width: number): "head" | "upper" | "full" {
+  if (width <= AVATAR_VIEW_MOBILE_MAX_PX) return "head";
+  if (width <= AVATAR_VIEW_TABLET_MAX_PX) return "upper";
+  return "full";
 }
