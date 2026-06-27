@@ -6,6 +6,7 @@ import InterviewPanel from "./InterviewPanel";
 import KbPanel from "./KbPanel";
 import ModelPanel from "./ModelPanel";
 import PersonaPanel from "./PersonaPanel";
+import ThemeDots from "./ThemeDots";
 import { font, palette, radius, space } from "./ui/tokens";
 
 // UI-SPEC Copywriting table — verbatim destructive-confirm copy. Phase 13 builds
@@ -141,6 +142,12 @@ export default function SettingsDrawer({
           >
             Close
           </button>
+        </div>
+
+        {/* Theme switcher — same compact dots as the setup header, switchable mid-session. */}
+        <div className="drawer-section">
+          <h4>Theme</h4>
+          <ThemeDots />
         </div>
 
         {/* Hosted live-tweak panels — UNCONTROLLED mode (no props) so each keeps its

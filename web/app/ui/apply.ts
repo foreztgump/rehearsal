@@ -19,8 +19,8 @@ export const STATUS_LABEL: Record<ApplyState, string> = {
 };
 
 export const STATUS_COLOR: Record<ApplyState, string> = {
-  idle: "#8b949e",
-  applying: "#d29922",
-  applied: "#3fb950",
-  error: "#f85149",
+  idle: "var(--text-muted)",
+  applying: "var(--warning)",
+  applied: "var(--action)",
+  error: "var(--destructive)",
 };

@@ -2,40 +2,37 @@
 
 import { useVoiceAssistant } from "@livekit/components-react";
 
-import { font, palette, radius, space } from "./ui/tokens";
+// Per-state accent color (theme-driven) for the pill text + dot, surfaced from
+// the agent's lk.agent.state participant attribute (no custom data-channel).
+const STATE_COLOR: Record<string, string> = {
+  initializing: "var(--text-muted)",
+  idle: "var(--text-muted)",
+  listening: "var(--accent)",
+  thinking: "var(--warning)",
+  speaking: "var(--accent)",
+};
 
-// Distinct colour per agent state, surfaced from the agent's lk.agent.state
-// participant attribute (no custom data-channel protocol).
-const STATE_COLORS: Record<string, string> = {
-  initializing: "#8b949e",
-  idle: "#8b949e",
-  listening: "#3fb950",
-  thinking: "#d29922",
-  speaking: "#58a6ff",
+const STATE_LABEL: Record<string, string> = {
+  initializing: "Connecting",
+  idle: "Idle",
+  listening: "Listening",
+  thinking: "Thinking",
+  speaking: "Speaking",
 };
 
 /**
- * Binds useVoiceAssistant().state to a colored pill labeled listening /
- * thinking / speaking (VOICE-06). Must render inside <LiveKitRoom>.
+ * Binds useVoiceAssistant().state to the mockup's `.statepill`: a tinted pill with
+ * a pulsing dot and colored label (listening / thinking / speaking, VOICE-06).
+ * Must render inside <LiveKitRoom>.
  */
 export default function AgentStatePill() {
   const { state } = useVoiceAssistant();
+  const color = STATE_COLOR[state] ?? "var(--text-muted)";
 
   return (
-    <span
-      className="transition-pill"
-      style={{
-        display: "inline-block",
-        padding: `${space.xs} ${space.sm}`,
-        borderRadius: radius.pill,
-        background: STATE_COLORS[state] ?? "#8b949e",
-        color: palette.bg,
-        fontWeight: font.weight.semibold,
-        fontSize: font.size.label,
-        textTransform: "capitalize",
-      }}
-    >
-      {state}
+    <span className="statepill" style={{ color }}>
+      <span className="dot" />
+      {STATE_LABEL[state] ?? state}
     </span>
   );
 }

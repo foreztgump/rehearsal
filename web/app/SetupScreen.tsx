@@ -2,13 +2,14 @@
 
 import { useState } from "react";
 
-import InterviewPanel from "./InterviewPanel";
+import InterviewPanel, { InterviewFields } from "./InterviewPanel";
 import KbPanel from "./KbPanel";
 import MicPicker from "./MicPicker";
 import ModelPanel from "./ModelPanel";
-import PersonaPanel from "./PersonaPanel";
+import { PersonaFields } from "./PersonaPanel";
+import SegmentedToggle from "./SegmentedToggle";
+import ThemeDots from "./ThemeDots";
 import type { SessionConfig } from "./VoiceRoom";
-import { font, palette, panelStyle, radius, space } from "./ui/tokens";
 
 // UI-SPEC Copywriting table — verbatim copy slots.
 const TAGLINE = "Set up your session, then start talking.";
@@ -17,6 +18,11 @@ const HEADPHONES_TIP =
 const CONNECT_ERROR =
   "Couldn't reach the session server. Check the stack is running, then try again.";
 
+const AVATAR_OPTIONS = [
+  { label: "Voice only", value: "voice" },
+  { label: "Avatar", value: "avatar" },
+] as const;
+
 /**
  * Landing / setup screen (Screen A, D-01/D-02). A single centered card holding
  * EVERY session choice in plain React state BEFORE any LiveKit connection — NO
@@ -24,9 +30,11 @@ const CONNECT_ERROR =
  * config state and the Start gesture; this component is presentational, writing
  * edits through `onChange` and invoking `onStart` on the single CTA click.
  *
- * Advanced persona/interview fields sit behind a collapsed "Customize"
- * disclosure so the default path is one glance → Start (D-02). The CTA is NEVER
- * disabled by missing choices — defaults pre-fill every group.
+ * Visual contract: the design-mockups/v4 unified card — logo + wordmark, a
+ * two-column field grid, a sliding segmented Avatar toggle, the dashed KB
+ * dropzone, and a collapsed "Customize" disclosure (theme picker + persona +
+ * interview), capped by the gradient Start CTA. The CTA is NEVER disabled by
+ * missing choices — defaults pre-fill every group.
  */
 export default function SetupScreen({
   config,
@@ -47,162 +55,123 @@ export default function SetupScreen({
     <div
       style={{
         minHeight: "100vh",
-        display: "flex",
-        alignItems: "flex-start",
-        justifyContent: "center",
-        padding: space.lg,
+        display: "grid",
+        placeItems: "center",
+        padding: "40px 18px",
+        textAlign: "left",
       }}
     >
       <div
-        className="screen-enter"
-        style={{
-          width: "100%",
-          maxWidth: "720px",
-          display: "flex",
-          flexDirection: "column",
-          gap: space.lg,
-          padding: space.xl,
-          background: palette.panel,
-          border: `1px solid ${palette.border}`,
-          borderRadius: radius.card,
-        }}
+        className="screen-enter surface"
+        style={{ width: "100%", maxWidth: "760px", borderRadius: "var(--r-card)", padding: "38px" }}
       >
-        {/* Wordmark + tagline */}
-        <div style={{ display: "flex", flexDirection: "column", gap: space.xs }}>
-          <strong style={{ fontSize: font.size.display, color: palette.text }}>Adept</strong>
-          <span style={{ color: palette.textMuted, fontSize: font.size.body }}>{TAGLINE}</span>
+        {/* Logo + wordmark + always-visible theme switcher. */}
+        <div className="card-head" style={{ justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+            <div className="logo" aria-hidden="true">A</div>
+            <h1 style={{ margin: 0, fontSize: "27px", fontWeight: 800, letterSpacing: "-0.02em" }}>
+              Adept
+            </h1>
+          </div>
+          <ThemeDots />
         </div>
+        <p className="card-sub" style={{ margin: "11px 0 28px" }}>{TAGLINE}</p>
 
-        {/* Always-visible essentials: model, microphone, avatar, knowledge base. */}
-        <ModelPanel value={config.model} onChange={(model) => onChange({ ...config, model })} />
+        <div className="grid-2">
+          {/* Always-visible essentials: model, microphone, avatar, knowledge base. */}
+          <ModelPanel value={config.model} onChange={(model) => onChange({ ...config, model })} />
 
-        <div style={panelStyle}>
-          <strong style={{ fontSize: font.size.heading }}>Microphone</strong>
           <MicPicker
             value={config.micDeviceId}
             onChange={(micDeviceId) => onChange({ ...config, micDeviceId })}
           />
-        </div>
 
-        {/* Avatar segmented toggle (Voice only / Avatar) — active segment accent. */}
-        <div style={panelStyle}>
-          <strong style={{ fontSize: font.size.heading }}>Avatar</strong>
-          <div
-            role="group"
-            aria-label="Voice only / Avatar"
-            style={{
-              display: "inline-flex",
-              alignSelf: "flex-start",
-              borderRadius: radius.pill,
-              overflow: "hidden",
-              border: `1px solid ${palette.border}`,
-              fontSize: font.size.label,
-            }}
-          >
-            {([
-              ["Voice only", false],
-              ["Avatar", true],
-            ] as const).map(([label, on]) => (
-              <button
-                key={label}
-                type="button"
-                className="transition-segment"
-                onClick={() => onChange({ ...config, avatarOn: on })}
-                style={{
-                  padding: `${space.xs} ${space.md}`,
-                  border: "none",
-                  cursor: "pointer",
-                  fontWeight: font.weight.semibold,
-                  background: config.avatarOn === on ? palette.accent : "transparent",
-                  color: config.avatarOn === on ? palette.bg : palette.textMuted,
-                }}
-              >
-                {label}
-              </button>
-            ))}
+          <div className="field">
+            <label className="field-label">Avatar</label>
+            <SegmentedToggle
+              ariaLabel="Voice only / Avatar"
+              options={AVATAR_OPTIONS}
+              value={config.avatarOn ? "avatar" : "voice"}
+              onChange={(v) => onChange({ ...config, avatarOn: v === "avatar" })}
+            />
           </div>
-        </div>
 
-        <KbPanel
-          files={config.kbFiles}
-          onFilesChange={(kbFiles) => onChange({ ...config, kbFiles })}
-        />
+          <InterviewFields
+            value={config.mode}
+            onChange={(mode) => onChange({ ...config, mode })}
+          />
 
-        {/* Customize disclosure: advanced persona + interview fields, collapsed
-            by default with a summary line of the current defaults. */}
-        <div style={{ display: "flex", flexDirection: "column", gap: space.sm }}>
-          <button
-            type="button"
-            className="transition-hover"
-            aria-expanded={customizeOpen}
-            onClick={() => setCustomizeOpen((o) => !o)}
-            style={{
-              alignSelf: "flex-start",
-              padding: `${space.xs} ${space.sm}`,
-              borderRadius: radius.control,
-              border: `1px solid ${palette.border}`,
-              background: "transparent",
-              color: palette.text,
-              fontWeight: font.weight.semibold,
-              cursor: "pointer",
-            }}
-          >
-            {customizeOpen ? "Hide customization" : "Customize"}
-          </button>
+          <KbPanel
+            files={config.kbFiles}
+            onFilesChange={(kbFiles) => onChange({ ...config, kbFiles })}
+            className="full"
+          />
 
-          {!customizeOpen && (
-            <span style={{ color: palette.textMuted, fontSize: font.size.label }}>
-              {config.persona.display_name} · {config.persona.difficulty} ·{" "}
-              {config.mode.mode === "interview" ? "Interview" : "Learn"} mode
-            </span>
-          )}
+          {/* Customize disclosure: theme + advanced persona, collapsed by default
+              with a summary line of the current defaults. */}
+          <div className="disclosure">
+            <button
+              type="button"
+              className="disclosure-summary"
+              aria-expanded={customizeOpen}
+              onClick={() => setCustomizeOpen((o) => !o)}
+            >
+              <span>
+                {customizeOpen
+                  ? "Customize — persona"
+                  : `Customize — ${config.persona.display_name} · ${config.persona.difficulty}`}
+              </span>
+              <span className="chev" aria-hidden="true">▾</span>
+            </button>
 
-          <div
-            className="transition-disclosure"
-            style={{ display: "grid", gridTemplateRows: customizeOpen ? "1fr" : "0fr" }}
-          >
-            <div style={{ overflow: "hidden", display: "flex", flexDirection: "column", gap: space.lg }}>
-              <PersonaPanel
-                value={config.persona}
-                onChange={(persona) => onChange({ ...config, persona })}
-              />
-              <InterviewPanel
-                value={config.mode}
-                onChange={(mode) => onChange({ ...config, mode })}
-              />
+            <div
+              className="transition-disclosure"
+              style={{ display: "grid", gridTemplateRows: customizeOpen ? "1fr" : "0fr" }}
+            >
+              <div style={{ overflow: "hidden" }}>
+                <div style={{ paddingTop: customizeOpen ? "18px" : 0 }}>
+                  <div className="grid-2">
+                    <PersonaFields
+                      value={config.persona}
+                      onChange={(persona) => onChange({ ...config, persona })}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
+
+          {/* Primary CTA — gradient, never disabled by missing choices. */}
+          <button
+            type="button"
+            className="btn-primary"
+            style={{ gridColumn: "1 / -1", marginTop: "6px" }}
+            onClick={onStart}
+            disabled={connecting}
+          >
+            {connecting ? "Connecting…" : "Start session"}
+          </button>
+
+          {/* Headphones tip. */}
+          <p
+            style={{
+              gridColumn: "1 / -1",
+              textAlign: "center",
+              margin: 0,
+              fontSize: "12.5px",
+              fontWeight: 500,
+              color: "var(--text-muted)",
+            }}
+          >
+            {HEADPHONES_TIP}
+          </p>
+
+          {error && (
+            <p style={{ gridColumn: "1 / -1", color: "var(--destructive)", margin: 0, textAlign: "center" }}>
+              {CONNECT_ERROR}
+            </p>
+          )}
         </div>
-
-        {/* Headphones tip (moved here from the old Start button). */}
-        <p style={{ color: palette.textMuted, margin: 0, fontSize: font.size.label }}>
-          {HEADPHONES_TIP}
-        </p>
-
-        {/* Primary CTA — green, 44px target, never disabled by missing choices. */}
-        <button
-          type="button"
-          className="transition-hover"
-          onClick={onStart}
-          disabled={connecting}
-          style={{
-            minHeight: "44px",
-            padding: `${space.sm} ${space.lg}`,
-            borderRadius: radius.control,
-            border: "none",
-            background: palette.action,
-            color: palette.bg,
-            fontWeight: font.weight.semibold,
-            fontSize: font.size.body,
-            cursor: connecting ? "progress" : "pointer",
-          }}
-        >
-          {connecting ? "Connecting…" : "Start session"}
-        </button>
-
-        {error && (
-          <p style={{ color: palette.destructive, margin: 0 }}>{CONNECT_ERROR}</p>
-        )}
       </div>
     </div>
   );

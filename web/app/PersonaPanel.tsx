@@ -1,10 +1,9 @@
 "use client";
 
 import { useRoomContext, useVoiceAssistant } from "@livekit/components-react";
-import { ReactNode, useState } from "react";
+import { useState } from "react";
 
 import { ApplyState, STATUS_COLOR, STATUS_LABEL } from "./ui/apply";
-import { font, inputStyle, labelStyle, palette, panelStyle, radius, space } from "./ui/tokens";
 
 // File #6 duplication seam (03-PATTERNS.md): these arrays + the seed persona
 // MUST mirror agent/persona.py (VOICE_IDS, DIFFICULTY/VERBOSITY/CORRECTION keys,
@@ -48,46 +47,51 @@ export const DEFAULT_PERSONA: Persona = {
  * NO RPC — safe to render outside <LiveKitRoom> (the setup-screen path). An
  * optional `footer` slot lets the live wrapper inject its Apply button + status.
  */
-function PersonaFields({
+export function PersonaFields({
   value,
   onChange,
-  footer,
 }: {
   value: Persona;
   onChange: (p: Persona) => void;
-  footer?: ReactNode;
 }) {
   function set<K extends keyof Persona>(key: K, fieldValue: string) {
     onChange({ ...value, [key]: fieldValue });
   }
 
   return (
-    <div style={panelStyle}>
-      <strong style={{ fontSize: font.size.heading }}>Persona</strong>
-
-      <label style={labelStyle}>
-        Display name
+    <>
+      <div className="field full">
+        <label className="field-label" htmlFor="persona-name">
+          Display name
+        </label>
         <input
-          style={inputStyle}
+          id="persona-name"
+          className="control"
           value={value.display_name}
           onChange={(e) => set("display_name", e.target.value)}
         />
-      </label>
+      </div>
 
-      <label style={labelStyle}>
-        Role / instructions
+      <div className="field full">
+        <label className="field-label" htmlFor="persona-role">
+          Role / instructions
+        </label>
         <textarea
-          style={{ ...inputStyle, minHeight: "5rem", resize: "vertical", fontSize: font.size.label }}
+          id="persona-role"
+          className="control"
           placeholder="Leave blank to use the default Cybersecurity Trainer role."
           value={value.role_text}
           onChange={(e) => set("role_text", e.target.value)}
         />
-      </label>
+      </div>
 
-      <label style={labelStyle}>
-        Difficulty
+      <div className="field">
+        <label className="field-label" htmlFor="persona-difficulty">
+          Difficulty
+        </label>
         <select
-          style={inputStyle}
+          id="persona-difficulty"
+          className="control"
           value={value.difficulty}
           onChange={(e) => set("difficulty", e.target.value)}
         >
@@ -95,12 +99,15 @@ function PersonaFields({
             <option key={d} value={d}>{d}</option>
           ))}
         </select>
-      </label>
+      </div>
 
-      <label style={labelStyle}>
-        Verbosity
+      <div className="field">
+        <label className="field-label" htmlFor="persona-verbosity">
+          Verbosity
+        </label>
         <select
-          style={inputStyle}
+          id="persona-verbosity"
+          className="control"
           value={value.verbosity}
           onChange={(e) => set("verbosity", e.target.value)}
         >
@@ -108,12 +115,15 @@ function PersonaFields({
             <option key={v} value={v}>{v}</option>
           ))}
         </select>
-      </label>
+      </div>
 
-      <label style={labelStyle}>
-        Correction
+      <div className="field">
+        <label className="field-label" htmlFor="persona-correction">
+          Correction
+        </label>
         <select
-          style={inputStyle}
+          id="persona-correction"
+          className="control"
           value={value.correction}
           onChange={(e) => set("correction", e.target.value)}
         >
@@ -121,12 +131,15 @@ function PersonaFields({
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
-      </label>
+      </div>
 
-      <label style={labelStyle}>
-        Voice
+      <div className="field">
+        <label className="field-label" htmlFor="persona-voice">
+          Voice
+        </label>
         <select
-          style={inputStyle}
+          id="persona-voice"
+          className="control"
           value={value.voice_id}
           onChange={(e) => set("voice_id", e.target.value)}
         >
@@ -134,10 +147,8 @@ function PersonaFields({
             <option key={v} value={v}>{v}</option>
           ))}
         </select>
-      </label>
-
-      {footer}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -181,37 +192,23 @@ function PersonaPanelLive() {
   }
 
   return (
-    <PersonaFields
-      value={persona}
-      onChange={setPersona}
-      footer={
-        <>
-          <button
-            className="transition-hover"
-            style={{
-              padding: `${space.sm} ${space.md}`,
-              borderRadius: radius.control,
-              border: "none",
-              background: palette.action,
-              color: palette.bg,
-              fontWeight: font.weight.semibold,
-              cursor: status === "applying" ? "progress" : "pointer",
-            }}
-            disabled={status === "applying"}
-            onClick={apply}
-          >
-            Apply
-          </button>
-
-          <span
-            className="transition-status"
-            style={{ minHeight: "1.2rem", color: STATUS_COLOR[status], fontWeight: font.weight.semibold }}
-          >
-            {STATUS_LABEL[status]}
-          </span>
-        </>
-      }
-    />
+    <div className="drawer-section">
+      <h4>Persona</h4>
+      <div className="grid-2">
+        <PersonaFields value={persona} onChange={setPersona} />
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+        <button className="btn-apply" disabled={status === "applying"} onClick={apply}>
+          Apply
+        </button>
+        <span
+          className="transition-status"
+          style={{ color: STATUS_COLOR[status], fontWeight: 600, fontSize: "13px" }}
+        >
+          {STATUS_LABEL[status]}
+        </span>
+      </div>
+    </div>
   );
 }
 

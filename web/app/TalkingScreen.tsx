@@ -3,18 +3,23 @@
 import { ReactNode, useState } from "react";
 
 import AgentStatePill from "./AgentStatePill";
+import SegmentedToggle from "./SegmentedToggle";
 import SettingsDrawer from "./SettingsDrawer";
 import Transcript from "./Transcript";
-import { font, palette, radius, space } from "./ui/tokens";
+import Visualizer from "./Visualizer";
+import WhoName from "./WhoName";
+
+const AVATAR_OPTIONS = [
+  { label: "Voice only", value: "voice" },
+  { label: "Avatar", value: "avatar" },
+] as const;
 
 /**
  * In-room talking screen (Screen B). Rendered INSIDE <LiveKitRoom> as a full-height
- * flex column: a top bar (agent-state pill + Voice-only/Avatar segmented toggle +
- * a Settings button), an optional avatar stage (only when `avatarOn`; the avatar
- * element itself is mounted in the shell to keep the dynamic-import contract there),
- * the Transcript as the hero flex-1 column, and the reversible SettingsDrawer
- * (closed by default). The config panels live in the drawer, not the always-visible
- * layout, so the conversation is the hero.
+ * flex column matching the design-mockups/v4 talk view: a sticky blurred top bar
+ * (agent-state pill + Voice-only/Avatar sliding toggle + ghost Settings/Leave),
+ * then a stage split into the visualizer/avatar hero (with a live "who-name" status
+ * line) and the Transcript. The reversible SettingsDrawer hosts the config panels.
  *
  * Opening Settings overlays the drawer WITHOUT unmounting <LiveKitRoom> — the room,
  * transcript, and avatar persist. Only a confirmed Leave (onLeave) returns to setup.
@@ -24,94 +29,92 @@ export default function TalkingScreen({
   onToggleAvatar,
   onLeave,
   avatar,
+  agentName,
 }: {
   avatarOn: boolean;
   onToggleAvatar: (on: boolean) => void;
   onLeave: () => void;
   // The avatar stage element (mounted in the shell to preserve the dynamic-import
-  // ssr:false contract); rendered here in the 360px region only when avatarOn.
+  // ssr:false contract); rendered here in the stage only when avatarOn.
   avatar?: ReactNode;
+  agentName: string;
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const showAvatar = avatarOn && !!avatar;
 
   return (
     <div
       className="screen-enter"
-      style={{
-        minHeight: "100vh",
-        width: "100%",
-        display: "flex",
-        flexDirection: "column",
-        gap: space.md,
-        padding: space.lg,
-      }}
+      style={{ minHeight: "100vh", width: "100%", display: "flex", flexDirection: "column" }}
     >
-      {/* Top bar: state pill + Voice-only/Avatar toggle + Settings. */}
-      <div style={{ display: "flex", gap: space.md, alignItems: "center" }}>
+      {/* Sticky blurred top bar. */}
+      <div className="topbar">
         <AgentStatePill />
-
-        {/* Default-OFF "Voice only / Avatar" toggle (AVTR-01). Audio always plays
-            via <RoomAudioRenderer/> in the shell regardless of this toggle (AVTR-02). */}
-        <div
-          role="group"
-          aria-label="Voice only / Avatar"
-          style={{
-            display: "inline-flex",
-            borderRadius: radius.pill,
-            overflow: "hidden",
-            border: `1px solid ${palette.border}`,
-            fontSize: font.size.label,
-          }}
-        >
-          {([
-            ["Voice only", false],
-            ["Avatar", true],
-          ] as const).map(([label, on]) => (
-            <button
-              key={label}
-              type="button"
-              className="transition-segment"
-              onClick={() => onToggleAvatar(on)}
-              style={{
-                padding: `${space.xs} ${space.md}`,
-                border: "none",
-                cursor: "pointer",
-                fontWeight: font.weight.semibold,
-                background: avatarOn === on ? palette.accent : "transparent",
-                color: avatarOn === on ? palette.bg : palette.textMuted,
-              }}
-            >
-              {label}
-            </button>
-          ))}
+        <div style={{ marginLeft: "auto", display: "flex", gap: "9px", alignItems: "center" }}>
+          <SegmentedToggle
+            ariaLabel="Voice only / Avatar"
+            options={AVATAR_OPTIONS}
+            value={avatarOn ? "avatar" : "voice"}
+            onChange={(v) => onToggleAvatar(v === "avatar")}
+          />
+          <button type="button" className="btn-ghost" onClick={() => setSettingsOpen(true)}>
+            Settings
+          </button>
+          <button type="button" className="btn-ghost danger" onClick={onLeave}>
+            Leave
+          </button>
         </div>
-
-        <button
-          type="button"
-          className="transition-hover"
-          onClick={() => setSettingsOpen(true)}
-          style={{
-            marginLeft: "auto",
-            padding: `${space.xs} ${space.md}`,
-            borderRadius: radius.control,
-            border: `1px solid ${palette.border}`,
-            background: "transparent",
-            color: palette.text,
-            fontWeight: font.weight.semibold,
-            cursor: "pointer",
-          }}
-        >
-          Settings
-        </button>
       </div>
 
-      {/* Optional avatar stage (360px region; mount contract owned by the shell). */}
-      {avatarOn && avatar && (
-        <div style={{ width: "100%", height: "360px" }}>{avatar}</div>
-      )}
+      {/* Stage: visualizer/avatar hero (with who-name) + transcript. Avatar mode
+          splits into two columns; voice mode stacks the orb over a centered
+          transcript column. */}
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: "grid",
+          gap: "22px",
+          padding: "18px 22px 26px",
+          gridTemplateColumns: showAvatar ? "minmax(300px, 44%) 1fr" : "1fr",
+          gridTemplateRows: showAvatar ? "1fr" : "auto 1fr",
+          alignItems: showAvatar ? "stretch" : undefined,
+        }}
+      >
+        {/* Hero: avatar stage OR the canvas orb visualizer. The visualizer carries
+            no 3D deps, so the voice-only bundle stays clean. */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "18px",
+            minHeight: 0,
+          }}
+        >
+          {showAvatar ? (
+            <div style={{ width: "100%", height: "100%", minHeight: "320px" }}>{avatar}</div>
+          ) : (
+            <Visualizer />
+          )}
+          <WhoName agentName={agentName} />
+        </div>
 
-      {/* Hero transcript column — fills remaining height so its own scroll works. */}
-      <Transcript />
+        {/* Transcript column — centered + width-capped in voice mode. */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 0,
+            width: "100%",
+            maxWidth: showAvatar ? undefined : "720px",
+            margin: showAvatar ? undefined : "0 auto",
+          }}
+        >
+          <Transcript />
+        </div>
+      </div>
 
       <SettingsDrawer
         open={settingsOpen}

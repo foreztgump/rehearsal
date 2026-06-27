@@ -126,6 +126,7 @@ export default function VoiceRoom() {
         // Mount the avatar HERE so the dynamic-import (ssr:false) contract stays in
         // the shell; TalkingScreen only places it in the 360px region when avatarOn.
         avatar={<AvatarStage persona={sessionConfig.persona.display_name} />}
+        agentName={sessionConfig.persona.display_name}
       />
     </LiveKitRoom>
   );

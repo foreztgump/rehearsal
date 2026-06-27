@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from "react";
 
-import { font, inputStyle, labelStyle, palette, radius, space } from "./ui/tokens";
-
 // UI-SPEC Copywriting table (Mic group helper). Shown when labels are still
 // empty (no permission grant yet) so the user knows selection is optional.
 const HELPER_COPY = "Allow microphone access to choose a device. Optional — we'll use your default otherwise.";
@@ -22,9 +20,11 @@ const HELPER_COPY = "Allow microphone access to choose a device. Optional — we
 export default function MicPicker({
   value,
   onChange,
+  className,
 }: {
   value?: string;
   onChange: (deviceId: string) => void;
+  className?: string;
 }) {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [labelsUnlocked, setLabelsUnlocked] = useState(false);
@@ -72,10 +72,13 @@ export default function MicPicker({
   }
 
   return (
-    <label style={labelStyle}>
-      Microphone
+    <div className={className ? `field ${className}` : "field"}>
+      <label className="field-label" htmlFor="mic-select">
+        Microphone
+      </label>
       <select
-        style={inputStyle}
+        id="mic-select"
+        className="control"
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value)}
       >
@@ -88,28 +91,14 @@ export default function MicPicker({
       </select>
 
       {!labelsUnlocked && (
-        <button
-          type="button"
-          className="transition-hover"
-          onClick={unlockLabels}
-          style={{
-            alignSelf: "flex-start",
-            padding: `${space.xs} ${space.sm}`,
-            borderRadius: radius.control,
-            border: `1px solid ${palette.border}`,
-            background: "transparent",
-            color: palette.text,
-            fontWeight: font.weight.semibold,
-            cursor: "pointer",
-          }}
-        >
+        <button type="button" className="btn-ghost" style={{ alignSelf: "flex-start" }} onClick={unlockLabels}>
           Allow microphone access
         </button>
       )}
 
-      <span style={{ color: palette.textMuted, fontWeight: font.weight.regular, fontSize: font.size.label }}>
+      <span style={{ color: "var(--text-muted)", fontWeight: 400, fontSize: "12.5px" }}>
         {note || HELPER_COPY}
       </span>
-    </label>
+    </div>
   );
 }

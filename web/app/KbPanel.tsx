@@ -1,9 +1,7 @@
 "use client";
 
 import { useRoomContext, useParticipantAttributes, useVoiceAssistant } from "@livekit/components-react";
-import { useEffect, useState } from "react";
-
-import { font, inputStyle, palette, panelStyle, space } from "./ui/tokens";
+import { useEffect, useRef, useState } from "react";
 
 // Browser → agent transport contract (Plan 04-01): each picked file uploads as
 // its own byte stream on this topic; the agent publishes ingest status back on
@@ -34,12 +32,12 @@ const STATUS_LABEL: Record<KbStatus, string> = {
 };
 
 const STATUS_COLOR: Record<KbStatus, string> = {
-  idle: "#8b949e",
-  uploading: "#58a6ff",
-  parsing: "#d29922",
-  distilling: "#d29922",
-  ready: "#3fb950",
-  error: "#f85149",
+  idle: "var(--text-muted)",
+  uploading: "var(--accent)",
+  parsing: "var(--warning)",
+  distilling: "var(--warning)",
+  ready: "var(--action)",
+  error: "var(--destructive)",
 };
 
 // Shared size pre-check (M5): returns an error message for the first oversize
@@ -60,11 +58,14 @@ function oversizeError(files: File[]): string {
 function KbQueueFields({
   files,
   onFilesChange,
+  className,
 }: {
   files: File[];
   onFilesChange: (files: File[]) => void;
+  className?: string;
 }) {
   const [error, setError] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   function queue(picked: FileList) {
     const next = Array.from(picked);
@@ -88,37 +89,66 @@ function KbQueueFields({
   }
 
   return (
-    <div style={panelStyle}>
-      <strong style={{ fontSize: font.size.heading }}>Knowledge Base</strong>
-
-      <label style={{ display: "flex", flexDirection: "column", gap: space.xs, fontWeight: font.weight.semibold }}>
-        Upload material
-        <input
-          style={inputStyle}
-          type="file"
-          accept=".pdf,.txt,.md,.docx"
-          multiple
-          onChange={(e) => {
-            if (e.target.files && e.target.files.length > 0) queue(e.target.files);
-          }}
-        />
-      </label>
+    <div className={className ? `field ${className}` : "field"}>
+      <label className="field-label">Knowledge base</label>
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".pdf,.txt,.md,.docx"
+        multiple
+        style={{ display: "none" }}
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) queue(e.target.files);
+        }}
+      />
+      <div
+        className="dropzone"
+        role="button"
+        tabIndex={0}
+        onClick={() => inputRef.current?.click()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            inputRef.current?.click();
+          }
+        }}
+      >
+        Drop a PDF, TXT, MD or DOCX — stays on your LAN
+      </div>
 
       {files.length > 0 && (
-        <ul style={{ margin: 0, paddingLeft: "1.2rem", color: palette.textMuted, fontWeight: font.weight.regular }}>
+        <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: "6px" }}>
           {files.map((f) => (
-            <li key={`${f.name}-${f.size}`} style={{ display: "flex", justifyContent: "space-between", gap: space.sm }}>
-              <span>{f.name}</span>
+            <li
+              key={`${f.name}-${f.size}`}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "8px",
+                fontSize: "13px",
+                color: "var(--text-body)",
+                padding: "6px 10px",
+                borderRadius: "10px",
+                background: "var(--input-bg)",
+                border: "1px solid var(--line)",
+              }}
+            >
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {f.name}
+              </span>
               <button
                 type="button"
                 onClick={() => remove(f)}
                 style={{
                   background: "none",
                   border: "none",
-                  color: palette.textMuted,
+                  color: "var(--text-muted)",
                   cursor: "pointer",
                   padding: 0,
-                  fontWeight: font.weight.semibold,
+                  fontWeight: 700,
+                  fontSize: "12px",
+                  flex: "0 0 auto",
                 }}
               >
                 remove
@@ -128,14 +158,7 @@ function KbQueueFields({
         </ul>
       )}
 
-      {error && (
-        <span style={{ color: STATUS_COLOR.error, fontWeight: font.weight.regular }}>{error}</span>
-      )}
-
-      <p style={{ color: palette.textMuted, margin: 0, fontWeight: font.weight.regular }}>
-        PDF, TXT, MD, or DOCX. Files stay on your LAN — they ride the existing room
-        connection, nothing is uploaded to the cloud. They upload when your session starts.
-      </p>
+      {error && <span style={{ color: STATUS_COLOR.error, fontSize: "13px" }}>{error}</span>}
     </div>
   );
 }
@@ -154,6 +177,7 @@ function KbPanelLive() {
   const [status, setStatus] = useState<KbStatus>("idle");
   const [docs, setDocs] = useState(0);
   const [error, setError] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Read the agent participant's attributes — the same attribute channel
   // AgentStatePill reads for `lk.agent.state`. When `kb.state` appears, parse its
@@ -202,37 +226,43 @@ function KbPanelLive() {
     status === "ready" ? `ready (${docs} ${docs === 1 ? "doc" : "docs"})` : STATUS_LABEL[status];
 
   return (
-    <div style={panelStyle}>
-      <strong style={{ fontSize: font.size.heading }}>Knowledge Base</strong>
-
-      <label style={{ display: "flex", flexDirection: "column", gap: space.xs, fontWeight: font.weight.semibold }}>
-        Upload material
-        <input
-          style={inputStyle}
-          type="file"
-          accept=".pdf,.txt,.md,.docx"
-          multiple
-          onChange={(e) => {
-            if (e.target.files && e.target.files.length > 0) upload(e.target.files);
-          }}
-        />
-      </label>
+    <div className="drawer-section">
+      <h4>Knowledge base</h4>
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".pdf,.txt,.md,.docx"
+        multiple
+        style={{ display: "none" }}
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) upload(e.target.files);
+        }}
+      />
+      <div
+        className="dropzone"
+        role="button"
+        tabIndex={0}
+        onClick={() => inputRef.current?.click()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            inputRef.current?.click();
+          }
+        }}
+      >
+        Drop a PDF, TXT, MD or DOCX — stays on your LAN
+      </div>
 
       <span
         className="transition-status"
-        style={{ minHeight: "1.2rem", color: STATUS_COLOR[status], fontWeight: font.weight.semibold }}
+        style={{ minHeight: "1.2rem", color: STATUS_COLOR[status], fontWeight: 600, fontSize: "13px" }}
       >
         {label}
       </span>
 
       {status === "error" && error && (
-        <span style={{ color: STATUS_COLOR.error, fontWeight: font.weight.regular }}>{error}</span>
+        <span style={{ color: STATUS_COLOR.error, fontSize: "13px" }}>{error}</span>
       )}
-
-      <p style={{ color: palette.textMuted, margin: 0, fontWeight: font.weight.regular }}>
-        PDF, TXT, MD, or DOCX. Files stay on your LAN — they ride the existing room
-        connection, nothing is uploaded to the cloud.
-      </p>
     </div>
   );
 }
@@ -247,12 +277,14 @@ function KbPanelLive() {
 export default function KbPanel({
   files,
   onFilesChange,
+  className,
 }: {
   files?: File[];
   onFilesChange?: (files: File[]) => void;
+  className?: string;
 }) {
   if (onFilesChange) {
-    return <KbQueueFields files={files ?? []} onFilesChange={onFilesChange} />;
+    return <KbQueueFields files={files ?? []} onFilesChange={onFilesChange} className={className} />;
   }
   return <KbPanelLive />;
 }

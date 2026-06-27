@@ -1,10 +1,9 @@
 "use client";
 
 import { useRoomContext, useVoiceAssistant } from "@livekit/components-react";
-import { ReactNode, useState } from "react";
+import { useState } from "react";
 
 import { ApplyState, STATUS_COLOR, STATUS_LABEL } from "./ui/apply";
-import { font, inputStyle, labelStyle, palette, panelStyle, radius, space } from "./ui/tokens";
 
 // Duplication seam (06-PATTERNS.md File 3): these mode/role keys MUST
 // mirror agent/interview.py (MODE_LEARN, MODE_INTERVIEW, ROLES). There is no
@@ -41,35 +40,37 @@ export const DEFAULT_INTERVIEW: InterviewMode = {
  * setup-screen path). An optional `footer` slot lets the live wrapper inject its
  * Apply button + status.
  */
-function InterviewFields({
+export function InterviewFields({
   value,
   onChange,
-  footer,
 }: {
   value: InterviewMode;
   onChange: (m: InterviewMode) => void;
-  footer?: ReactNode;
 }) {
   return (
-    <div style={panelStyle}>
-      <strong style={{ fontSize: font.size.heading }}>Interview Mode</strong>
-
-      <label style={labelStyle}>
-        Mode
+    <>
+      <div className="field">
+        <label className="field-label" htmlFor="mode-select">
+          Interview mode
+        </label>
         <select
-          style={inputStyle}
+          id="mode-select"
+          className="control"
           value={value.mode}
           onChange={(e) => onChange({ ...value, mode: e.target.value })}
         >
           <option value={MODE_LEARN}>Learn / Converse</option>
           <option value={MODE_INTERVIEW}>Interview</option>
         </select>
-      </label>
+      </div>
 
-      <label style={labelStyle}>
-        Target role
+      <div className="field">
+        <label className="field-label" htmlFor="role-select">
+          Target role
+        </label>
         <select
-          style={inputStyle}
+          id="role-select"
+          className="control"
           value={value.role_key}
           disabled={value.mode !== MODE_INTERVIEW}
           onChange={(e) => onChange({ ...value, role_key: e.target.value })}
@@ -78,10 +79,8 @@ function InterviewFields({
             <option key={r} value={r}>{ROLE_LABEL[r]}</option>
           ))}
         </select>
-      </label>
-
-      {footer}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -124,37 +123,21 @@ function InterviewPanelLive() {
   }
 
   return (
-    <InterviewFields
-      value={interview}
-      onChange={setInterview}
-      footer={
-        <>
-          <button
-            className="transition-hover"
-            style={{
-              padding: `${space.sm} ${space.md}`,
-              borderRadius: radius.control,
-              border: "none",
-              background: palette.action,
-              color: palette.bg,
-              fontWeight: font.weight.semibold,
-              cursor: status === "applying" ? "progress" : "pointer",
-            }}
-            disabled={status === "applying"}
-            onClick={apply}
-          >
-            Apply
-          </button>
-
-          <span
-            className="transition-status"
-            style={{ minHeight: "1.2rem", color: STATUS_COLOR[status], fontWeight: font.weight.semibold }}
-          >
-            {STATUS_LABEL[status]}
-          </span>
-        </>
-      }
-    />
+    <div className="drawer-section">
+      <h4>Interview mode</h4>
+      <InterviewFields value={interview} onChange={setInterview} />
+      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+        <button className="btn-apply" disabled={status === "applying"} onClick={apply}>
+          Apply
+        </button>
+        <span
+          className="transition-status"
+          style={{ color: STATUS_COLOR[status], fontWeight: 600, fontSize: "13px" }}
+        >
+          {STATUS_LABEL[status]}
+        </span>
+      </div>
+    </div>
   );
 }
 

@@ -1,10 +1,9 @@
 "use client";
 
 import { useRoomContext, useVoiceAssistant } from "@livekit/components-react";
-import { ReactNode, useState } from "react";
+import { useState } from "react";
 
 import { ApplyState, STATUS_COLOR, STATUS_LABEL } from "./ui/apply";
-import { font, inputStyle, labelStyle, palette, panelStyle, radius, space } from "./ui/tokens";
 
 // Duplication seam (08-PATTERNS.md File 2): these choice keys MUST mirror
 // agent/main.py MODEL_CHOICES ("fast", "better"). There is no model.get RPC in the
@@ -27,38 +26,35 @@ const CHOICE_LABEL: Record<ModelChoice, string> = {
 };
 
 /**
- * Presentational, fully-controlled model picker. Renders the panel container
- * (heading + labeled <select>) writing every edit through `onChange`. NO room
- * context, NO RPC — safe to render outside <LiveKitRoom> (the setup-screen path).
- * An optional `footer` slot lets the live wrapper inject its Apply button + status.
+ * Presentational, fully-controlled model picker. Renders a single labeled field
+ * (a `.field` so it drops straight into the setup card's grid) writing every edit
+ * through `onChange`. NO room context, NO RPC — safe to render outside
+ * <LiveKitRoom> (the setup-screen path). `className` lets the caller span columns.
  */
-function ModelFields({
+export function ModelFields({
   value,
   onChange,
-  footer,
+  className,
 }: {
   value: ModelChoice;
   onChange: (c: ModelChoice) => void;
-  footer?: ReactNode;
+  className?: string;
 }) {
   return (
-    <div style={panelStyle}>
-      <strong style={{ fontSize: font.size.heading }}>Response model</strong>
-
-      <label style={labelStyle}>
-        Model
-        <select
-          style={inputStyle}
-          value={value}
-          onChange={(e) => onChange(e.target.value as ModelChoice)}
-        >
-          {CHOICES.map((c) => (
-            <option key={c} value={c}>{CHOICE_LABEL[c]}</option>
-          ))}
-        </select>
+    <div className={className ? `field ${className}` : "field"}>
+      <label className="field-label" htmlFor="model-select">
+        Response model
       </label>
-
-      {footer}
+      <select
+        id="model-select"
+        className="control"
+        value={value}
+        onChange={(e) => onChange(e.target.value as ModelChoice)}
+      >
+        {CHOICES.map((c) => (
+          <option key={c} value={c}>{CHOICE_LABEL[c]}</option>
+        ))}
+      </select>
     </div>
   );
 }
@@ -102,37 +98,21 @@ function ModelPanelLive() {
   }
 
   return (
-    <ModelFields
-      value={choice}
-      onChange={setChoice}
-      footer={
-        <>
-          <button
-            className="transition-hover"
-            style={{
-              padding: `${space.sm} ${space.md}`,
-              borderRadius: radius.control,
-              border: "none",
-              background: palette.action,
-              color: palette.bg,
-              fontWeight: font.weight.semibold,
-              cursor: status === "applying" ? "progress" : "pointer",
-            }}
-            disabled={status === "applying"}
-            onClick={apply}
-          >
-            Apply
-          </button>
-
-          <span
-            className="transition-status"
-            style={{ minHeight: "1.2rem", color: STATUS_COLOR[status], fontWeight: font.weight.semibold }}
-          >
-            {STATUS_LABEL[status]}
-          </span>
-        </>
-      }
-    />
+    <div className="drawer-section">
+      <h4>Response model</h4>
+      <ModelFields value={choice} onChange={setChoice} />
+      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+        <button className="btn-apply" disabled={status === "applying"} onClick={apply}>
+          Apply
+        </button>
+        <span
+          className="transition-status"
+          style={{ color: STATUS_COLOR[status], fontWeight: 600, fontSize: "13px" }}
+        >
+          {STATUS_LABEL[status]}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -145,12 +125,14 @@ function ModelPanelLive() {
 export default function ModelPanel({
   value,
   onChange,
+  className,
 }: {
   value?: ModelChoice;
   onChange?: (c: ModelChoice) => void;
+  className?: string;
 }) {
   if (onChange) {
-    return <ModelFields value={value ?? DEFAULT_MODEL} onChange={onChange} />;
+    return <ModelFields value={value ?? DEFAULT_MODEL} onChange={onChange} className={className} />;
   }
   return <ModelPanelLive />;
 }

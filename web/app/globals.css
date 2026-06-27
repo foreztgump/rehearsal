@@ -1,16 +1,680 @@
-/* Phase 13 global stylesheet — the one place CSS lives.
- * Holds what inline styles cannot express: @keyframes, the :focus-visible ring,
- * the transcript scrollbar, the prefers-reduced-motion block, and class-based
- * transition utilities for the two-screen cross-fade and the jump pill.
+/* Phase 13 global stylesheet — the one place CSS lives, revamped onto the
+ * design-mockups/v4 multi-theme system.
+ *
+ * Structure:
+ *   1. Theme palette blocks — one [data-theme="…"] block per v4 mockup. Setting
+ *      <html data-theme="…"> (ThemeProvider) swaps every CSS variable below, which
+ *      re-skins the whole app (tokens.ts/apply.ts resolve to these variables).
+ *   2. Base element resets + ambient/grain backdrop.
+ *   3. @keyframes + transition utility classes (the two-screen cross-fade, jump
+ *      pill, segmented control, status fade), the :focus-visible ring, the
+ *      transcript scrollbar, and the prefers-reduced-motion block.
  *
  * Bundle-isolation contract (13-UI-SPEC.md §Registry Safety, AVTR-01): CSS only,
  * NO @import of any remote font/framework, zero JS. Motion animates ONLY
  * transform/opacity (GPU-friendly) — never width/height/top/left.
- *
- * Durations come from the 13-UI-SPEC.md Animation Contract table.
  */
 
-/* ---- Keyframes ------------------------------------------------------------ */
+/* ======================================================================== */
+/* 1. THEME PALETTE BLOCKS                                                   */
+/* ======================================================================== */
+
+/* Shared, theme-independent radii/easing. The accent gradient + glow are defined
+ * here once using the per-theme --accent/--accent-2/--accent-rgb vars; var()
+ * resolves lazily at the use site, so each theme automatically recolors them. */
+:root {
+  --r-card: 22px;
+  --r-control: 14px;
+  --ease: cubic-bezier(0.22, 0.8, 0.28, 1);
+  --shadow: 0 30px 70px -24px rgba(0, 0, 0, 0.85);
+  --accent-grad: linear-gradient(150deg, var(--accent), var(--accent-2));
+  --glow: 0 14px 34px -10px rgba(var(--accent-rgb), 0.7);
+  --glow-sm: 0 8px 24px -6px rgba(var(--accent-rgb), 0.6);
+}
+
+/* 1 — Eclipse Aurora (default). Cool boreal ink, muted jade halo. */
+:root,
+[data-theme="eclipse-aurora"] {
+  --bg: #0a0d11;
+  --panel: #11161c;
+  --panel-2: #161d24;
+  --input-bg: rgba(255, 255, 255, 0.03);
+  --line: rgba(226, 236, 241, 0.08);
+  --line-2: rgba(226, 236, 241, 0.13);
+  --text: #e7edf1;
+  --text-body: #c4ccd4;
+  --text-muted: #8e9aa6;
+  --accent: #6cc3a6;
+  --accent-2: #3d8c79;
+  --accent-rgb: 108, 195, 166;
+  --action: #6cc3a6;
+  --warning: #e0b482;
+  --destructive: #f0a8a8;
+  --ink: #07100e;
+  --ambient-1: rgba(108, 195, 166, 0.1);
+  --ambient-2: rgba(47, 144, 129, 0.08);
+}
+
+/* 2 — Nebula Bloom. Deep magenta night. */
+[data-theme="nebula-bloom"] {
+  --bg: #130b13;
+  --panel: #1c111c;
+  --panel-2: #291a29;
+  --input-bg: rgba(255, 255, 255, 0.03);
+  --line: rgba(234, 225, 234, 0.08);
+  --line-2: rgba(234, 225, 234, 0.13);
+  --text: #efe6ef;
+  --text-body: #d4c4d4;
+  --text-muted: #a88fa8;
+  --accent: #c26bc2;
+  --accent-2: #973597;
+  --accent-rgb: 194, 107, 194;
+  --action: #c26bc2;
+  --warning: #d9a36b;
+  --destructive: #f0a8b6;
+  --ink: #1e101e;
+  --ambient-1: rgba(194, 107, 194, 0.16);
+  --ambient-2: rgba(191, 105, 171, 0.12);
+}
+
+/* 3 — Sonar Pulse. Teal depths. */
+[data-theme="sonar-pulse"] {
+  --bg: #0b1213;
+  --panel: #111a1c;
+  --panel-2: #1a2629;
+  --input-bg: rgba(255, 255, 255, 0.03);
+  --line: rgba(225, 232, 234, 0.08);
+  --line-2: rgba(225, 232, 234, 0.13);
+  --text: #e6edef;
+  --text-body: #c2d0d4;
+  --text-muted: #8fa3a8;
+  --accent: #6bb1c2;
+  --accent-2: #358397;
+  --accent-rgb: 107, 177, 194;
+  --action: #6bb1c2;
+  --warning: #d9b56b;
+  --destructive: #f0a8a8;
+  --ink: #101b1e;
+  --ambient-1: rgba(107, 177, 194, 0.14);
+  --ambient-2: rgba(105, 154, 191, 0.1);
+}
+
+/* 4 — Liquid Ember. Warm amber glow. */
+[data-theme="liquid-ember"] {
+  --bg: #13100b;
+  --panel: #1c1811;
+  --panel-2: #29221a;
+  --input-bg: rgba(255, 255, 255, 0.03);
+  --line: rgba(234, 230, 225, 0.08);
+  --line-2: rgba(234, 230, 225, 0.13);
+  --text: #efebe6;
+  --text-body: #d4cdc2;
+  --text-muted: #a89d8f;
+  --accent: #c29c6b;
+  --accent-2: #976d35;
+  --accent-rgb: 194, 156, 107;
+  --action: #c29c6b;
+  --warning: #d9b56b;
+  --destructive: #f0b6a8;
+  --ink: #1e1810;
+  --ambient-1: rgba(194, 156, 107, 0.14);
+  --ambient-2: rgba(191, 174, 105, 0.1);
+}
+
+/* 5 — Prism Wave. Violet dusk. */
+[data-theme="prism-wave"] {
+  --bg: #0d0b13;
+  --panel: #14111c;
+  --panel-2: #1d1a29;
+  --input-bg: rgba(255, 255, 255, 0.03);
+  --line: rgba(227, 225, 234, 0.08);
+  --line-2: rgba(227, 225, 234, 0.13);
+  --text: #e8e6ef;
+  --text-body: #cbc4d4;
+  --text-muted: #948fa8;
+  --accent: #8775cc;
+  --accent-2: #493597;
+  --accent-rgb: 135, 117, 204;
+  --action: #8775cc;
+  --warning: #d9a36b;
+  --destructive: #f0a8b6;
+  --ink: #13101e;
+  --ambient-1: rgba(135, 117, 204, 0.16);
+  --ambient-2: rgba(150, 113, 198, 0.1);
+}
+
+/* 6 — Aurora Veil. Rose-ink veil. */
+[data-theme="aurora-veil"] {
+  --bg: #130b0e;
+  --panel: #1c1115;
+  --panel-2: #291a1e;
+  --input-bg: rgba(255, 255, 255, 0.03);
+  --line: rgba(234, 225, 228, 0.08);
+  --line-2: rgba(234, 225, 228, 0.13);
+  --text: #efe6e9;
+  --text-body: #d4c4c9;
+  --text-muted: #a88f96;
+  --accent: #c26b85;
+  --accent-2: #973552;
+  --accent-rgb: 194, 107, 133;
+  --action: #c26b85;
+  --warning: #d9a36b;
+  --destructive: #f0a8a8;
+  --ink: #1e1014;
+  --ambient-1: rgba(194, 107, 133, 0.16);
+  --ambient-2: rgba(191, 105, 111, 0.1);
+}
+
+/* ======================================================================== */
+/* 2. BASE + AMBIENT BACKDROP                                                */
+/* ======================================================================== */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.4s ease, color 0.4s ease;
+}
+
+/* Ambient drifting wash + film grain — fixed behind everything (z-index 0/1).
+ * Theme-driven via --ambient-1/2. Pointer-events none so it never blocks input. */
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ambient::before,
+.ambient::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+}
+
+.ambient::before {
+  width: 60vw;
+  height: 60vw;
+  top: -22%;
+  left: -12%;
+  background: radial-gradient(circle, var(--ambient-1), transparent 60%);
+  animation: ambient-1 28s ease-in-out infinite;
+}
+
+.ambient::after {
+  width: 52vw;
+  height: 52vw;
+  bottom: -25%;
+  right: -15%;
+  background: radial-gradient(circle, var(--ambient-2), transparent 62%);
+  animation: ambient-2 32s ease-in-out infinite;
+}
+
+@keyframes ambient-1 {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(5vw, 4vh);
+  }
+}
+
+@keyframes ambient-2 {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-4vw, -3vh);
+  }
+}
+
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Theme-aware card surface gradient (setup card, panels, drawer). */
+.surface {
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+/* ---- Layout primitives --------------------------------------------------- */
+
+/* Two-column responsive field grid (collapses to one column on narrow). */
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+@media (max-width: 600px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* A single labeled field (label stacked over its control). */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.field.full {
+  grid-column: 1 / -1;
+}
+
+/* Setup card header: logo mark + wordmark. */
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.logo {
+  width: 50px;
+  height: 50px;
+  border-radius: 15px;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  font-size: 22px;
+  color: var(--ink);
+  background: var(--accent-grad);
+  box-shadow: var(--glow-sm);
+}
+.card-sub {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 15px;
+}
+
+/* Compact theme switcher: a row of swatch dots that re-skins with the theme. */
+.theme-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.theme-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  padding: 0;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.theme-dot span {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+.theme-dot:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+}
+.theme-dot.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.theme-dot:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* Collapsible "Customize" disclosure block. */
+.disclosure {
+  grid-column: 1 / -1;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.disclosure-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--accent);
+  padding: 0;
+}
+.disclosure-summary .chev {
+  color: var(--text-muted);
+  transition: transform 0.3s ease;
+}
+.disclosure-summary[aria-expanded="true"] .chev {
+  transform: rotate(180deg);
+}
+
+/* Drawer section: a labeled live-tweak group with a top divider. */
+.drawer-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.drawer-section:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+.drawer-section h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-body);
+}
+
+/* Small Apply button used inside drawer sections. */
+.btn-apply {
+  align-self: flex-start;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  border: none;
+  border-radius: 11px;
+  padding: 9px 16px;
+  cursor: pointer;
+  background: var(--accent-grad);
+  box-shadow: var(--glow-sm);
+  transition: transform 0.15s ease, filter 0.2s ease;
+}
+.btn-apply:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+.btn-apply:disabled {
+  cursor: progress;
+  filter: saturate(0.7) brightness(0.9);
+}
+
+/* Dashed upload dropzone. */
+.dropzone {
+  border: 1.5px dashed var(--line-2);
+  border-radius: var(--r-control);
+  padding: 16px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+.dropzone:hover {
+  border-color: var(--accent);
+  color: var(--text-body);
+  background: rgba(var(--accent-rgb), 0.05);
+}
+
+/* ---- Form controls (parity with the v4 mockup) --------------------------- */
+
+/* Uppercase micro-label sitting above each field. */
+.field-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding-left: 2px;
+}
+
+/* Shared text input / select / textarea look: subtle inset fill, accent focus
+ * ring + glow. The chevron for selects is a theme-neutral inline SVG. */
+.control {
+  width: 100%;
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  padding: 12px 14px;
+  background: var(--input-bg);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+.control::placeholder {
+  color: var(--text-muted);
+}
+.control:focus,
+.control:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.18);
+  background: rgba(var(--accent-rgb), 0.05);
+}
+select.control {
+  appearance: none;
+  cursor: pointer;
+  padding-right: 38px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23888' stroke-width='1.7' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+}
+select.control option {
+  background: var(--panel);
+  color: var(--text);
+}
+textarea.control {
+  resize: vertical;
+  min-height: 72px;
+  line-height: 1.5;
+}
+
+/* Primary gradient CTA with accent glow. */
+.btn-primary {
+  font: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ink);
+  border: none;
+  border-radius: var(--r-control);
+  padding: 15px 18px;
+  cursor: pointer;
+  background: var(--accent-grad);
+  box-shadow: var(--glow);
+  transition: transform 0.15s ease, box-shadow 0.25s ease, filter 0.2s ease;
+}
+.btn-primary:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+.btn-primary:active {
+  transform: translateY(0);
+}
+.btn-primary:disabled {
+  cursor: progress;
+  filter: saturate(0.7) brightness(0.9);
+  box-shadow: none;
+}
+
+/* Ghost / secondary button (topbar actions, disclosure, drawer close). */
+.btn-ghost {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-body);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 9px 15px;
+  cursor: pointer;
+  background: var(--input-bg);
+  transition: transform 0.15s ease, color 0.2s ease, border-color 0.2s ease,
+    background 0.2s ease;
+}
+.btn-ghost:hover {
+  transform: translateY(-1px);
+  color: var(--text);
+  border-color: var(--line-2);
+  background: rgba(255, 255, 255, 0.06);
+}
+.btn-ghost.danger:hover {
+  color: var(--destructive);
+  border-color: rgba(var(--accent-rgb), 0.1);
+}
+
+/* ---- Segmented control with sliding gradient pill ------------------------ */
+
+.seg {
+  display: inline-flex;
+  position: relative;
+  align-items: stretch;
+  padding: 4px;
+  gap: 3px;
+  width: fit-content;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+}
+.seg button {
+  position: relative;
+  z-index: 1;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--text-muted);
+  padding: 8px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.25s ease;
+}
+.seg button.on {
+  color: var(--ink);
+}
+.seg .seg-pill {
+  position: absolute;
+  z-index: 0;
+  top: 4px;
+  bottom: 4px;
+  border-radius: 999px;
+  background: var(--accent-grad);
+  box-shadow: var(--glow-sm);
+  transition: transform 0.35s var(--ease), width 0.35s var(--ease);
+}
+
+/* ---- Talking screen ------------------------------------------------------ */
+
+/* Sticky translucent blurred top bar. */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 62%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+/* State pill: colored text + dot + tinted border (NOT a solid fill). */
+.statepill {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13.5px;
+  font-weight: 700;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  text-transform: capitalize;
+  transition: color 0.3s ease, border-color 0.3s ease;
+}
+.statepill .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: state-pulse 1.7s infinite;
+}
+
+/* "Who is speaking" status line under the orb. */
+.who-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-body);
+  text-align: center;
+  min-height: 1.2em;
+}
+.who-name b {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+/* ---- Chat bubbles -------------------------------------------------------- */
+
+.bubble {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.55;
+  padding: 12px 16px;
+  border-radius: 17px;
+  max-width: 84%;
+  width: fit-content;
+}
+.bubble.agent {
+  align-self: flex-start;
+  border-bottom-left-radius: 5px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+.bubble.user {
+  align-self: flex-end;
+  border-bottom-right-radius: 5px;
+  color: var(--ink);
+  font-weight: 600;
+  background: var(--accent-grad);
+  box-shadow: 0 10px 24px -10px rgba(var(--accent-rgb), 0.7);
+}
+.bubble .who {
+  display: block;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 800;
+  opacity: 0.55;
+  margin-bottom: 4px;
+}
+.bubble.interim {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+/* ======================================================================== */
+/* 3. KEYFRAMES + UTILITIES                                                  */
+/* ======================================================================== */
 
 /* Setup → Talking cross-fade (240ms ease-out): fade in + slide up. */
 @keyframes screen-enter {
@@ -58,10 +722,35 @@
   }
 }
 
+/* Transcript bubble pop-in. */
+@keyframes bubble-pop {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Agent-state dot pulse halo. */
+@keyframes state-pulse {
+  0% {
+    box-shadow: 0 0 0 0 currentColor;
+  }
+  70% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
 /* ---- Focus ring (accessibility, success criterion 5) --------------------- */
 
 :focus-visible {
-  outline: 2px solid #58a6ff;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -69,7 +758,7 @@
 
 .transcript-scroll {
   scrollbar-width: thin;
-  scrollbar-color: #30363d transparent;
+  scrollbar-color: var(--line-2) transparent;
 }
 
 .transcript-scroll::-webkit-scrollbar {
@@ -81,13 +770,12 @@
 }
 
 .transcript-scroll::-webkit-scrollbar-thumb {
-  background-color: #30363d;
+  background-color: var(--line-2);
   border-radius: 999px;
 }
 
 /* ---- Transition utilities ------------------------------------------------- */
 
-/* Two-screen cross-fade. */
 .screen-enter {
   animation: screen-enter 240ms ease-out;
 }
@@ -96,10 +784,15 @@
   animation: screen-exit 200ms ease-in forwards;
 }
 
+.bubble-pop {
+  animation: bubble-pop 0.42s var(--ease) both;
+}
+
 /* Hover/focus transitions on buttons & inputs (120ms ease). */
 .transition-hover {
   transition: background-color 120ms ease, border-color 120ms ease,
-    box-shadow 120ms ease;
+    box-shadow 120ms ease, transform 120ms ease, color 120ms ease,
+    filter 120ms ease;
 }
 
 /* Segmented-control active-indicator slide (160ms ease-out). */
@@ -115,7 +808,8 @@
 
 /* Agent-state pill background change (150ms ease). */
 .transition-pill {
-  transition: background-color 150ms ease;
+  transition: background-color 150ms ease, color 150ms ease,
+    border-color 150ms ease;
 }
 
 /* "Jump to latest" pill in. */
@@ -126,6 +820,11 @@
 /* "Customize" disclosure expand/collapse (200ms ease-out). */
 .transition-disclosure {
   transition: grid-template-rows 200ms ease-out, opacity 200ms ease-out;
+}
+
+/* State-dot pulse (talking screen). */
+.state-dot {
+  animation: state-pulse 1.7s infinite;
 }
 
 /* ---- Reduced motion (accessibility, success criterion 5) ------------------ */
