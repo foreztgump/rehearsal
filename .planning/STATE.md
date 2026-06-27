@@ -3,17 +3,16 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Local-First Pipeline Swap + Avatar
 current_phase: 13
-current_phase_name: Landing/Setup + Talking
-status: verifying
-stopped_at: Phase 13 UI-SPEC approved
-last_updated: "2026-06-27T04:21:48.927Z"
-last_activity: 2026-06-26
-last_activity_desc: Phase 12 complete, transitioned to Phase 13
+current_phase_name: ui-ux-overhaul-landing-setup-screen-and-talking-screen-polis
+status: executing
+stopped_at: Completed 13-01-PLAN.md
+last_updated: "2026-06-27T07:53:58.623Z"
+last_activity: 2026-06-27
 progress:
   total_phases: 7
   completed_phases: 2
-  total_plans: 10
-  completed_plans: 4
+  total_plans: 13
+  completed_plans: 5
   percent: 29
 ---
 
@@ -24,22 +23,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-25)
 
 **Core value:** The user can hold a natural spoken conversation with a credible expert persona at voice-to-voice latency that feels live (P50 < 1.0s) — practicing speaking a domain out loud.
-**Current focus:** Phase 12 — optional-3d-avatar-part-d (PLANNED, ready to execute)
+**Current focus:** Phase 13 — ui-ux-overhaul-landing-setup-screen-and-talking-screen-polis
 
 ## Current Position
 
-Phase: 13 — UI/UX Overhaul (Landing/Setup + Talking)
-Plan: Not started
+Phase: 13 (ui-ux-overhaul-landing-setup-screen-and-talking-screen-polis) — EXECUTING
+Plan: 2 of 3
 
 ### (prior) Phase 12 — optional-3d-avatar-part-d — VERIFIED (browser gates signed)
 
-Status: VERIFIED. Both plans executed (12-01 scaffold+isolation, 12-02 lip-sync+persona+eye-contact) + code-complete verification (12-VERIFICATION.md). The 12 operator/browser gates in `12-AVATAR-VERIFY.md` are now SIGNED (status: verified) — driven via Chrome DevTools (CDP) against the live RTX 5090 stack after rebuilding the `web` image to the phase-12 commits (the running container was the 6h-old pre-avatar build; assets 404'd until `docker compose build web && up -d web` — confirms the bake-not-mount deploy). Agent speech was driven by injecting real Kokoro TTS WAV into the LiveKit mic track (replaceTrack), so STT→LLM→TTS ran for real. Results: Gate 1 (default Voice-only, zero avatar assets) PASS; Gate 2/3 (GLB mount + upper framing, 17 same-origin /vendor+/avatars assets, no CDN) PASS; Gate 4 (Path-A lip-sync — 175 signal-frames peak 0.391 into the cloned-track ScriptProcessor while agent Speaking, idle baseline ~0.0001) PASS; Gate 5 (playout untouched, paused:false/muted:false throughout) PASS; Gate 6 (barge-in — agent answer truncated mid-word, Speaking→Listening in 0.5s via existing interrupt, no 2nd VAD) PASS; Gate 9 (~28fps, 280 drawElements/s, ~373k tris/s) PASS; Gate 11/12 (toggle-OFF removes canvas, canvas count stays 1 across 3 remounts, no leaked WebGL ctx/audio nodes) PASS; Gates 7/8/10 (eye-contact/mood/degrade) PASS at code-path+render level (driving APIs wired, rig+ARKit-52 blendshapes present, fallback string in bundle) — subjective gaze/mood quality is a human-glance confirmation, no requirement unmet. ISOLATION GATE held empty throughout (only web/ rebuilt). Lip-sync is loudness-approximate by design (documented Path-A trade-off). AVTR-01..08 all satisfied.
+Status: Executing Phase 13
 
 ### (prior) Phase 11 — consumer-gpu-deployment-part-e — CODE-COMPLETE, operator GPU gate pending
 
 Plan: 2 of 2 (11-01 gpu-doctor.sh + ./up.sh wrapper + test harness, 11-02 README Consumer-GPU rewrite + compose-topology verify + 11-DEPLOY-VERIFY.md) — both executed, reviewed, verified.
 Status: CODE-COMPLETE. `docker compose up` on the user's own machine is the SOLE supported deployment — all Proxmox/VM/vfio/PCIe content deleted (README two-layer-passthrough section → single 'GPU setup (NVIDIA Container Toolkit)' section; repo-wide grep clean). `scripts/gpu-doctor.sh` = advise-only preflight (ordered nvidia-smi→`docker run --gpus all` toolkit→CUDA≥12.8→VRAM≥16384MB, single-sourced readonly floors, `|| true` + `case`-sanitize on nvidia-smi queries, always exit 0, never mutates .env, never switches runtime); emits GPU-ready `--profile stt-gpu` snippet or degraded `STT_FORCE_CPU=1`+Fast-model snippet. `./up.sh` = thin wrapper (cd dirname, doctor unless SKIP_DOCTOR=1, exec docker compose up "$@"). Default boot stays CPU-ONNX-safe (`nemo-stt-cpu`, no GPU reservation, no `nemo-stt`); GPU STT opt-in behind `--profile stt-gpu`. ollama/kokoro stay GPU-required (documented v1.1 limitation). docker-compose.yml UNCHANGED (P10 topology only verified). Sandbox: bash -n clean (4 scripts); scripts/test_gpu_doctor.sh 5/5 PASS (PATH-shim isolation); scripts/test_compose_topology.sh 9/9 PASS (docker compose config default vs --profile stt-gpu); real RTX 5090 doctor run RC=0 (CUDA 13.2 / 24463MB, live --gpus all probe OK). 11-VERIFICATION.md verdict: code-complete with operator gate pending. DEPLOY-04/05 satisfied-in-code. 7 GPU gates UNSIGNED in 11-DEPLOY-VERIFY.md.
-Last activity: 2026-06-26 — Phase 12 complete, transitioned to Phase 13
+Last activity: 2026-06-27
 
 ### (prior) Phase 10 — vram-aware-stt-placement-part-c — CODE-COMPLETE, operator GPU gate pending
 
@@ -98,6 +97,7 @@ Last activity: 2026-06-26 — Phase 9 executed (commits 7efb550..3a6d849). Next:
 | Phase 09 P02 | — | 4 tasks | 7 files |
 | Phase 10 P01 | — | 7 tasks | 9 files |
 | Phase 10 P02 | — | 6 tasks | 6 files |
+| Phase 13 P13-01 | 14 min | 4 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -166,9 +166,9 @@ Acknowledged at v1.0-rc1 close (2026-06-26) and carried into Phase 7 / v1.0:
 
 ## Session Continuity
 
-Last session: 2026-06-27T04:21:48.920Z
-Stopped at: Phase 13 UI-SPEC approved
-Resume file: .planning/phases/13-ui-ux-overhaul-landing-setup-screen-and-talking-screen-polis/13-UI-SPEC.md
+Last session: 2026-06-27T07:53:58.618Z
+Stopped at: Completed 13-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

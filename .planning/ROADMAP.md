@@ -145,7 +145,11 @@ Phase 7 was defined in the v1.0 plan but **never started** (0/2 plans). Its scop
   4. On the talking screen the live transcript auto-scrolls to keep the newest line in view while the user is at the bottom, and does not yank the view when the user has scrolled up to read history
   5. The experience is responsive and accessible — usable on common viewport sizes, keyboard-navigable for primary actions, with no console errors during the setup → connect → talk flow
 
-**Plans**: TBD
+**Plans**: 1/3 plans executed
+
+- [x] 13-01-foundation-token-dedup-PLAN.md
+- [ ] 13-02-setup-before-connect-PLAN.md
+- [ ] 13-03-talking-screen-polish-PLAN.md
 
 ## Progress
 
@@ -166,7 +170,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → ~~7 (supers
 | 10. VRAM-Aware STT Placement (Part C) | v1.1 | 2/2 | Code-complete (GPU gate pending) | 2026-06-26 |
 | 11. Consumer-GPU Deployment (Part E) | v1.1 | 2/2 | Code-complete (GPU gate pending-operator) | 2026-06-26 |
 | 12. Optional 3D Avatar (Part D) | v1.1 | 2/2 | Complete    | 2026-06-26 |
-| 13. UI/UX Overhaul (Landing/Setup + Talking) | v1.1 | 0/? | Not started | - |
+| 13. UI/UX Overhaul (Landing/Setup + Talking) | v1.1 | 1/3 | In Progress|  |
 | 14. Deferred v1.0 Polish, Optimization & Pre-Release Hardening | v1.1 | 0/? | Not started | - |
 
 ### Phase 14: Deferred v1.0 Polish, Optimization & Pre-Release Hardening
