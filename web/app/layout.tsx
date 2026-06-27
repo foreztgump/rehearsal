@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import "./globals.css";
+
 export const metadata = {
   title: "Adept",
   description: "Near-real-time voice persona trainer",
@@ -33,9 +35,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           fontFamily: "system-ui, sans-serif",
           margin: 0,
           minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
           background: "#0b0f14",
           color: "#e6edf3",
         }}

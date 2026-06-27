@@ -1,0 +1,140 @@
+/* Phase 13 global stylesheet — the one place CSS lives.
+ * Holds what inline styles cannot express: @keyframes, the :focus-visible ring,
+ * the transcript scrollbar, the prefers-reduced-motion block, and class-based
+ * transition utilities for the two-screen cross-fade and the jump pill.
+ *
+ * Bundle-isolation contract (13-UI-SPEC.md §Registry Safety, AVTR-01): CSS only,
+ * NO @import of any remote font/framework, zero JS. Motion animates ONLY
+ * transform/opacity (GPU-friendly) — never width/height/top/left.
+ *
+ * Durations come from the 13-UI-SPEC.md Animation Contract table.
+ */
+
+/* ---- Keyframes ------------------------------------------------------------ */
+
+/* Setup → Talking cross-fade (240ms ease-out): fade in + slide up. */
+@keyframes screen-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Talking → Setup reverse (200ms ease-in): fade out + slide down. */
+@keyframes screen-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* "Jump to latest ↓" pill in/out (150ms ease-out). */
+@keyframes jump-pill-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Status applying…→applied fade (150ms ease). */
+@keyframes status-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ---- Focus ring (accessibility, success criterion 5) --------------------- */
+
+:focus-visible {
+  outline: 2px solid #58a6ff;
+  outline-offset: 2px;
+}
+
+/* ---- Transcript scrollbar ------------------------------------------------- */
+
+.transcript-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #30363d transparent;
+}
+
+.transcript-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.transcript-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.transcript-scroll::-webkit-scrollbar-thumb {
+  background-color: #30363d;
+  border-radius: 999px;
+}
+
+/* ---- Transition utilities ------------------------------------------------- */
+
+/* Two-screen cross-fade. */
+.screen-enter {
+  animation: screen-enter 240ms ease-out;
+}
+
+.screen-exit {
+  animation: screen-exit 200ms ease-in forwards;
+}
+
+/* Hover/focus transitions on buttons & inputs (120ms ease). */
+.transition-hover {
+  transition: background-color 120ms ease, border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+/* Segmented-control active-indicator slide (160ms ease-out). */
+.transition-segment {
+  transition: transform 160ms ease-out, background-color 160ms ease-out,
+    color 160ms ease-out;
+}
+
+/* Status applying…→applied color/label (150ms ease). */
+.transition-status {
+  transition: color 150ms ease, opacity 150ms ease;
+}
+
+/* Agent-state pill background change (150ms ease). */
+.transition-pill {
+  transition: background-color 150ms ease;
+}
+
+/* "Jump to latest" pill in. */
+.jump-pill {
+  animation: jump-pill-in 150ms ease-out;
+}
+
+/* "Customize" disclosure expand/collapse (200ms ease-out). */
+.transition-disclosure {
+  transition: grid-template-rows 200ms ease-out, opacity 200ms ease-out;
+}
+
+/* ---- Reduced motion (accessibility, success criterion 5) ------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
