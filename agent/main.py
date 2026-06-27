@@ -22,13 +22,25 @@ import time
 from dataclasses import dataclass, field
 
 import httpx
-from livekit.agents import Agent, AgentSession, JobContext, JobProcess, WorkerOptions, cli
+from livekit.agents import (
+    Agent,
+    AgentSession,
+    ChatContext,
+    JobContext,
+    JobProcess,
+    StopResponse,
+    WorkerOptions,
+    cli,
+)
 from livekit.plugins import openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
+import endpointing
 import history
 import interview
 import metrics
+import transcript_gate
+from captioned_tts import CaptionedTTS
 from nemo_stt import NemoSTT
 from placement import resolve_stt_placement
 from kb import KB_AGGREGATE_MAX_TOKENS, DistillError, KbParseError, ParsedDoc
@@ -61,57 +73,46 @@ NEMO_STT_URL = os.environ.get("NEMO_STT_URL", "ws://nemo-stt:8000/v1/audio/strea
 NEMO_STT_CPU_URL = os.environ.get("NEMO_STT_CPU_URL", "ws://nemo-stt-cpu:8000/v1/audio/stream")
 KOKORO_BASE_URL = os.environ.get("KOKORO_BASE_URL", "http://kokoro:8880/v1")
 
-# Use "tts-1" (not "kokoro"): the livekit openai TTS plugin only routes tts-1 /
-# tts-1-hd through the plain audio-stream path. Any other model name takes the
-# SSE path (stream_format="sse"), which kokoro-fastapi ignores — it returns raw
-# audio/mpeg instead of SSE deltas, so zero frames are pushed ("no audio frames
-# were pushed"). kokoro selects the voice via the `voice` param, not the model.
-KOKORO_MODEL = "tts-1"
-
 WARMUP_PROMPT = "Reply with the single word: ready."
 WARMUP_TIMEOUT_SECONDS = 120.0
 WARMUP_NUM_PREDICT = 16
 THINKING_ENABLED = False  # protect TTFT (see ollama/Modelfile)
 _MS_PER_SECOND = 1000.0
 
-# --- Endpointing profiles (Plan 06-02, MODE-05) -------------------------------
-# Two named endpointing profiles, no magic values (AGENTS.md). The CONVERSATIONAL
-# profile (min_delay 0.3 / max_delay 3.0) is today's Learn/Converse floor — see the
-# turn_handling dict in build_session. The INTERVIEW profile raises the floor so a
-# deliberate, pause-heavy answer ("let me think… the answer is…") is NOT read as
-# turn-end and cut mid-thought; MultilingualModel() stays the semantic decider, this
-# only widens the silence tolerance around it (RESEARCH §5).
-CONVERSATIONAL_ENDPOINTING_MIN_DELAY: float = 0.3
-CONVERSATIONAL_ENDPOINTING_MAX_DELAY: float = 3.0
-# Interview floor: min ∈ [0.6, 0.8] (wait longer before committing a turn),
-# max ∈ [5.0, 6.0] (allow a longer final pause before forcing turn-end).
-INTERVIEW_ENDPOINTING_MIN_DELAY: float = 0.7
-INTERVIEW_ENDPOINTING_MAX_DELAY: float = 5.0
+# ============================ CONVERSATION-FEEL KNOBS ============================
+# Retuned for the NeMo era (14-01). Starting values below; FINAL values are
+# operator-empirical on the RTX 5090 (14-09) against the felt regression. Do not
+# silently change without re-reading agent/metrics rolling_summary.
+#   endpointing      : mode-aware (agent/endpointing.py) — Converse 0.3/3.0, Interview 0.7/5.0
+#   VAD threshold    : 0.6  (down from 0.65) — recover swallowed openings
+#   interrupt min_dur: 0.25 (down from 0.30) — interrupts cut TTS reliably
+#   STT chunk        : 560 ms (.env STT_STREAM_CHUNK_MS) — snappy partials, stays valid
+#   STT silence      : 700 ms (.env STT_ENDPOINT_SILENCE_MS) — vs turn-detector flush
+#   att_context_size : [70,1] (.env STT_ATT_CONTEXT_SIZE) — trained, 80 ms lookahead
+# ================================================================================
+#
+# Endpointing is mode-aware (FEEL-01): the Converse/Interview floors live in
+# agent/endpointing.py (pure, sandbox-testable). build_session seeds the session
+# from the initial mode; handle_mode_update live-switches the floor via the public
+# AgentSession.update_options(endpointing_opts=...) setter — no teardown.
 # METRICS INTERPRETATION (RESEARCH §2.4 / §7.7): the raised interview min_delay (0.7s)
 # INTENTIONALLY exceeds metrics.BUDGET_MS["eou"]=300 (agent/metrics.py:31), so interview
 # turns flag over_budget:["eou"]. This is EXPECTED and correct for deliberate-answer
 # speech, NOT a regression — do not "fix" it. agent/metrics.py is READ-ONLY here.
-#
-# [VM-INTROSPECT] HOW TO SWITCH PROFILES — UNRESOLVED, three ordered candidates; NO
-# runtime `turn_handling` setter is assumed (this codebase has never proven one):
-#   (1) Per-Agent override (cleanest): if the installed livekit-agents Agent.__init__
-#       accepts min_endpointing_delay / max_endpointing_delay / turn_detection, an
-#       interview-profiled Agent carries the slow floor by construction. Because
-#       Option B (06-01) keeps ONE agent (no separate InterviewAgent), this has no
-#       clean carrier unless the VM probe says otherwise.
-#   (2) Runtime mutation via session.update_options(...) on mode-enter — memory note
-#       suggests NO such runtime setter exists; UNCONFIRMED.
-#   (3) MVP-SAFE FALLBACK (the realistic landing): carry both profiles as named
-#       constants and select the interview floor as the session endpointing profile
-#       at build_session when interview-leaning, OR document mode-before-start. We
-#       apply the interview floor as the SINGLE session profile below (mechanism 3):
-#       a deliberate-answer floor that also serves Learn turns acceptably (slightly
-#       slower conversational commit), avoiding an unproven runtime setter.
-# The chosen mechanism is FINALIZED against the inspect.signature probe in
-# 06-INTERVIEW-VERIFY.md (06-02-3). Until that probe confirms mechanism 1 or 2, the
-# single-profile fallback ships.
-ENDPOINTING_MIN_DELAY: float = INTERVIEW_ENDPOINTING_MIN_DELAY
-ENDPOINTING_MAX_DELAY: float = INTERVIEW_ENDPOINTING_MAX_DELAY
+
+# Silero VAD speech-onset bar (FEEL-02). Lower = catches quiet/soft onsets so the
+# first word isn't swallowed; higher = fewer open-mic false triggers from playout
+# tail + room noise. 0.6 is the documented start (down from the 0.65 echo-defense
+# value) to recover dropped openings; operator A/B-tunes in 14-09. Headphones (the
+# recommended setup) make a lower bar safe.
+VAD_ACTIVATION_THRESHOLD: float = 0.6
+
+# Barge-in gate (FEEL-02). min_duration = real speech required before cancelling
+# TTS: low enough that a genuine interrupt reliably cuts the agent, high enough to
+# ignore the agent's own echo tail + "mm-hmm" backchannels. resume_false_interruption
+# + a 2.0s timeout make a no-transcript noise blip resume the agent, not drop the turn.
+INTERRUPT_MIN_DURATION_S: float = 0.25
+FALSE_INTERRUPT_TIMEOUT_S: float = 2.0
 
 # Default persona (PERS-01) now lives in agent/persona.py as a structured config:
 # DEFAULT_PERSONA renders (via render_persona) to a byte-stable system prompt with
@@ -230,11 +231,15 @@ def build_session(vad: silero.vad.VAD) -> AgentSession:
             base_url=OLLAMA_BASE_URL,
             reasoning_effort="none",
         ),
-        tts=openai.TTS(
+        # Captioned TTS (Phase 12 lip-sync): Kokoro /dev/captioned_speech returns the
+        # SAME 24 kHz mono WAV the room already plays PLUS word-level timestamps, which
+        # CaptionedTTS publishes over a data channel for the avatar's word->viseme
+        # lip-sync. Playout/turn/transcription behaviour is unchanged vs the old
+        # openai.TTS(model="tts-1") path; only the synthesis endpoint differs. The room
+        # is attached in the entrypoint after connect (see captioned_tts.attach_room).
+        tts=CaptionedTTS(
             base_url=KOKORO_BASE_URL,
-            model=KOKORO_MODEL,
             voice=DEFAULT_PERSONA.voice_id,
-            api_key="none",
         ),
         # Endpointing surface (Plan 02-03 BLOCKER — resolved by reading the real
         # AgentSession source across the whole ~=1.5 pin, NOT by guessing).
@@ -252,16 +257,14 @@ def build_session(vad: silero.vad.VAD) -> AgentSession:
         # detector is the semantic decider and MUST live INSIDE the dict —
         # when turn_handling is given, the deprecated top-level turn_detection
         # kwarg is dropped (else-branch in __init__), so nesting it is required.
-        # endpointing min_delay/max_delay are the named profile constants above. As of
-        # Plan 06-02 (MODE-05) the SINGLE session profile is the INTERVIEW floor
-        # (ENDPOINTING_MIN_DELAY/MAX_DELAY = the deliberate-answer profile) — the
-        # mechanism-3 fallback, because Option B keeps one agent and no runtime
-        # turn_handling setter is assumed ([VM-INTROSPECT] block above). The raised
-        # min_delay intentionally exceeds metrics.BUDGET_MS["eou"]=300 so interview
-        # turns flag over_budget:["eou"] — EXPECTED, not a regression.
-        # VM-introspection-pending: confirm the installed signature with
-        #   python -c "import inspect, livekit.agents as a; print(inspect.signature(a.AgentSession.__init__))"
-        # (sandbox cannot import livekit — grounded on tagged source instead).
+        # endpointing is now MODE-AWARE (FEEL-01, 14-01): seeded here from the initial
+        # mode (MODE_LEARN → snappy Converse floor) via endpointing.endpointing_for_mode,
+        # and live-switched on mode.update through the public
+        # session.update_options(endpointing_opts=...) setter (handle_mode_update). The
+        # Interview floor's raised min_delay intentionally exceeds
+        # metrics.BUDGET_MS["eou"]=300 so interview turns flag over_budget:["eou"] —
+        # EXPECTED, not a regression. The selector returns a plain dict matching the
+        # EndpointingOptions TypedDict (mode/min_delay/max_delay).
         # Barge-in / interruption gate (Plan 02-03-2). Barge-in is built in:
         # AgentSession cancels TTS + rolls back the turn on user speech and
         # `interruption.enabled` defaults True (verified in voice/turn.py
@@ -271,10 +274,11 @@ def build_session(vad: silero.vad.VAD) -> AgentSession:
         #   false_interruption_timeout  -> interruption["false_interruption_timeout"]
         #   resume_false_interruption   -> interruption["resume_false_interruption"]
         # All three keys are verified present on InterruptionOptions across
-        # livekit-agents@1.5.0..@1.6.4 (voice/turn.py). min_duration 0.3s
-        # requires ~300ms of real speech before cancel — defends against the
-        # agent's own echo tail and "mm-hmm" backchannels. resume_false_int +
-        # a 2.0s timeout make a no-transcript noise-blip barge-in resume the
+        # livekit-agents@1.5.0..@1.6.4 (voice/turn.py). min_duration is the named
+        # INTERRUPT_MIN_DURATION_S (0.25s, retuned from 0.3 in 14-01) — enough real
+        # speech to defend against the agent's own echo tail and "mm-hmm" backchannels
+        # while still cutting TTS reliably. resume_false_interruption + the named
+        # FALSE_INTERRUPT_TIMEOUT_S make a no-transcript noise-blip barge-in resume the
         # agent instead of dropping the turn (open-mic win).
         # VM-introspection-pending: confirm the installed InterruptionOptions
         # accepts these keys (sandbox cannot import livekit — grounded on tagged
@@ -282,15 +286,11 @@ def build_session(vad: silero.vad.VAD) -> AgentSession:
         # ignoring unknown keys at _resolve_interruption (TypedDict, total=False).
         turn_handling={
             "turn_detection": MultilingualModel(),
-            "endpointing": {
-                "mode": "dynamic",
-                "min_delay": ENDPOINTING_MIN_DELAY,
-                "max_delay": ENDPOINTING_MAX_DELAY,
-            },
+            "endpointing": endpointing.endpointing_for_mode(interview.MODE_LEARN),
             "interruption": {
-                "min_duration": 0.3,
+                "min_duration": INTERRUPT_MIN_DURATION_S,
                 "resume_false_interruption": True,
-                "false_interruption_timeout": 2.0,
+                "false_interruption_timeout": FALSE_INTERRUPT_TIMEOUT_S,
             },
         },
     )
@@ -303,15 +303,12 @@ def prewarm(proc: JobProcess) -> None:
     walking-skeleton gate (exactly one real llm_ttft_ms line) is satisfied at
     startup without a participant. The VAD is cached for reuse in the entrypoint.
     """
-    # Raise Silero VAD activation_threshold 0.5 -> 0.65 (Plan 02-03-2, Pitfall 4):
-    # a higher bar to register speech reduces open-mic false triggers from the
-    # agent's own playout + room noise. `activation_threshold` is verified
-    # present on silero.VAD.load (livekit-plugins-silero vad.py: default 0.5,
-    # alongside min_speech_duration/min_silence_duration/deactivation_threshold).
-    # VM-introspection-pending: confirm the installed silero.VAD.load signature
-    #   python -c "import inspect; from livekit.plugins import silero; print(inspect.signature(silero.VAD.load))"
-    # (sandbox cannot import livekit — grounded on tagged source).
-    proc.userdata["vad"] = silero.VAD.load(activation_threshold=0.65)
+    # Silero VAD speech-onset bar = VAD_ACTIVATION_THRESHOLD (FEEL-02, 14-01 retune):
+    # named constant with tuning rationale at the top of this module (down from 0.65
+    # to recover swallowed openings). `activation_threshold` is verified present on
+    # silero.VAD.load (livekit-plugins-silero vad.py: default 0.5, alongside
+    # min_speech_duration/min_silence_duration/deactivation_threshold).
+    proc.userdata["vad"] = silero.VAD.load(activation_threshold=VAD_ACTIVATION_THRESHOLD)
     ttft_ms = _warmup_llm_ttft_ms(resolved_llm_tag())
     metrics.emit_warmup_metric(ttft_ms)
 
@@ -365,9 +362,36 @@ class HistoryWindowAgent(Agent):
     """
 
     async def on_user_turn_completed(self, turn_ctx, new_message):
+        # REL-02: never answer noise/silence. On a garbled/empty finalize, reprompt
+        # and cancel the would-be reply so the agent doesn't hallucinate a response to
+        # a cough, open-mic blip, or empty STT final (boundary: garbled STT).
+        if transcript_gate.is_garbled(new_message.text_content or ""):
+            await self.session.generate_reply(
+                instructions="(internal) You didn't catch that. In one short spoken "
+                "sentence, say you didn't catch it and ask them to repeat."
+            )
+            raise StopResponse()
         if history.should_trim(len(self.chat_ctx.items)):
             trimmed = self.chat_ctx.copy().truncate(max_items=history.window_target())
             await self.update_chat_ctx(trimmed)
+
+
+def decode_rpc_payload(data, method: str) -> dict | None:
+    """Decode an untrusted RPC JSON object payload; None signals a malformed body.
+
+    Every RPC handler crosses the same untrusted boundary, so the JSON-decode +
+    is-object guard lives here once instead of being re-implemented per handler
+    (a missing guard is how a malformed payload raises an unhandled error mid-RPC).
+    """
+    try:
+        decoded = json.loads(data.payload)
+    except json.JSONDecodeError as exc:
+        logger.warning("%s rejected: malformed payload (%s)", method, exc)
+        return None
+    if not isinstance(decoded, dict):
+        logger.warning("%s rejected: payload is not an object", method)
+        return None
+    return decoded
 
 
 async def entrypoint(ctx: JobContext) -> None:
@@ -382,6 +406,11 @@ async def entrypoint(ctx: JobContext) -> None:
     """
     await ctx.connect()
     session = build_session(ctx.proc.userdata["vad"])
+    # Give the captioned TTS the room handle so it can publish word schedules for the
+    # avatar lip-sync (data channel). Done after connect; before this the agent never
+    # speaks, so no schedule is ever dropped for lack of a room.
+    if isinstance(session.tts, CaptionedTTS):
+        session.tts.attach_room(ctx.room)
     metrics.attach(session)
     # Live generation cap (LLM-04) — the SINGLE site it is set, applied exactly
     # once at startup. with_ollama does NOT accept the cap, so the live hot-path LLM
@@ -469,11 +498,13 @@ async def entrypoint(ctx: JobContext) -> None:
         # This is the persona-handler twin of the Phase-06 mode.update fix. VALIDATE the
         # knob values + voice_id and render BEFORE mutating the holder; commit only on
         # success so a malformed RPC cannot wedge the shared epoch state.
+        snapshot = decode_rpc_payload(data, "persona.update")
+        if snapshot is None:
+            return "error"
         try:
-            snapshot = json.loads(data.payload)
             p = Persona(**snapshot)
-        except (json.JSONDecodeError, TypeError) as exc:
-            logger.warning("persona.update rejected: malformed payload (%s)", exc)
+        except TypeError as exc:
+            logger.warning("persona.update rejected: malformed fields (%s)", exc)
             return "error"
         if (p.difficulty not in DIFFICULTY or p.verbosity not in VERBOSITY
                 or p.correction not in CORRECTION):
@@ -504,13 +535,15 @@ async def entrypoint(ctx: JobContext) -> None:
     # generate_reply (MODE-04 ask boundary — mirrors the greeting/KB-priming calls);
     # toggling back to Learn just re-prefills and lets the normal loop resume.
     async def handle_mode_update(data):
-        snapshot = json.loads(data.payload)
         # mode.update is the UNTRUSTED RPC boundary. VALIDATE before committing the
         # shared holders: compose_instructions() (also used by handle_persona_update /
         # ingest_kb) would raise KeyError on an unknown role_key AFTER the holders were
         # already poisoned, breaking persona edits + KB loads for the rest of the
         # session. Reject malformed payloads up front so a bad client cannot wedge the
         # shared epoch state.
+        snapshot = decode_rpc_payload(data, "mode.update")
+        if snapshot is None:
+            return "error"
         new_mode = snapshot.get("mode")
         new_role = snapshot.get("role_key", current_role[0])
         if new_mode not in (interview.MODE_LEARN, interview.MODE_INTERVIEW):
@@ -522,6 +555,12 @@ async def entrypoint(ctx: JobContext) -> None:
         current_mode[0] = new_mode
         current_role[0] = new_role
         await agent.update_instructions(compose_instructions())
+        # Switch the endpointing floor live (FEEL-01) via the public setter — same
+        # in-place runtime-mutation pattern as session.llm._opts.model /
+        # session.tts.update_options. No teardown; effective on the next turn.
+        session.update_options(
+            endpointing_opts=endpointing.endpointing_for_mode(current_mode[0])
+        )
         if current_mode[0] == interview.MODE_INTERVIEW:
             await session.generate_reply(
                 instructions=(
@@ -552,7 +591,9 @@ async def entrypoint(ctx: JobContext) -> None:
         # mutating: only the plain keys in MODEL_CHOICES are accepted — NEVER a raw
         # tag from the client (LLM-01). Reject up front so a bad payload never
         # reaches _opts.model (validate-before-mutate, the Phase-6 discipline).
-        snapshot = json.loads(data.payload)
+        snapshot = decode_rpc_payload(data, "model.update")
+        if snapshot is None:
+            return "error"
         choice = snapshot.get("choice")
         if choice not in MODEL_CHOICES:
             logger.warning("model.update rejected: unknown choice %r", choice)
@@ -565,6 +606,46 @@ async def entrypoint(ctx: JobContext) -> None:
 
     ctx.room.local_participant.register_rpc_method(
         "model.update", handle_model_update
+    )
+
+    # avatar.update {on: bool} flips the captioned-TTS lip-sync gate live (AVTR-12).
+    # With the avatar OFF the TTS requests no word timestamps and publishes no
+    # lk.avatar.lipsync frames (the voice-only auditable invariant); ON re-enables the
+    # word-schedule publish. Mirrors handle_model_update's validate-before-mutate shape.
+    async def handle_avatar_update(data):
+        # avatar.update is the UNTRUSTED RPC boundary — validate the type BEFORE
+        # touching the live TTS so a malformed payload never reaches the gate.
+        snapshot = decode_rpc_payload(data, "avatar.update")
+        if snapshot is None:
+            return "error"
+        on = snapshot.get("on")
+        if not isinstance(on, bool):
+            logger.warning("avatar.update rejected: 'on' not a bool: %r", on)
+            return "error"
+        if isinstance(session.tts, CaptionedTTS):
+            session.tts.set_avatar_enabled(on)
+        return "applied"
+
+    ctx.room.local_participant.register_rpc_method(
+        "avatar.update", handle_avatar_update
+    )
+
+    # session.reset {} clears the conversation context WITHOUT tearing the room down
+    # (SESS-02). Persona, mode, role, model, and the KB brief are kept — those are
+    # session CONFIG, not context — so this does NOT touch the mode and therefore does
+    # NOT bypass endpointing.endpointing_for_mode() (the 14-01 seam stays live). The
+    # re-prime goes through compose_instructions() for the CURRENT epoch.
+    async def handle_session_reset(data):
+        try:
+            await agent.update_chat_ctx(ChatContext.empty())
+            await agent.update_instructions(compose_instructions())
+        except Exception as exc:  # boundary: never wedge the live room on reset
+            logger.warning("session.reset failed: %s", exc)
+            return "error"
+        return "applied"
+
+    ctx.room.local_participant.register_rpc_method(
+        "session.reset", handle_session_reset
     )
 
     # --- KB ingest (Plan 04-01/04-02): upload → parse → distill → inject once -----

@@ -1,13 +1,15 @@
 "use client";
 
-import { useVoiceAssistant } from "@livekit/components-react";
+import { useDataChannel, useVoiceAssistant } from "@livekit/components-react";
 import type { TrackReference } from "@livekit/components-core";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   avatarForPersona,
   CAMERA_VIEW,
   DRACO_DECODER_PATH,
+  LIPSYNC_TOPIC,
   TALKINGHEAD_SPECIFIER,
+  viewForWidth,
 } from "./avatarConfig";
 
 // Surface of the TalkingHead 1.7 instance we touch. Path-A streaming API confirmed
@@ -42,6 +44,7 @@ type TalkingHeadInstance = {
   setValue: (mt: string, val: number, ms?: number | null) => void;
   makeEyeContact: (ms: number) => void;
   lookAtCamera: (ms: number) => void;
+  setView: (view: string, opt?: Record<string, number> | null) => void;
   dispose: () => void;
   audioCtx: AudioContext;
   mtAvatar: Record<string, MorphTier>;
@@ -55,6 +58,182 @@ function setRealtime(head: TalkingHeadInstance, mt: string, val: number) {
     o.realtime = val;
     o.needsUpdate = true;
   }
+}
+
+// Release a morph's realtime override so TalkingHead's own animation tiers (idle
+// micro-expressions, mood baseline) drive it again. Setting realtime = null (NOT 0)
+// is the fix for the "frozen mouth" idle bug: 0 pins the high-priority realtime tier
+// shut and overrides the lib's idle mouthPucker/Stretch/Roll loop; null yields it.
+function releaseRealtime(head: TalkingHeadInstance, mt: string) {
+  const o = head.mtAvatar[mt];
+  if (o) {
+    o.realtime = null;
+    o.needsUpdate = true;
+  }
+}
+
+// --- Word schedule (Path-B captioned lip-sync) types + word->viseme timeline. ---
+// The agent's CaptionedTTS publishes {seq, request_id, words:[{w,s,e}]} on
+// LIPSYNC_TOPIC, where s/e are sentence-relative seconds (see agent/captioned_tts.py).
+type ScheduleWord = { w: string; s: number; e: number };
+type LipsyncSchedule = { seq: number; words: ScheduleWord[] };
+// A flat, time-ordered list of viseme spans (sentence-relative seconds) we derive
+// once per schedule and scan each frame against the measured audio elapsed time.
+type VisemeSpan = { m: string; s: number; e: number };
+
+// All Oculus visemes the GLB carries (ARKit-52 + Oculus-15, per avatarConfig). We
+// zero every one each frame except the active span so shapes never stick open.
+const VISEME_MORPHS = [
+  "viseme_aa",
+  "viseme_E",
+  "viseme_I",
+  "viseme_O",
+  "viseme_U",
+  "viseme_PP",
+  "viseme_FF",
+  "viseme_TH",
+  "viseme_DD",
+  "viseme_kk",
+  "viseme_CH",
+  "viseme_SS",
+  "viseme_nn",
+  "viseme_RR",
+];
+
+// Map a lowercase English word to an ordered list of Oculus viseme keys. This is a
+// grapheme heuristic (NOT a true phonemizer — TalkingHead's lipsync-en.mjs is not
+// vendored), but driven by REAL per-word timing it reads as proper lip-sync: the
+// mouth makes the right shapes at the right millisecond, which energy/formant alone
+// can never do. Digraphs (th/sh/ch/ph/wh/ck/qu) are matched before single letters.
+function wordToVisemes(word: string): string[] {
+  const w = word.toLowerCase().replace(/[^a-z]/g, "");
+  const out: string[] = [];
+  let i = 0;
+  const push = (m: string) => {
+    // Collapse immediate repeats so "mm"/"ee" don't stutter the same shape.
+    if (out.length === 0 || out[out.length - 1] !== m) out.push(m);
+  };
+  while (i < w.length) {
+    const two = w.slice(i, i + 2);
+    if (two === "th") {
+      push("viseme_TH");
+      i += 2;
+      continue;
+    }
+    if (two === "sh" || two === "ch") {
+      push("viseme_CH");
+      i += 2;
+      continue;
+    }
+    if (two === "ph") {
+      push("viseme_FF");
+      i += 2;
+      continue;
+    }
+    if (two === "ck") {
+      push("viseme_kk");
+      i += 2;
+      continue;
+    }
+    if (two === "qu") {
+      push("viseme_kk");
+      push("viseme_U");
+      i += 2;
+      continue;
+    }
+    if (two === "wh") {
+      push("viseme_U");
+      i += 2;
+      continue;
+    }
+    const c = w[i];
+    i += 1;
+    switch (c) {
+      case "a":
+        push("viseme_aa");
+        break;
+      case "e":
+        push("viseme_E");
+        break;
+      case "i":
+      case "y":
+        push("viseme_I");
+        break;
+      case "o":
+        push("viseme_O");
+        break;
+      case "u":
+        push("viseme_U");
+        break;
+      case "w":
+        push("viseme_U");
+        break;
+      case "m":
+      case "b":
+      case "p":
+        push("viseme_PP");
+        break;
+      case "f":
+      case "v":
+        push("viseme_FF");
+        break;
+      case "t":
+      case "d":
+        push("viseme_DD");
+        break;
+      case "n":
+      case "l":
+        push("viseme_nn");
+        break;
+      case "k":
+      case "g":
+      case "c":
+      case "q":
+      case "x":
+        push("viseme_kk");
+        break;
+      case "j":
+        push("viseme_CH");
+        break;
+      case "s":
+      case "z":
+        push("viseme_SS");
+        break;
+      case "r":
+        push("viseme_RR");
+        break;
+      case "h":
+        // Mostly a breath — fold into the following vowel; skip if standalone.
+        break;
+      default:
+        break;
+    }
+  }
+  // A wordless token (e.g. "h" only, or all-symbol) still needs a mouth movement.
+  if (out.length === 0) out.push("viseme_aa");
+  return out;
+}
+
+// Flatten a word schedule into evenly-timed viseme spans in sentence-relative
+// seconds. Each word's visemes split its [s,e] window equally — good enough because
+// the WORD boundaries are real (from Kokoro's phonemizer); only the intra-word
+// distribution is approximated.
+function scheduleToTimeline(words: ScheduleWord[]): VisemeSpan[] {
+  const spans: VisemeSpan[] = [];
+  for (const word of words) {
+    const dur = Math.max(0, word.e - word.s);
+    if (dur <= 0 || !word.w) continue;
+    const vis = wordToVisemes(word.w);
+    const step = dur / vis.length;
+    for (let j = 0; j < vis.length; j++) {
+      spans.push({
+        m: vis[j],
+        s: word.s + j * step,
+        e: word.s + (j + 1) * step,
+      });
+    }
+  }
+  return spans;
 }
 type TalkingHeadModule = {
   TalkingHead: new (
@@ -104,6 +283,48 @@ export default function AvatarStage({ persona }: { persona?: string }) {
   // barge-in flag: when the user is speaking we hold the mouth shut regardless of
   // any residual inbound audio energy.
   const mutedRef = useRef(false);
+  // Removes the responsive-framing resize listener on unmount (AVTR-10).
+  const viewCleanupRef = useRef<(() => void) | null>(null);
+
+  // --- Path-B captioned lip-sync state ---
+  // FIFO of word schedules received over LIPSYNC_TOPIC but not yet started. Each is
+  // popped and anchored to the next measured audio onset (the docstring contract in
+  // agent/captioned_tts.py), so data-channel/audio ordering slack never desyncs.
+  const scheduleQueueRef = useRef<LipsyncSchedule[]>([]);
+  // The schedule currently driving the mouth: its viseme timeline + the audioCtx
+  // time (seconds) we anchored word s=0 to. null => fall back to Path-A formants.
+  const activeRef = useRef<{ timeline: VisemeSpan[]; anchor: number } | null>(
+    null,
+  );
+  // Tracks audio-energy edges so we only anchor a queued schedule on a TRUE onset
+  // (silence -> sound), not on every frame the agent is mid-word.
+  const wasAudibleRef = useRef(false);
+  // Drop schedules whose seq we've already enqueued (publish_data can redeliver).
+  const lastSeqRef = useRef(-1);
+
+  // Receive word schedules from the agent's CaptionedTTS and queue them. We do NOT
+  // anchor here — anchoring waits for the measured audio onset in the rAF tick.
+  const onLipsync = useCallback((msg: { payload: Uint8Array }) => {
+    try {
+      const obj = JSON.parse(new TextDecoder().decode(msg.payload)) as
+        | LipsyncSchedule
+        | undefined;
+      if (!obj || !Array.isArray(obj.words) || obj.words.length === 0) return;
+      if (typeof obj.seq === "number") {
+        if (obj.seq <= lastSeqRef.current) return; // dup/out-of-order replay
+        lastSeqRef.current = obj.seq;
+      }
+      const timeline = scheduleToTimeline(obj.words);
+      if (timeline.length === 0) return;
+      scheduleQueueRef.current.push({ seq: obj.seq, words: obj.words });
+      // Stash the precomputed timeline alongside via a parallel field on the item.
+      (scheduleQueueRef.current[scheduleQueueRef.current.length - 1] as
+        LipsyncSchedule & { timeline?: VisemeSpan[] }).timeline = timeline;
+    } catch {
+      // Malformed payload: ignore, lip-sync simply falls back to Path-A this turn.
+    }
+  }, []);
+  useDataChannel(LIPSYNC_TOPIC, onLipsync);
 
   // --- Mount: construct head + load the persona GLB (AVTR-05/06/08). Runs once. ---
   useEffect(() => {
@@ -152,6 +373,22 @@ export default function AvatarStage({ persona }: { persona?: string }) {
         }
 
         head.setMood(avatar.mood);
+
+        // Responsive framing (AVTR-10). TalkingHead's own ResizeObserver already
+        // handles canvas/aspect; we only switch the VIEW bucket by breakpoint.
+        let lastView = "";
+        const applyView = () => {
+          const next = viewForWidth(window.innerWidth);
+          if (next !== lastView) {
+            lastView = next;
+            head.setView(next);
+          }
+        };
+        applyView();
+        window.addEventListener("resize", applyView);
+        viewCleanupRef.current = () =>
+          window.removeEventListener("resize", applyView);
+
         setStatus("ready");
       } catch {
         // WebGL-unavailable / import / GLB-decode failure: degrade gracefully
@@ -166,6 +403,8 @@ export default function AvatarStage({ persona }: { persona?: string }) {
     // audio node and loses the WebGL context. Nothing is left running.
     return () => {
       cancelled = true;
+      viewCleanupRef.current?.();
+      viewCleanupRef.current = null;
       const tap = tapRef.current;
       if (tap) {
         try {
@@ -277,10 +516,15 @@ export default function AvatarStage({ persona }: { persona?: string }) {
         { m: "viseme_U", f1: 440, f2: 1020 },
       ];
       const VKEYS = VOWELS.map((v) => v.m);
-      // Per-viseme smoothed weights so shapes cross-fade instead of snapping.
+      // Per-viseme smoothed weights so shapes cross-fade instead of snapping. Keyed
+      // over the FULL viseme set (Path-B uses consonant shapes Path-A never picks).
       const vw: Record<string, number> = {};
-      for (const k of VKEYS) vw[k] = 0;
+      for (const k of VISEME_MORPHS) vw[k] = 0;
       let smooth = 0;
+      // Onset detector hysteresis: rms must cross above HI to mark audible, and drop
+      // below LO to mark silent — prevents anchor thrash on syllable dips.
+      const RMS_HI = 0.04;
+      const RMS_LO = 0.015;
 
       // Find the dominant spectral peak (bin index) within [loHz,hiHz].
       const peakHz = (loHz: number, hiHz: number) => {
@@ -301,6 +545,18 @@ export default function AvatarStage({ persona }: { persona?: string }) {
         const h = headRef.current;
         if (!h || disposed) return;
 
+        if (mutedRef.current) {
+          // Not the agent's turn: release the realtime mouth tier so the lib's idle
+          // animation shows, reset the envelope so the next onset starts closed, and
+          // skip the energy/viseme drive entirely this frame.
+          releaseRealtime(h, "mouthOpen");
+          for (const key of VISEME_MORPHS) releaseRealtime(h, key);
+          smooth = 0;
+          const idleRaf = requestAnimationFrame(tick);
+          if (tapRef.current) tapRef.current.raf = idleRaf;
+          return;
+        }
+
         // --- 1) Envelope (how far the mouth opens) from time-domain RMS. ---
         analyser.getByteTimeDomainData(time);
         let sumSq = 0;
@@ -317,9 +573,48 @@ export default function AvatarStage({ persona }: { persona?: string }) {
         const k = open > smooth ? 0.9 : 0.45;
         smooth += (open - smooth) * k;
 
-        // --- 2) Vowel shape (which mouth shape) from F1/F2 formant estimate. ---
+        // --- 2) Audio-onset anchoring (Path-B): when a queued schedule exists and
+        // we just crossed silence->sound, lock its t=0 to NOW (ctx.currentTime). The
+        // sentence-relative word times then map to wall-clock by adding this anchor,
+        // so buffer/network jitter on the data channel never desyncs the mouth. ---
+        const audible = !mutedRef.current && rms > RMS_HI;
+        if (audible && !wasAudibleRef.current) {
+          const next = scheduleQueueRef.current.shift() as
+            | (LipsyncSchedule & { timeline?: VisemeSpan[] })
+            | undefined;
+          if (next?.timeline?.length) {
+            activeRef.current = {
+              timeline: next.timeline,
+              anchor: ctx.currentTime,
+            };
+          }
+        }
+        if (!mutedRef.current && rms > RMS_HI) wasAudibleRef.current = true;
+        else if (mutedRef.current || rms < RMS_LO) wasAudibleRef.current = false;
+
+        // --- 3) Viseme selection. Prefer the captioned schedule (Path-B, real word
+        // timing -> true lip-sync); fall back to the F1/F2 formant estimate (Path-A)
+        // whenever no schedule is active (e.g. the stock OpenAI TTS, or pre-onset). ---
         let target = "viseme_aa";
-        if (!mutedRef.current && smooth > 0.06) {
+        const active = activeRef.current;
+        if (active && !mutedRef.current) {
+          const t = ctx.currentTime - active.anchor; // seconds into the utterance
+          const last = active.timeline[active.timeline.length - 1];
+          if (t > last.e + 0.15) {
+            // Utterance finished — release the schedule so Path-A resumes for any
+            // residual energy and the next onset can anchor a fresh schedule.
+            activeRef.current = null;
+          } else {
+            // Linear scan (timelines are short, one sentence) for the active span.
+            for (let s = 0; s < active.timeline.length; s++) {
+              const span = active.timeline[s];
+              if (t >= span.s && t < span.e) {
+                target = span.m;
+                break;
+              }
+            }
+          }
+        } else if (!mutedRef.current && smooth > 0.06) {
           analyser.getByteFrequencyData(freq);
           const f1 = peakHz(250, 900);
           const f2 = peakHz(900, 2700);
@@ -342,15 +637,17 @@ export default function AvatarStage({ persona }: { persona?: string }) {
             target = best.m;
           }
         }
-        // Cross-fade viseme weights toward the chosen vowel; decay the rest.
-        for (const key of VKEYS) {
+        // Cross-fade viseme weights toward the chosen shape; decay the rest. The
+        // envelope (smooth) scales how far the active shape opens — so both paths
+        // share the same energy-driven amplitude, only the SHAPE source differs.
+        for (const key of VISEME_MORPHS) {
           const goal = key === target ? smooth : 0;
           vw[key] += (goal - vw[key]) * (goal > vw[key] ? 0.6 : 0.35);
         }
 
         try {
           setRealtime(h, "mouthOpen", smooth);
-          for (const key of VKEYS) setRealtime(h, key, vw[key]);
+          for (const key of VISEME_MORPHS) setRealtime(h, key, vw[key]);
         } catch {
           /* non-fatal per-frame */
         }
@@ -424,17 +721,15 @@ export default function AvatarStage({ persona }: { persona?: string }) {
     const speaking = state === "speaking";
     mutedRef.current = !speaking;
     if (!speaking) {
+      // Barge-in / turn end: drop the active word schedule (a stale timeline must not
+      // replay against the next utterance) AND release the mouth morphs so idle
+      // micro-expressions resume — do NOT pin them to 0 (that froze the mouth).
+      activeRef.current = null;
+      scheduleQueueRef.current = [];
+      wasAudibleRef.current = false;
       try {
-        setRealtime(head, "mouthOpen", 0);
-        for (const v of [
-          "viseme_aa",
-          "viseme_E",
-          "viseme_I",
-          "viseme_O",
-          "viseme_U",
-        ]) {
-          setRealtime(head, v, 0);
-        }
+        releaseRealtime(head, "mouthOpen");
+        for (const v of VISEME_MORPHS) releaseRealtime(head, v);
       } catch {
         /* non-fatal */
       }

@@ -22,18 +22,28 @@ const AVATAR_OPTIONS = [
  * line) and the Transcript. The reversible SettingsDrawer hosts the config panels.
  *
  * Opening Settings overlays the drawer WITHOUT unmounting <LiveKitRoom> — the room,
- * transcript, and avatar persist. Only a confirmed Leave (onLeave) returns to setup.
+ * transcript, and avatar persist. Only a confirmed End (onEnd) returns to setup.
  */
 export default function TalkingScreen({
   avatarOn,
   onToggleAvatar,
-  onLeave,
+  onEnd,
+  onNew,
+  onReset,
+  resetMarker,
   avatar,
   agentName,
 }: {
   avatarOn: boolean;
   onToggleAvatar: (on: boolean) => void;
-  onLeave: () => void;
+  // Session lifecycle (SESS-01/02/03): End returns to setup clearing state, New
+  // restarts keeping setup, Reset clears history/transcript in the same room.
+  onEnd: () => void;
+  onNew: () => void;
+  onReset: () => void;
+  // Wall-clock timestamp of the last Reset; the transcript hides turns finalized
+  // before it (0 = nothing reset yet).
+  resetMarker: number;
   // The avatar stage element (mounted in the shell to preserve the dynamic-import
   // ssr:false contract); rendered here in the stage only when avatarOn.
   avatar?: ReactNode;
@@ -60,8 +70,8 @@ export default function TalkingScreen({
           <button type="button" className="btn-ghost" onClick={() => setSettingsOpen(true)}>
             Settings
           </button>
-          <button type="button" className="btn-ghost danger" onClick={onLeave}>
-            Leave
+          <button type="button" className="btn-ghost danger" onClick={onEnd}>
+            End
           </button>
         </div>
       </div>
@@ -112,14 +122,17 @@ export default function TalkingScreen({
             margin: showAvatar ? undefined : "0 auto",
           }}
         >
-          <Transcript />
+          <Transcript resetAfter={resetMarker} />
         </div>
       </div>
 
       <SettingsDrawer
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        onLeave={onLeave}
+        onEnd={onEnd}
+        onNew={onNew}
+        onReset={onReset}
+        resetMarker={resetMarker}
       />
     </div>
   );

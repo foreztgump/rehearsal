@@ -19,6 +19,10 @@ import { useTheme } from "./ui/ThemeProvider";
 // as the CSS. All per-mode mutable state lives in refs so the single effect owns
 // one rAF loop for the component's life.
 
+// Multiplier mapping inbound-speech RMS (~0.0–0.17 typical) onto the orb's 0–1
+// level so normal speaking fills the orb without clipping (AVTR-09).
+const SPEECH_LEVEL_GAIN = 6;
+
 // rgba() string from an RGB triplet + alpha.
 function rgba([r, g, b]: RGB, a: number): string {
   return `rgba(${r},${g},${b},${a})`;
@@ -488,13 +492,42 @@ const RENDERERS = {
  */
 export default function Visualizer() {
   const { themeId } = useTheme();
-  const { state } = useVoiceAssistant();
+  const { state, audioTrack } = useVoiceAssistant();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // Latest state/theme for the rAF loop without re-subscribing the effect.
   const stateRef = useRef(state);
   const themeRef = useRef(themeId);
   stateRef.current = state;
   themeRef.current = themeId;
+  // Read-only analyser on the agent's inbound audio track (AVTR-09). Lets the orb
+  // pulse to real speech amplitude when speaking; null => synthetic envelope only.
+  const analyserRef = useRef<AnalyserNode | null>(null);
+
+  useEffect(() => {
+    const mediaTrack = audioTrack?.publication?.track?.mediaStreamTrack;
+    if (!mediaTrack) return;
+    let ctx: AudioContext | null = null;
+    try {
+      ctx = new AudioContext();
+      const source = ctx.createMediaStreamSource(new MediaStream([mediaTrack]));
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      source.connect(analyser); // read-only: never connected to ctx.destination
+      // Autoplay policy can leave a fresh context suspended; a suspended graph
+      // halts the analyser (all-128 samples → flat orb). Resume best-effort — the
+      // user has already gestured (Start) by the time the agent speaks.
+      if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+      analyserRef.current = analyser;
+    } catch {
+      // Web Audio unavailable / autoplay-locked: orb stays state-reactive (graceful).
+      analyserRef.current = null;
+    }
+    const closing = ctx;
+    return () => {
+      analyserRef.current = null;
+      closing?.close().catch(() => {});
+    };
+  }, [audioTrack]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -542,7 +575,22 @@ export default function Visualizer() {
           : s === "thinking"
             ? 0.1 + 0.05 * Math.sin(t * 3)
             : 0.05;
-      level += (noisy - level) * 0.16;
+      // While speaking with a live analyser, track the agent's real amplitude so
+      // louder syllables swell the orb; otherwise use the synthetic envelope.
+      const analyser = analyserRef.current;
+      let target = noisy;
+      if (speaking && analyser) {
+        const samples = new Uint8Array(analyser.fftSize);
+        analyser.getByteTimeDomainData(samples);
+        let sumOfSquares = 0;
+        for (let i = 0; i < samples.length; i++) {
+          const centered = (samples[i] - 128) / 128;
+          sumOfSquares += centered * centered;
+        }
+        const rms = Math.sqrt(sumOfSquares / samples.length);
+        target = Math.min(1, rms * SPEECH_LEVEL_GAIN);
+      }
+      level += (target - level) * 0.16;
       if (W && H) {
         ctx.clearRect(0, 0, W, H);
         const theme = getTheme(themeRef.current);

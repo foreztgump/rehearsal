@@ -23,6 +23,10 @@ ARG STT_ONNX_MODEL
 ARG STT_QUANT=int8-dynamic
 COPY export_onnx.py ./
 ENV STT_MODEL=${STT_MODEL} STT_ONNX_MODEL=${STT_ONNX_MODEL} STT_QUANT=${STT_QUANT} STT_ONNX_DIR=/build/onnx
+# onnxruntime is needed here for the int8 quantize step (quantize_dynamic). The NeMo
+# base ships torch/NeMo but NOT onnxruntime, so install it in the builder too (it is
+# already a runtime dep in requirements-cpu.txt; the runtime stage installs its own).
+RUN pip install --no-cache-dir "onnxruntime~=1.20"
 RUN python export_onnx.py
 
 # --- Stage 2: lean CPU runtime (python:3.11-slim — no CUDA/NeMo/torch) --------------

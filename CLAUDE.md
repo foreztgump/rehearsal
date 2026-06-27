@@ -73,3 +73,6 @@ After every implementation, check and update: `README.md`, `CHANGELOG.md` (if pr
 
 ## CODE_PRINCIPLES Exceptions
 None yet. Document project-specific deviations here as they arise (e.g. "Reference templates copied verbatim from `.planning/phases/*/01-PATTERNS.md` may exceed the ≤40-line rule").
+
+## Auditable invariants
+- **Voice-only isolation (Phase 14, AVTR-12)** replaces the Phase-12 "avatar never touches the server pipeline" frontend-only gate. With Avatar OFF, the captioned TTS requests no word timestamps and publishes no `lk.avatar.*` data channel — voice-only is byte-for-byte the same Kokoro audio with zero avatar traffic. Avatar-ON captioned TTS (the `lk.avatar.lipsync` schedule publish) is the documented, intentional server-pipeline touch, gated live by the `avatar.update` RPC.

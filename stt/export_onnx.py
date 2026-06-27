@@ -58,7 +58,18 @@ def _export_graphs(model, out_dir: str) -> None:
     """
     os.makedirs(out_dir, exist_ok=True)
     model.set_export_config({"cache_support": "True"})
-    model.export(f"{out_dir}/model.onnx")  # → encoder.onnx + decoder_joint.onnx
+    # NeMo splits a hybrid RNNT export into two files and PREFIXES each with the module
+    # name, i.e. exporting "model.onnx" yields "encoder-model.onnx" +
+    # "decoder_joint-model.onnx" (NOT "encoder.onnx"/"decoder_joint.onnx"). Rename them
+    # to the bare names backend_onnx.load_model + _quantize_encoder expect.
+    model.export(f"{out_dir}/model.onnx")
+    for prefixed, bare in (
+        ("encoder-model.onnx", "encoder.onnx"),
+        ("decoder_joint-model.onnx", "decoder_joint.onnx"),
+    ):
+        src = f"{out_dir}/{prefixed}"
+        if os.path.exists(src):
+            os.replace(src, f"{out_dir}/{bare}")
 
 
 def _quantize_encoder(out_dir: str, quant: str) -> None:
@@ -100,9 +111,13 @@ def _write_parity_assets(model, out_dir: str) -> None:
             f"filter_banks is {fb.shape}, expected band-major (..,128,257); "
             "transpose to [n_mels, n_fft//2+1] before writing (M4)")
     fb.reshape(1, fb.shape[-2], fb.shape[-1]).tofile(f"{out_dir}/filterbank.bin")  # [1,128,257]
-    src = model.tokenizer.tokenizer.model_path  # SentencePiece .model inside the .nemo
-    with open(src, "rb") as fin, open(f"{out_dir}/tokenizer.model", "wb") as fout:
-        fout.write(fin.read())
+    # Write the SentencePiece model. The raw SentencePieceProcessor exposes the model
+    # bytes directly via serialized_model_proto() — version-robust (the wrapper's
+    # .model_path attribute moved/was removed across NeMo releases), and yields the
+    # SAME .model file backend_onnx loads.
+    spp = model.tokenizer.tokenizer  # raw sentencepiece.SentencePieceProcessor
+    with open(f"{out_dir}/tokenizer.model", "wb") as fout:
+        fout.write(spp.serialized_model_proto())
     _write_parity_manifest(model, out_dir)
 
 

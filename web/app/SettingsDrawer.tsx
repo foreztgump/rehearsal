@@ -1,5 +1,6 @@
 "use client";
 
+import { useRoomContext, useTranscriptions, useVoiceAssistant } from "@livekit/components-react";
 import { useEffect, useRef, useState } from "react";
 
 import InterviewPanel from "./InterviewPanel";
@@ -7,13 +8,27 @@ import KbPanel from "./KbPanel";
 import ModelPanel from "./ModelPanel";
 import PersonaPanel from "./PersonaPanel";
 import ThemeDots from "./ThemeDots";
+import { downloadTranscript, formatTranscript, TranscriptEntry } from "./transcriptExport";
 import { font, palette, radius, space } from "./ui/tokens";
 
-// UI-SPEC Copywriting table — verbatim destructive-confirm copy. Phase 13 builds
-// the affordance + copy ONLY; the full clear-all teardown is Phase 14 — onLeave
-// here just sets token=null in the shell (the single disconnect path).
-const LEAVE_CONFIRM =
+// UI-SPEC Copywriting table — verbatim destructive-confirm copy (SESS-03 End is the
+// two-step inline confirm; SESS-01 New / SESS-02 Reset use a native confirm).
+const END_CONFIRM =
   "End this conversation and return to setup? Your transcript will clear.";
+const NEW_CONFIRM = "Start a fresh session? The current conversation clears.";
+const RESET_CONFIRM = "Clear the conversation but keep your setup?";
+const RESET_FAILED_MESSAGE =
+  "Couldn't clear the conversation — the agent still has it. Please try again.";
+// The agent's RPC handlers ack success with this exact string; anything else is a
+// rejection (LiveKit resolves performRpc with the returned string, it does not throw).
+const RPC_APPLIED = "applied";
+
+// Mirrors Transcript.tsx: a finalized segment carries this attribute as "true", and
+// user (vs agent) identity is prefixed `user-`. Export includes only FINAL lines.
+const TRANSCRIPTION_FINAL_ATTRIBUTE = "lk.transcription_final";
+const USER_IDENTITY_PREFIX = "user-";
+const TRANSCRIPT_TXT_FILENAME = "adept-transcript.txt";
+const TRANSCRIPT_MD_FILENAME = "adept-transcript.md";
 
 // The focusable controls a focus trap cycles through. Kept broad so every native
 // control inside the hosted live panels (inputs/selects/textareas/buttons) is
@@ -28,21 +43,99 @@ const FOCUSABLE =
  * Persona/Interview/Model/KB panels in their UNCHANGED uncontrolled live-RPC mode
  * (they have room context; Apply tweaks the running agent).
  *
- * A clearly-destructive "Leave session" affordance (#f85149) opens a confirm; only
- * on confirm does it call `onLeave` (token=null in the shell). Escape closes the
- * drawer; focus is trapped while open; every control shows the #58a6ff focus ring.
+ * A clearly-destructive "End session" affordance (#f85149) opens a confirm; only on
+ * confirm does it call `onEnd` (disconnect + clear held state in the shell). It also
+ * hosts New/Reset session actions and transcript export. Escape closes the drawer;
+ * focus is trapped while open; every control shows the #58a6ff focus ring.
  */
 export default function SettingsDrawer({
   open,
   onClose,
-  onLeave,
+  onEnd,
+  onNew,
+  onReset,
+  resetMarker,
 }: {
   open: boolean;
   onClose: () => void;
-  onLeave: () => void;
+  // Session lifecycle (SESS-01/02/03) threaded from the shell.
+  onEnd: () => void;
+  onNew: () => void;
+  onReset: () => void;
+  // Wall-clock of the last Reset (0 = never). Export excludes pre-reset turns so a
+  // "cleared" session never leaks back out (matches the on-screen Transcript).
+  resetMarker: number;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
+
+  // Live-room hooks (the drawer always renders inside <LiveKitRoom>). Called before
+  // the `if (!open)` early return so hook order stays stable across open/close.
+  const room = useRoomContext();
+  const { agent } = useVoiceAssistant();
+  const transcriptions = useTranscriptions();
+  // First-finalize wall-clock per segment id — backs export timestamps reliably even
+  // while the drawer is closed (this component stays mounted, only its tree hides).
+  const firstFinalAtRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    for (const segment of transcriptions) {
+      const isFinal = segment.streamInfo.attributes?.[TRANSCRIPTION_FINAL_ATTRIBUTE] === "true";
+      if (isFinal && !firstFinalAtRef.current.has(segment.streamInfo.id)) {
+        firstFinalAtRef.current.set(segment.streamInfo.id, Date.now());
+      }
+    }
+  }, [transcriptions]);
+
+  function buildEntries(): TranscriptEntry[] {
+    const entries: TranscriptEntry[] = [];
+    for (const segment of transcriptions) {
+      if (segment.streamInfo.attributes?.[TRANSCRIPTION_FINAL_ATTRIBUTE] !== "true") continue;
+      const at = firstFinalAtRef.current.get(segment.streamInfo.id) ?? Date.now();
+      if (at < resetMarker) continue; // a turn the user cleared on Reset — never export it
+      const isUser = segment.participantInfo.identity.startsWith(USER_IDENTITY_PREFIX);
+      entries.push({ speaker: isUser ? "You" : "Agent", text: segment.text, at });
+    }
+    return entries;
+  }
+
+  function exportTranscript(format: "txt" | "md"): void {
+    const filename = format === "md" ? TRANSCRIPT_MD_FILENAME : TRANSCRIPT_TXT_FILENAME;
+    downloadTranscript(formatTranscript(buildEntries(), format), filename);
+  }
+
+  // SESS-02 Reset: clear the agent's history in-place via the session.reset RPC, then
+  // clear the transcript view (onReset bumps the shell's reset marker). The view is
+  // cleared ONLY when the agent confirms it cleared too — otherwise the UI would look
+  // empty while the agent still holds (and could quote) the "cleared" conversation.
+  async function resetSession(): Promise<void> {
+    if (!window.confirm(RESET_CONFIRM)) return;
+    const fallback = Array.from(room.remoteParticipants.values())[0];
+    const agentIdentity = agent?.identity ?? fallback?.identity;
+    if (!agentIdentity) {
+      onReset(); // no agent holds context — clearing the local view can't diverge
+      return;
+    }
+    try {
+      const ack = await room.localParticipant.performRpc({
+        destinationIdentity: agentIdentity,
+        method: "session.reset",
+        payload: JSON.stringify({}),
+      });
+      if (ack !== RPC_APPLIED) {
+        window.alert(RESET_FAILED_MESSAGE); // agent kept its context — keep the view in sync
+        return;
+      }
+    } catch {
+      // boundary: agent gone / LiveKit disconnect — don't blank a view the agent may still back.
+      window.alert(RESET_FAILED_MESSAGE);
+      return;
+    }
+    onReset();
+  }
+
+  function newSession(): void {
+    if (window.confirm(NEW_CONFIRM)) onNew();
+  }
 
   // Escape closes the drawer; Tab is trapped to the panel's focusable controls so
   // focus never escapes to the live room behind the overlay.
@@ -157,19 +250,47 @@ export default function SettingsDrawer({
         <ModelPanel />
         <KbPanel />
 
-        {/* Destructive Leave session affordance (copy + confirm only; teardown is
-            Phase 14). On confirm -> onLeave sets token=null in the shell. */}
+        {/* SESS-04 transcript export — pure client-side Blob download, no server
+            round-trip (PERF-03 local-first). */}
+        <div className="drawer-section">
+          <h4>Transcript</h4>
+          <div style={{ display: "flex", gap: space.sm }}>
+            <button type="button" className="btn-ghost" onClick={() => exportTranscript("txt")}>
+              Export .txt
+            </button>
+            <button type="button" className="btn-ghost" onClick={() => exportTranscript("md")}>
+              Export .md
+            </button>
+          </div>
+        </div>
+
+        {/* SESS-01/02 Session actions: New (fresh room, keep setup) and Reset (clear
+            history + transcript, same room). Both use a native confirm. */}
+        <div className="drawer-section">
+          <h4>Session</h4>
+          <div style={{ display: "flex", gap: space.sm }}>
+            <button type="button" className="btn-ghost" onClick={newSession}>
+              New session
+            </button>
+            <button type="button" className="btn-ghost" onClick={() => void resetSession()}>
+              Reset
+            </button>
+          </div>
+        </div>
+
+        {/* SESS-03 destructive End session affordance (two-step inline confirm). On
+            confirm -> onEnd disconnects + clears all held state in the shell. */}
         <div style={{ display: "flex", flexDirection: "column", gap: space.sm, marginTop: "auto" }}>
           {confirmLeave ? (
             <div style={{ display: "flex", flexDirection: "column", gap: space.sm }}>
               <p style={{ margin: 0, color: palette.textBody, fontSize: font.size.label }}>
-                {LEAVE_CONFIRM}
+                {END_CONFIRM}
               </p>
               <div style={{ display: "flex", gap: space.sm }}>
                 <button
                   type="button"
                   className="transition-hover"
-                  onClick={onLeave}
+                  onClick={onEnd}
                   style={{
                     flex: 1,
                     padding: `${space.sm} ${space.md}`,
@@ -181,7 +302,7 @@ export default function SettingsDrawer({
                     cursor: "pointer",
                   }}
                 >
-                  Leave session
+                  End session
                 </button>
                 <button
                   type="button"
@@ -218,7 +339,7 @@ export default function SettingsDrawer({
                 cursor: "pointer",
               }}
             >
-              Leave session
+              End session
             </button>
           )}
         </div>

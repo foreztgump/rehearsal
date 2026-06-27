@@ -3,6 +3,7 @@
 import { LiveKitRoom, RoomAudioRenderer, StartAudio } from "@livekit/components-react";
 import dynamic from "next/dynamic";
 import { useState } from "react";
+import ApplyAvatarMode from "./ApplyAvatarMode";
 import ApplySetupOnConnect from "./ApplySetupOnConnect";
 import { DEFAULT_INTERVIEW, InterviewMode } from "./InterviewPanel";
 import { DEFAULT_MODEL, ModelChoice } from "./ModelPanel";
@@ -53,6 +54,15 @@ const DEFAULT_SESSION_CONFIG: SessionConfig = {
   kbFiles: [],
 };
 
+// REL-01: actionable copy when the browser blocks mic access — shown verbatim on the
+// SetupScreen so the user can fix it, instead of connecting to a silent dead room.
+const MIC_BLOCKED_MESSAGE =
+  "Microphone access is blocked. Click the mic/camera icon in your browser's " +
+  "address bar, choose Allow, then press Start again.";
+// Friendly copy for a token/connect failure (the technical reason is logged, not shown).
+const CONNECT_ERROR_MESSAGE =
+  "Couldn't reach the session server. Check the stack is running, then try again.";
+
 /**
  * Orchestrator shell for the two-screen flow. Holds the held `sessionConfig`, the
  * `token`, and connect `error`. Renders the SetupScreen while `!token` (no room),
@@ -67,21 +77,69 @@ export default function VoiceRoom() {
   const [token, setToken] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // SESS-02 transcript reset marker: a wall-clock timestamp bumped on Reset so the
+  // live transcript view "forgets" everything finalized before it (the room keeps
+  // accumulating transcriptions; the marker is how the UI hides the old turns).
+  const [resetMarker, setResetMarker] = useState(0);
+
+  async function probeMicPermission(): Promise<boolean> {
+    // REL-01: fail loudly + actionably if the mic is blocked, instead of connecting
+    // to a dead room. The probe also primes the permission so LiveKit capture succeeds.
+    try {
+      const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+      probe.getTracks().forEach((track) => track.stop());
+      return true;
+    } catch {
+      setError(MIC_BLOCKED_MESSAGE);
+      setConnecting(false);
+      return false;
+    }
+  }
 
   async function start() {
     // Single user gesture: mic-permission + autoplay-unlock + connect all hang
-    // off this click. Fetch the token, then setToken mounts <LiveKitRoom>.
+    // off this click. Probe the mic first, then fetch the token + mount <LiveKitRoom>.
     setError(null);
     setConnecting(true);
+    if (!(await probeMicPermission())) return;
     try {
       const res = await fetch("/api/token");
       if (!res.ok) throw new Error(`token fetch failed (${res.status})`);
       const data = await res.json();
       setToken(data.token);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "could not start");
+      // Surface a friendly message; log the technical cause for the operator.
+      console.error("session start failed:", err);
+      setError(CONNECT_ERROR_MESSAGE);
       setConnecting(false);
     }
+  }
+
+  // SESS-03 End: disconnect + clear ALL held ephemeral state. Unmounting <LiveKitRoom>
+  // ends the agent job (its closure state current_persona/mode/role/model, session_kb,
+  // history, and the per-connection STT cache all die); resetting the config clears KB
+  // files, model, persona, and avatarOn in the UI.
+  function endSession() {
+    setToken(null);
+    setSessionConfig(DEFAULT_SESSION_CONFIG);
+    setError(null);
+    setResetMarker(0);
+  }
+
+  // SESS-01 New: fresh room/token, KEEP the user's setup choices. Drop the token so
+  // <LiveKitRoom> fully unmounts, then re-Start on the next tick.
+  function newSession() {
+    setToken(null);
+    setResetMarker(0);
+    setTimeout(() => {
+      void start();
+    }, 0);
+  }
+
+  // SESS-02 Reset: same room. The drawer fires the session.reset RPC (clears the
+  // agent's history); this just bumps the marker so the transcript view clears too.
+  function resetSession() {
+    setResetMarker(Date.now());
   }
 
   if (!token) {
@@ -116,13 +174,19 @@ export default function VoiceRoom() {
       {/* Once-only post-connect apply of the held setup config (persona → mode →
           model → queued KB), gated on agent readiness. */}
       <ApplySetupOnConnect config={sessionConfig} />
+      {/* Sends avatar.update (initial + on every toggle) to drive the captioned-TTS
+          lip-sync gate (AVTR-12). Taps the same SessionConfig.avatarOn — no second
+          source of truth; the in-room Voice/Avatar toggle flows through here. */}
+      <ApplyAvatarMode avatarOn={sessionConfig.avatarOn} />
       <TalkingScreen
         avatarOn={sessionConfig.avatarOn}
         onToggleAvatar={(on) => setSessionConfig((c) => ({ ...c, avatarOn: on }))}
-        // The ONLY disconnect path (success criterion 3): a confirmed Leave sets
-        // token=null → <LiveKitRoom> unmounts → back to setup. Full clear-all
-        // teardown semantics are Phase 14; this slice wires the affordance only.
-        onLeave={() => setToken(null)}
+        // Session lifecycle (SESS-01/02/03): End disconnects + clears held state, New
+        // restarts keeping setup, Reset clears history/transcript in the same room.
+        onEnd={endSession}
+        onNew={newSession}
+        onReset={resetSession}
+        resetMarker={resetMarker}
         // Mount the avatar HERE so the dynamic-import (ssr:false) contract stays in
         // the shell; TalkingScreen only places it in the 360px region when avatarOn.
         avatar={<AvatarStage persona={sessionConfig.persona.display_name} />}
