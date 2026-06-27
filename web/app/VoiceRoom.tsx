@@ -3,17 +3,12 @@
 import { LiveKitRoom, RoomAudioRenderer, StartAudio } from "@livekit/components-react";
 import dynamic from "next/dynamic";
 import { useState } from "react";
-import AgentStatePill from "./AgentStatePill";
 import ApplySetupOnConnect from "./ApplySetupOnConnect";
 import { DEFAULT_INTERVIEW, InterviewMode } from "./InterviewPanel";
-import InterviewPanel from "./InterviewPanel";
-import KbPanel from "./KbPanel";
 import { DEFAULT_MODEL, ModelChoice } from "./ModelPanel";
-import ModelPanel from "./ModelPanel";
 import { DEFAULT_PERSONA, Persona } from "./PersonaPanel";
-import PersonaPanel from "./PersonaPanel";
 import SetupScreen from "./SetupScreen";
-import Transcript from "./Transcript";
+import TalkingScreen from "./TalkingScreen";
 
 // Dynamic-import the OPTIONAL 3D avatar so it is ABSENT from the voice-only bundle
 // (AVTR-01). ssr:false: WebGL/TalkingHead is browser-only. When the toggle is OFF the
@@ -121,57 +116,17 @@ export default function VoiceRoom() {
       {/* Once-only post-connect apply of the held setup config (persona → mode →
           model → queued KB), gated on agent readiness. */}
       <ApplySetupOnConnect config={sessionConfig} />
-      <div className="screen-enter">
-        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
-          <AgentStatePill />
-          {/* Default-OFF "Voice only / Avatar" toggle (AVTR-01). Audio always plays
-              normally via <RoomAudioRenderer/> regardless of this toggle (AVTR-02). */}
-          <div
-            role="group"
-            aria-label="Voice only / Avatar"
-            style={{
-              display: "inline-flex",
-              borderRadius: "999px",
-              overflow: "hidden",
-              border: "1px solid #30363d",
-              fontSize: "0.85rem",
-            }}
-          >
-            {([
-              ["Voice only", false],
-              ["Avatar", true],
-            ] as const).map(([label, on]) => (
-              <button
-                key={label}
-                type="button"
-                onClick={() => setSessionConfig((c) => ({ ...c, avatarOn: on }))}
-                style={{
-                  padding: "0.25rem 0.75rem",
-                  border: "none",
-                  cursor: "pointer",
-                  fontWeight: 600,
-                  background: sessionConfig.avatarOn === on ? "#58a6ff" : "transparent",
-                  color: sessionConfig.avatarOn === on ? "#0b0f14" : "#8b949e",
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {sessionConfig.avatarOn && (
-          <div style={{ width: "100%", height: "360px", marginTop: "1rem" }}>
-            <AvatarStage persona={sessionConfig.persona.display_name} />
-          </div>
-        )}
-        <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start", marginTop: "1rem" }}>
-          <PersonaPanel />
-          <InterviewPanel />
-          <ModelPanel />
-          <KbPanel />
-          <Transcript />
-        </div>
-      </div>
+      <TalkingScreen
+        avatarOn={sessionConfig.avatarOn}
+        onToggleAvatar={(on) => setSessionConfig((c) => ({ ...c, avatarOn: on }))}
+        // The ONLY disconnect path (success criterion 3): a confirmed Leave sets
+        // token=null → <LiveKitRoom> unmounts → back to setup. Full clear-all
+        // teardown semantics are Phase 14; this slice wires the affordance only.
+        onLeave={() => setToken(null)}
+        // Mount the avatar HERE so the dynamic-import (ssr:false) contract stays in
+        // the shell; TalkingScreen only places it in the 360px region when avatarOn.
+        avatar={<AvatarStage persona={sessionConfig.persona.display_name} />}
+      />
     </LiveKitRoom>
   );
 }
