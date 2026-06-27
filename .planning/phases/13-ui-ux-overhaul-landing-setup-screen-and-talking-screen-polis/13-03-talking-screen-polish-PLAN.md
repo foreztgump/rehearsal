@@ -31,7 +31,7 @@ Depends on 13-02 (shell + controlled panels). This is the third and final slice.
 ## Must-Haves (goal-backward)
 
 ### Truths (must remain TRUE)
-- The live transcript auto-scrolls to keep the newest line in view WHILE the user is
+- D-04: The live transcript auto-scrolls to keep the newest line in view WHILE the user is
   at the bottom, and does NOT yank the view when the user has scrolled up to read
   history (success criterion 4).
 - A "Jump to latest ↓" pill (accent `#58a6ff`, bottom-center) appears when the user
