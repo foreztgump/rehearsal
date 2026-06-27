@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Local-First Pipeline Swap + Avatar
 current_phase: 13
-current_phase_name: rolled in
+current_phase_name: Landing/Setup + Talking
 status: verifying
-stopped_at: Completed 12-01-PLAN.md
-last_updated: "2026-06-26T23:35:31.711Z"
+stopped_at: Phase 13 context gathered
+last_updated: "2026-06-27T04:11:12.279Z"
 last_activity: 2026-06-26
-last_activity_desc: "Phase 12 complete + browser gates SIGNED (12/12 PASS via CDP on live RTX 5090 stack). Transitioned to Phase 13."
+last_activity_desc: Phase 12 complete, transitioned to Phase 13
 progress:
-  total_phases: 6
+  total_phases: 7
   completed_phases: 2
   total_plans: 10
   completed_plans: 4
-  percent: 33
+  percent: 29
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-06-25)
 
 ## Current Position
 
-Phase: 13 — Deferred v1.0 Polish (rolled in)
+Phase: 13 — UI/UX Overhaul (Landing/Setup + Talking)
 Plan: Not started
 
 ### (prior) Phase 12 — optional-3d-avatar-part-d — VERIFIED (browser gates signed)
@@ -121,6 +121,11 @@ Recent decisions affecting current work:
 - [Phase 08]: 08-02: Two-model pull/pin generalizes `pull-and-pin.sh` to named `FAST_LADDER`/`BETTER_LADDER` + a parameterized `write_resolved_tag <key> <tag>`, pinning `OLLAMA_MODEL_FAST`/`OLLAMA_MODEL_BETTER` (+ `OLLAMA_MODEL` Fast back-compat alias). `ollama/verify-build.sh` is the standalone pull-time LLM-05 gate: Check A asserts STRUCTURAL chat-template sanity (role-turn markers + diff vs stock Gemma — catches a malformed-but-nonempty template) and Check B scans a think=false `/api/generate` stream for the artifact superset (`<think>`/`<|channel|>`/`<|analysis|>`/…) — an accepted equivalent mirror of the live `/v1 reasoning_effort=none` path. The persona stays the SOLE guardrail (UNCHANGED); 08-LLM-VERIFY.md Gate B red-teams it and ESCALATES a FAIL rather than editing it. All GPU/live gates are deferred operator gates in 08-LLM-VERIFY.md. — Per-build verification + per-model fallback ladders keep a misbehaving abliterated build from leaking reasoning markers into TTS.
 - [Phase 06]: 06-02: Rubric-structured critique (4 qualitative dims, no numeric score) + slow-speech interview endpointing (min_delay 0.7/max_delay 5.0, mechanism-3 single session profile, [VM-INTROSPECT] for the switch setter). The E4B critique-depth blocker (line 101) is now GATED by Gate A (scripted strong-vs-weak discrimination) in 06-INTERVIEW-VERIFY.md but NOT yet discharged — deferred operator gate; FAIL triggers the documented 24GB OLLAMA_MODEL fallback (no 24GB code in v1). — Prompt structure compensates for the 4B model depth; the strong-vs-weak gate is the operator-verifiable bar the STATE.md blocker demands; over_budget:[eou] on interview turns is expected.
 
+### Roadmap Evolution
+
+- Phase 13 added: UI/UX Overhaul — dedicated landing/setup screen (configure persona, KB, LLM/STT, mic, avatar before connecting) + talking-screen polish (auto-scroll transcript, clean/animated/organized interface, intuitive navigation). Reordered ahead of the polish phase so the final pre-release phase builds on the new UI.
+- Phase reorder: former Phase 13 "Deferred v1.0 Polish" → Phase 14 "Deferred v1.0 Polish, Optimization & Pre-Release Hardening" (now the last phase before release, depends on Phase 13 UI/UX). Both phases were unstarted, so this is a clean swap.
+
 ### Pending Todos
 
 None yet.
@@ -161,15 +166,15 @@ Acknowledged at v1.0-rc1 close (2026-06-26) and carried into Phase 7 / v1.0:
 
 ## Session Continuity
 
-Last session: 2026-06-26T23:08:33.980Z
-Stopped at: Completed 12-01-PLAN.md
-Resume file: None
+Last session: 2026-06-27T04:11:12.273Z
+Stopped at: Phase 13 context gathered
+Resume file: .planning/phases/13-ui-ux-overhaul-landing-setup-screen-and-talking-screen-polis/13-CONTEXT.md
 
 ## Operator Next Steps
 
-- v1.1 roadmap created (Phases 8-13). The unstarted v1.0 Phase 7 is SUPERSEDED — its SESS/REL/latency scope is folded into v1.1 Phase 13. Do not plan a standalone Phase 7.
+- v1.1 roadmap created (Phases 8-14). The unstarted v1.0 Phase 7 is SUPERSEDED — its SESS/REL/latency scope is folded into v1.1 Phase 14. Do not plan a standalone Phase 7.
 - Phase 9 is CODE-COMPLETE. When on the RTX 5090: `docker compose build nemo-stt agent && docker compose up -d`, then walk the 6 gates in `09-STT-VERIFY.md` (expect the multi-GB nemo-stt image build + first conformer_stream_step signature confirmation). Sign each gate result table when passed.
 - Phase 10 is CODE-COMPLETE. Default deploy is CPU-ONNX STT (`docker compose build nemo-stt-cpu agent && up -d`); add `--profile stt-gpu` for the GPU cells. Walk the 8 gates in `10-PLACEMENT-VERIFY.md` — Gate 2 (mel-parity) is the highest-risk; Gate 7 (4-cell co-residency matrix) pins KOKORO_MB and decides whether to flip the safe default off global CPU-ONNX.
-- v1.1 build order: 8 (Part A LLM) ✓ → 9 (Part B Nemotron STT) ✓ code-complete → 10 (Part C placement) ✓ code-complete → 11 (Part E deployment) → 12 (Part D avatar, frontend-only/isolated) → 13 (rolled-in polish + final latency tuning).
-- Two phases carry operator GPU gates verifiable only on the real consumer GPU: Phase 10 (16GB co-residency matrix, global-CPU-ONNX default) and Phase 13 (PERF-04 P50<1.0s for both LLMs).
+- v1.1 build order: 8 (Part A LLM) ✓ → 9 (Part B Nemotron STT) ✓ code-complete → 10 (Part C placement) ✓ code-complete → 11 (Part E deployment) → 12 (Part D avatar, frontend-only/isolated) → 13 (UI/UX overhaul: landing/setup + talking polish) → 14 (rolled-in polish + optimization + final latency tuning; last phase before release).
+- Two phases carry operator GPU gates verifiable only on the real consumer GPU: Phase 10 (16GB co-residency matrix, global-CPU-ONNX default) and Phase 14 (PERF-04 P50<1.0s for both LLMs).
 - Operator-gated VM proofs from v1.0 remain (KB flat-TTFT, three-models-under-16GB, P50<1.0s, interview strong-vs-weak critique) — run the documented runbooks on the target GPU when available.
