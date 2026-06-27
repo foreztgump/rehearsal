@@ -12,18 +12,24 @@ import {
 
 // Surface of the TalkingHead 1.7 instance we touch. Path-A streaming API confirmed
 // against the vendored source (web/public/vendor/talkinghead/talkinghead.mjs):
-//   streamStart(opt) -> sets up the 'playback-worklet' AudioWorkletNode
-//   streamAudio({audio}) -> feeds 16-bit PCM; the worklet's output feeds the
-//     analyzer whose energy drives viseme morphs (NO timestamps = Path-A)
+//   streamStart(opt) -> sets up the 'playback-worklet' AudioWorkletNode + analyzer
 //   streamInterrupt() -> stops avatar audio + lipsync instantly (barge-in)
+//   setValue(mt,val,ms) -> writes the 'system' tier of a morph target, applied to
+//     the mesh every frame with the library's own smoothing (talkinghead.mjs:1999).
 //   dispose() -> internally calls streamStop() (closes the worklet) + disconnects
 //     every audio node + loses the WebGL context.
+//
+// NOTE on lip-sync mechanism: TalkingHead's built-in streamAudio() energy path only
+// MODULATES viseme_* morphs that are already queued in animQueue (talkinghead.mjs
+// :2419-2472). Path-A feeds audio with NO viseme/timestamp data, so that queue is
+// empty and the built-in path moves nothing. We therefore drive the mouth OURSELVES:
+// measure per-frame RMS energy off the inbound track and open the mouth morphs via
+// setValue(). This keeps Path-A's no-server-coupling property (energy only, no
+// transcription/timestamps) while actually animating the mouth.
 type TalkingHeadInstance = {
   showAvatar: (avatar: Record<string, unknown>) => Promise<void>;
-  streamStart: (opt: Record<string, unknown>) => Promise<void>;
-  streamAudio: (r: { audio: Float32Array }) => void;
-  streamInterrupt: () => void;
   setMood: (mood: string) => void;
+  setValue: (mt: string, val: number, ms?: number | null) => void;
   makeEyeContact: (ms: number) => void;
   lookAtCamera: (ms: number) => void;
   dispose: () => void;
@@ -63,16 +69,20 @@ export default function AvatarStage({ persona }: { persona?: string }) {
 
   // Path-A audio tap resources, torn down with the stage. The cloned track + its
   // Web Audio nodes are a SECOND, read-only consumer of the agent audio — the
-  // primary <RoomAudioRenderer/> playout is never touched.
+  // primary <RoomAudioRenderer/> playout is never touched. We read per-frame energy
+  // off the analyser and drive the mouth morphs via head.setValue() ourselves
+  // (the built-in energy path needs queued visemes we never feed — see header note).
   const tapRef = useRef<{
+    ctx: AudioContext;
     clone: MediaStreamTrack;
     source: MediaStreamAudioSourceNode;
-    processor: ScriptProcessorNode;
-    sink: GainNode;
+    analyser: AnalyserNode;
+    raf: number;
     sourceTrackId: string;
   } | null>(null);
-  // streaming-started guard so we only streamStart() once per head.
-  const streamingRef = useRef(false);
+  // barge-in flag: when the user is speaking we hold the mouth shut regardless of
+  // any residual inbound audio energy.
+  const mutedRef = useRef(false);
 
   // --- Mount: construct head + load the persona GLB (AVTR-05/06/08). Runs once. ---
   useEffect(() => {
@@ -138,17 +148,16 @@ export default function AvatarStage({ persona }: { persona?: string }) {
       const tap = tapRef.current;
       if (tap) {
         try {
-          tap.processor.onaudioprocess = null;
-          tap.processor.disconnect();
+          cancelAnimationFrame(tap.raf);
           tap.source.disconnect();
-          tap.sink.disconnect();
+          tap.analyser.disconnect();
           tap.clone.stop();
+          tap.ctx.close();
         } catch {
           // best-effort during teardown; never throw out of cleanup.
         }
         tapRef.current = null;
       }
-      streamingRef.current = false;
       const head = headRef.current;
       if (head) {
         try {
@@ -180,9 +189,12 @@ export default function AvatarStage({ persona }: { persona?: string }) {
 
   // --- Path-A lip-sync tap on the INBOUND Kokoro track (AVTR-02). ---
   // Build the read-only Web Audio tap once the head is ready and the agent audio
-  // track is available. streamStart({gain:0}) MUTES TalkingHead's own playout so
-  // the avatar never double-plays over <RoomAudioRenderer/> — the analyzer still
-  // receives full energy, so visemes are driven with NO timestamps/transcription.
+  // track is available. We CLONE the inbound track into our OWN AudioContext +
+  // AnalyserNode (never touching the primary <RoomAudioRenderer/> playout), then a
+  // rAF loop reads frequency energy and opens the mouth morphs via head.setValue().
+  // This is Path-A (energy only, NO transcription/timestamps) but drives the mouth
+  // directly because TalkingHead's built-in energy path only modulates queued
+  // visemes we never feed (see header note).
   useEffect(() => {
     const head = headRef.current;
     if (!head || status !== "ready") return;
@@ -197,10 +209,9 @@ export default function AvatarStage({ persona }: { persona?: string }) {
     if (tapRef.current) {
       const old = tapRef.current;
       try {
-        old.processor.onaudioprocess = null;
-        old.processor.disconnect();
+        cancelAnimationFrame(old.raf);
         old.source.disconnect();
-        old.sink.disconnect();
+        old.analyser.disconnect();
         old.clone.stop();
       } catch {
         /* best-effort */
@@ -209,81 +220,102 @@ export default function AvatarStage({ persona }: { persona?: string }) {
     }
 
     let disposed = false;
-    (async () => {
-      try {
-        // gain:0 => avatar playout silenced (no double audio); sampleRate omitted
-        // so the worklet runs at head.audioCtx's rate, matching our capture node.
-        // waitForAudioChunks:false => energy drives visemes as chunks arrive.
-        if (!streamingRef.current) {
-          await head.streamStart({
-            gain: 0,
-            mood: avatar.mood,
-            lipsyncType: "visemes",
-            lipsyncLang: "en",
-            waitForAudioChunks: false,
-          });
-          streamingRef.current = true;
+    try {
+      // Dedicated AudioContext for the read-only tap. CLONE the track so our source
+      // is independent of the primary playout — never mute/reroute the original
+      // (AVTR-02 read-only second consumer).
+      const ctx = new AudioContext();
+      const clone = track.clone();
+      const stream = new MediaStream([clone]);
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0;
+      source.connect(analyser);
+      // NOTE: analyser is NOT connected to ctx.destination — we only read it, so the
+      // avatar never plays its own copy of the audio (no double playout).
+
+      // Time-domain RMS is the true amplitude envelope: it dips toward zero between
+      // syllables, giving real open/close motion. (Frequency-band peak stays high
+      // through continuous speech and pins the mouth open — that was the old bug.)
+      const time = new Uint8Array(analyser.fftSize);
+      let smooth = 0;
+
+      const tick = () => {
+        const h = headRef.current;
+        if (!h || disposed) return;
+        analyser.getByteTimeDomainData(time);
+        let sumSq = 0;
+        for (let i = 0; i < time.length; i++) {
+          const v = (time[i] - 128) / 128;
+          sumSq += v * v;
         }
-        if (disposed) return;
-
-        const ctx = head.audioCtx;
-        // CLONE the track so our source is independent of the primary playout —
-        // never mute/reroute the original (AVTR-02 read-only second consumer).
-        const clone = track.clone();
-        const stream = new MediaStream([clone]);
-        const source = ctx.createMediaStreamSource(stream);
-        // ScriptProcessor captures raw PCM frames with no extra worklet file.
-        const processor = ctx.createScriptProcessor(4096, 1, 1);
-        // Park the processor on a muted sink so it actually pulls audio frames
-        // without adding anything audible to the graph.
-        const sink = ctx.createGain();
-        sink.gain.value = 0;
-
-        processor.onaudioprocess = (e: AudioProcessingEvent) => {
-          const h = headRef.current;
-          if (!h || !streamingRef.current) return;
-          // Copy the Float32 frame (TalkingHead transfers the buffer to the
-          // worklet, so we must hand it an owned copy).
-          const input = e.inputBuffer.getChannelData(0);
-          h.streamAudio({ audio: new Float32Array(input) });
-        };
-
-        source.connect(processor);
-        processor.connect(sink);
-        sink.connect(ctx.destination);
-
-        if (disposed) {
-          processor.onaudioprocess = null;
-          processor.disconnect();
-          source.disconnect();
-          sink.disconnect();
-          clone.stop();
-          return;
+        const rms = Math.sqrt(sumSq / time.length);
+        // Gate out the noise floor (~0.01), then scale the speech band into a full
+        // open range with a cap; mutedRef holds the mouth shut during barge-in.
+        const open = mutedRef.current
+          ? 0
+          : Math.min(0.8, Math.max(0, rms - 0.01) * 7);
+        // Asymmetric smoothing: open fast (attack), close a touch slower (release)
+        // so the mouth tracks syllables without strobing.
+        const k = open > smooth ? 0.5 : 0.25;
+        smooth += (open - smooth) * k;
+        try {
+          h.setValue("mouthOpen", smooth);
+          h.setValue("viseme_aa", smooth * 0.7);
+        } catch {
+          /* non-fatal per-frame */
         }
+        const raf = requestAnimationFrame(tick);
+        if (tapRef.current) tapRef.current.raf = raf;
+      };
+      const raf = requestAnimationFrame(tick);
 
-        tapRef.current = {
-          clone,
-          source,
-          processor,
-          sink,
-          sourceTrackId: track.id,
-        };
-      } catch {
-        // Tap setup failed (e.g. AudioContext suspended pre-gesture); the avatar
-        // still renders, just without lip-sync. Operator gate covers this.
+      if (disposed) {
+        cancelAnimationFrame(raf);
+        source.disconnect();
+        analyser.disconnect();
+        clone.stop();
+        ctx.close();
+        return;
       }
-    })();
+
+      tapRef.current = {
+        ctx,
+        clone,
+        source,
+        analyser,
+        raf,
+        sourceTrackId: track.id,
+      };
+    } catch {
+      // Tap setup failed (e.g. AudioContext blocked pre-gesture); the avatar still
+      // renders, just without lip-sync. Operator gate covers this.
+    }
 
     return () => {
       disposed = true;
+      const tap = tapRef.current;
+      if (tap && tap.sourceTrackId === track.id) {
+        try {
+          cancelAnimationFrame(tap.raf);
+          tap.source.disconnect();
+          tap.analyser.disconnect();
+          tap.clone.stop();
+          tap.ctx.close();
+        } catch {
+          /* best-effort */
+        }
+        tapRef.current = null;
+      }
     };
-  }, [audioTrack, status, avatar.mood]);
+  }, [audioTrack, status]);
 
   // --- Eye contact + barge-in off the agent state (AVTR-03/04). ---
-  // Eye contact is held while the agent is BOTH speaking and listening. When the
-  // agent enters 'listening' (the existing LiveKit user-speech-start signal — the
-  // same interrupt the call already uses, NO second VAD) we streamInterrupt() to
-  // cut avatar audio + lip-sync instantly.
+  // Eye contact is held while the agent is BOTH speaking and listening. Barge-in:
+  // when the user starts speaking the agent leaves 'speaking' (the existing LiveKit
+  // interrupt — the same signal the call already uses, NO second VAD); we hold the
+  // mouth shut so the avatar stops mid-utterance instantly.
   useEffect(() => {
     const head = headRef.current;
     if (!head || status !== "ready") return;
@@ -297,11 +329,16 @@ export default function AvatarStage({ persona }: { persona?: string }) {
       }
     }
 
-    // Barge-in: user started speaking => agent is now 'listening'. Stop the avatar
-    // mid-utterance (AVTR-03). Reuses the existing interrupt signal; no new VAD.
-    if (state === "listening") {
+    // Drive lip-sync only while the agent is actually speaking. Any other state
+    // (listening/thinking/idle) gates the mouth shut — this is the barge-in cut
+    // (AVTR-03): the instant the user speaks, the agent leaves 'speaking' and the
+    // mouth snaps closed mid-utterance. Reuses the existing signal; no new VAD.
+    const speaking = state === "speaking";
+    mutedRef.current = !speaking;
+    if (!speaking) {
       try {
-        head.streamInterrupt();
+        head.setValue("mouthOpen", 0, 80);
+        head.setValue("viseme_aa", 0, 80);
       } catch {
         /* non-fatal */
       }
