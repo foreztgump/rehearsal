@@ -1,10 +1,11 @@
 ---
 phase: 13
 slug: ui-ux-overhaul-landing-setup-screen-and-talking-screen-polis
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-06-27
+reviewed_at: 2026-06-27
 ---
 
 # Phase 13 — UI Design Contract
