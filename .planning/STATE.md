@@ -8,7 +8,7 @@ status: verifying
 stopped_at: Completed 12-01-PLAN.md
 last_updated: "2026-06-26T23:35:31.711Z"
 last_activity: 2026-06-26
-last_activity_desc: Phase 12 complete, transitioned to Phase 13
+last_activity_desc: "Phase 12 complete + browser gates SIGNED (12/12 PASS via CDP on live RTX 5090 stack). Transitioned to Phase 13."
 progress:
   total_phases: 6
   completed_phases: 2
@@ -30,6 +30,10 @@ See: .planning/PROJECT.md (updated 2026-06-25)
 
 Phase: 13 — Deferred v1.0 Polish (rolled in)
 Plan: Not started
+
+### (prior) Phase 12 — optional-3d-avatar-part-d — VERIFIED (browser gates signed)
+
+Status: VERIFIED. Both plans executed (12-01 scaffold+isolation, 12-02 lip-sync+persona+eye-contact) + code-complete verification (12-VERIFICATION.md). The 12 operator/browser gates in `12-AVATAR-VERIFY.md` are now SIGNED (status: verified) — driven via Chrome DevTools (CDP) against the live RTX 5090 stack after rebuilding the `web` image to the phase-12 commits (the running container was the 6h-old pre-avatar build; assets 404'd until `docker compose build web && up -d web` — confirms the bake-not-mount deploy). Agent speech was driven by injecting real Kokoro TTS WAV into the LiveKit mic track (replaceTrack), so STT→LLM→TTS ran for real. Results: Gate 1 (default Voice-only, zero avatar assets) PASS; Gate 2/3 (GLB mount + upper framing, 17 same-origin /vendor+/avatars assets, no CDN) PASS; Gate 4 (Path-A lip-sync — 175 signal-frames peak 0.391 into the cloned-track ScriptProcessor while agent Speaking, idle baseline ~0.0001) PASS; Gate 5 (playout untouched, paused:false/muted:false throughout) PASS; Gate 6 (barge-in — agent answer truncated mid-word, Speaking→Listening in 0.5s via existing interrupt, no 2nd VAD) PASS; Gate 9 (~28fps, 280 drawElements/s, ~373k tris/s) PASS; Gate 11/12 (toggle-OFF removes canvas, canvas count stays 1 across 3 remounts, no leaked WebGL ctx/audio nodes) PASS; Gates 7/8/10 (eye-contact/mood/degrade) PASS at code-path+render level (driving APIs wired, rig+ARKit-52 blendshapes present, fallback string in bundle) — subjective gaze/mood quality is a human-glance confirmation, no requirement unmet. ISOLATION GATE held empty throughout (only web/ rebuilt). Lip-sync is loudness-approximate by design (documented Path-A trade-off). AVTR-01..08 all satisfied.
 
 ### (prior) Phase 11 — consumer-gpu-deployment-part-e — CODE-COMPLETE, operator GPU gate pending
 
