@@ -7,12 +7,30 @@ persona. Self-hosted on a single 16GB-VRAM GPU via Docker Compose. See
 ## Quick start
 
 ```bash
-cp .env.example .env          # then set a LIVEKIT_API_SECRET
-./up.sh                       # GPU preflight, then builds + boots all services
+./install.sh            # detect + scaffold .env (generated secret) + plan + build + pull
+# …confirm the plan when prompted; then it boots the stack and prints start/stop.
 ```
 
-(`./up.sh` runs the GPU doctor then `docker compose up` — see
-[GPU setup](#gpu-setup-nvidia-container-toolkit). Plain `docker compose up` works too.)
+`install.sh` detects Docker + GPU, scaffolds `.env` with a generated
+`LIVEKIT_API_SECRET`, shows a plan, then builds and pulls models. If Docker or the
+NVIDIA Container Toolkit is missing it prints the exact install commands and exits
+non-zero — it never installs system packages for you (see
+[GPU setup](#gpu-setup-nvidia-container-toolkit) for the toolkit apt commands). Use
+`./install.sh -y` (or `ASSUME_YES=1`) to accept the plan non-interactively.
+
+Already set up? Start and stop with:
+
+```bash
+./up.sh -d              # preflight (gpu-doctor) + docker compose up -d
+./down.sh               # clean stop (docker compose down)
+```
+
+`./down.sh` removes the containers + network but keeps named volumes (pulled models,
+caches); pass `-v` to also drop volumes (models re-pull next boot).
+
+Prefer to do it by hand? `cp .env.example .env`, set a `LIVEKIT_API_SECRET`, then
+`./up.sh` (it runs the GPU doctor then `docker compose up` — see
+[GPU setup](#gpu-setup-nvidia-container-toolkit); plain `docker compose up` works too).
 
 Then open **http://localhost:3000** in **Chromium/Chrome** and click *Start
 talking*. That's it — no certs, no TLS, no browser config.
