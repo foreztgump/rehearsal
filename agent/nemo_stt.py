@@ -9,15 +9,21 @@ websocket frozen by Wave 1 (Plan 09-01):
   client → ``{"type":"config","language":"en"}`` then binary int16 PCM frames +
            control ``{"type":"flush"}`` / ``{"type":"reset"}``
   server → ``{"type":"ready"}``, ``{"type":"delta","text":<cumulative>}``,
-           ``{"type":"final","text":...}`` (only on flush),
-           ``{"type":"error","message":...}``
+           ``{"type":"final","text":...}``, ``{"type":"error","message":...}``
 
-Endpoint authority is UNCHANGED: Silero VAD + the local MultilingualModel turn
-detector own end-of-utterance. When the turn detector finalizes, AgentSession
-calls ``end_input()``/``flush()`` on this stream → ``_run`` forwards
-``{"type":"flush"}`` → the server drains and replies ``final`` → we emit
-FINAL_TRANSCRIPT. NeMo does NOT own turn-taking; we never emit FINAL on a
-client-side heuristic.
+End-of-utterance contract (verified against livekit-agents 1.6.4 source — an
+EARLIER version of this module assumed the opposite and the agent never replied):
+AgentSession does NOT send a _FlushSentinel on turn end in VAD/dynamic mode. On
+end-of-speech ``audio_recognition.commit_user_turn`` pushes SILENCE into the
+stream and waits for the plugin to emit ``FINAL_TRANSCRIPT`` on its own (the same
+provider-side-endpointing contract Deepgram/AssemblyAI satisfy). ``_audio_transcript``
+— the value ``_run_eou_detection`` guards on — is populated ONLY by FINAL events,
+so an interim-only plugin deadlocks the turn. Therefore the SERVER emits ``final``
+autonomously when the transcript stops growing through silence (see server.py
+ENDPOINT_SILENCE_MS); we forward it as FINAL_TRANSCRIPT here. The ``flush`` control
+path is still honored (session-close / manual commit) but is not the hot path.
+Silero VAD + the local MultilingualModel turn detector still own the SEMANTIC
+reply decision — the autonomous final just unblocks the framework's turn machinery.
 
 Native punctuation + capitalization are surfaced AS-IS (no lowercase/strip/
 recapitalize) to both the transcript and the LLM.

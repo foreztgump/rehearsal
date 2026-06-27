@@ -75,6 +75,21 @@ _BYTES_PER_SAMPLE = 2  # int16 mono
 STREAM_CHUNK_MS = int(os.environ.get("STT_STREAM_CHUNK_MS", "560"))
 _STREAM_CHUNK_BYTES = (SAMPLE_RATE * STREAM_CHUNK_MS // 1000) * _BYTES_PER_SAMPLE
 
+# Autonomous end-of-utterance window. The livekit-agents 1.6.4 turn pipeline does
+# NOT send a {"type":"flush"} when the user stops talking — it pushes SILENCE into
+# the STT stream and waits for the plugin to emit FINAL_TRANSCRIPT on its own
+# (provider-side endpointing, like Deepgram/AssemblyAI). _run_eou_detection then
+# guards `if stt and not _audio_transcript: return`, and _audio_transcript is filled
+# ONLY by FINAL events — so WITHOUT an autonomous final the turn never commits and
+# the LLM never runs. We detect end-of-utterance as: cumulative text was non-empty
+# and then stopped growing for ENDPOINT_SILENCE_MS of audio (the transcript stalls
+# the moment speech stops), then emit {"type":"final"} and reset the turn. The
+# framework's MultilingualModel + endpointing.min_delay still own the SEMANTIC
+# decision to reply, and it concatenates successive finals (_audio_transcript +=),
+# so a mid-sentence pause that fires early is recombined, not lost.
+ENDPOINT_SILENCE_MS = int(os.environ.get("STT_ENDPOINT_SILENCE_MS", "700"))
+_ENDPOINT_SILENCE_CHUNKS = max(1, -(-ENDPOINT_SILENCE_MS // STREAM_CHUNK_MS))  # ceil
+
 # Module-level model handle + readiness gate + decode serialization lock. The
 # _gpu_lock name is kept for continuity but it now serializes the single decode
 # session per connection for BOTH runtimes (under cpu it serializes the one ORT
@@ -112,17 +127,27 @@ async def _decode_off_loop(state: dict, pcm: bytes) -> str:
         return await asyncio.to_thread(backend.decode_chunk, _model, state, pcm)
 
 
+async def _send_final(ws: WebSocket, state: dict, text: str) -> None:
+    """Emit {"type":"final"} and reset per-turn decode + endpoint/dedup markers.
+
+    Shared by the explicit `flush` control frame AND the autonomous end-of-utterance
+    path. reset_turn_state carries the encoder cache forward (cache-aware streaming
+    preserved) but clears prev_hyps so the NEXT final is that turn only.
+    """
+    backend.reset_turn_state(state)
+    state.pop("_last_delta_text", None)
+    state["_silent_chunks"] = 0
+    state["_final_pending"] = False
+    await ws.send_json({"type": "final", "text": text})
+
+
 async def _handle_control(ws: WebSocket, state: dict, msg: dict) -> dict:
     """Handle a JSON control frame; return the (possibly rebuilt) stream state."""
     kind = msg.get("type")
     if kind == "flush":
         async with _gpu_lock:
             text = await asyncio.to_thread(backend.finalize, _model, state)
-        # Client-driven (NOT a server heuristic): reset the per-turn decode state
-        # in direct response to the flush so the next FINAL is THIS turn only.
-        # The encoder cache is carried forward (cache-aware streaming preserved).
-        backend.reset_turn_state(state)
-        await ws.send_json({"type": "final", "text": text})
+        await _send_final(ws, state, text)
     elif kind == "reset":
         state = backend.new_stream_state(_model)
     return state
@@ -194,14 +219,44 @@ async def _handle_control_frame(websocket: WebSocket, state: dict, text: str) ->
 
 
 async def _emit_delta(websocket: WebSocket, state: dict, pcm: bytes) -> None:
-    """Decode one PCM frame and send the growing cumulative interim transcript."""
+    """Decode one PCM frame; emit a delta on growth, an autonomous final on silence.
+
+    Two jobs, both driven by whether the cumulative transcript GREW this chunk:
+
+    1. Interim dedup — only send {"type":"delta"} when the text actually CHANGES.
+       The cache-aware loop decodes every STREAM_CHUNK_MS forever, re-emitting the
+       SAME string through post-utterance silence; LiveKit reads each interim as
+       "still speaking", so identical interims would pin the turn open. Suppress
+       unchanged interims.
+
+    2. Autonomous end-of-utterance — when the text has been non-empty and then
+       stops growing for _ENDPOINT_SILENCE_CHUNKS, emit {"type":"final"}. The
+       livekit-agents turn pipeline does NOT send a flush frame on end-of-speech;
+       it pushes silence and waits for the plugin's FINAL (see ENDPOINT_SILENCE_MS
+       note above). Without this the turn never commits and the LLM never runs.
+    """
     try:
         cumulative = await _decode_off_loop(state, pcm)
     except Exception as exc:  # noqa: BLE001 - report any decode error to the client
         logger.exception("nemo-stt decode error")
         await websocket.send_json({"type": "error", "message": str(exc)})
         return
-    await websocket.send_json({"type": "delta", "text": cumulative})
+    grew = cumulative != state.get("_last_delta_text")
+    if grew:
+        state["_last_delta_text"] = cumulative
+        state["_silent_chunks"] = 0
+        state["_final_pending"] = bool(cumulative)
+        await websocket.send_json({"type": "delta", "text": cumulative})
+        return
+    # No growth this chunk: count toward end-of-utterance. Fire ONE final per
+    # utterance (guarded by _final_pending so steady silence does not spam finals).
+    if not state.get("_final_pending"):
+        return
+    state["_silent_chunks"] = state.get("_silent_chunks", 0) + 1
+    if state["_silent_chunks"] >= _ENDPOINT_SILENCE_CHUNKS:
+        async with _gpu_lock:
+            text = await asyncio.to_thread(backend.finalize, _model, state)
+        await _send_final(websocket, state, text)
 
 
 @app.post("/v1/audio/transcriptions")
