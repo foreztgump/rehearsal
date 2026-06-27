@@ -11,7 +11,7 @@ Adept is built as a strict downward dependency chain dictated by the research bu
 - ✅ **v1.0-rc1 MVP Release Candidate** — Phases 1-6 (shipped 2026-06-26) — [archive](milestones/v1.0-rc1-ROADMAP.md)
 - 🚧 **v1.1 Local-First Pipeline Swap + Avatar** — Phases 8-13 (in progress)
 
-> **Note on Phase 7:** v1.0's *Phase 7 (Polish & Reliability)* was defined but never started (0/2 plans). Its requirements (SESS-01..04, REL-01/02, final latency tuning) were **rolled into v1.1** and now live in this milestone's REQUIREMENTS.md. v1.1 **supersedes the unstarted Phase 7** — the standalone Phase 7 is folded into the v1.1 polish phase (Phase 13) so its coverage is not double-counted. v1.1 phases continue numbering from **Phase 8**.
+> **Note on Phase 7:** v1.0's *Phase 7 (Polish & Reliability)* was defined but never started (0/2 plans). Its requirements (SESS-01..04, REL-01/02, final latency tuning) were **rolled into v1.1** and now live in this milestone's REQUIREMENTS.md. v1.1 **supersedes the unstarted Phase 7** — the standalone Phase 7 is folded into the v1.1 polish phase (Phase 14) so its coverage is not double-counted. v1.1 phases continue numbering from **Phase 8**.
 
 ## Phases
 
@@ -30,9 +30,9 @@ Full conversational MVP: self-hosted GPU stack, streamed voice loop with barge-i
 </details>
 
 <details>
-<summary>⊘ Phase 7: Polish & Reliability — SUPERSEDED (folded into v1.1 Phase 13)</summary>
+<summary>⊘ Phase 7: Polish & Reliability — SUPERSEDED (folded into v1.1 Phase 14)</summary>
 
-Phase 7 was defined in the v1.0 plan but **never started** (0/2 plans). Its scope — SESS-01..04, REL-01/02, and final latency tuning — was carried verbatim into v1.1 and is now delivered by **Phase 13 (Deferred v1.0 Polish, rolled in)**. Do not plan or execute a standalone Phase 7; its requirements are covered (and coverage-counted) under Phase 13.
+Phase 7 was defined in the v1.0 plan but **never started** (0/2 plans). Its scope — SESS-01..04, REL-01/02, and final latency tuning — was carried verbatim into v1.1 and is now delivered by **Phase 14 (Deferred v1.0 Polish, Optimization & Pre-Release Hardening)**. Do not plan or execute a standalone Phase 7; its requirements are covered (and coverage-counted) under Phase 14.
 
 </details>
 
@@ -43,7 +43,8 @@ Phase 7 was defined in the v1.0 plan but **never started** (0/2 plans). Its scop
 - [x] **Phase 10: VRAM-Aware STT Placement (Part C)** — GPU-NeMo vs CPU-ONNX resolved once at session start, with global-CPU-ONNX fallback *(code-complete; GPU gate pending-operator)*
 - [x] **Phase 11: Consumer-GPU Deployment (Part E)** — `docker compose up` on the user's machine with GPU detection/preflight doctor *(code-complete; GPU gate pending-operator)*
 - [x] **Phase 12: Optional 3D Avatar (Part D, frontend-only)** — TalkingHead Path-A avatar that must not touch the server pipeline (completed 2026-06-26)
-- [ ] **Phase 13: Deferred v1.0 Polish (rolled in)** — Session lifecycle, graceful failure, and final latency tuning for both LLMs
+- [ ] **Phase 13: UI/UX Overhaul (Landing/Setup + Talking)** — Dedicated landing/setup screen to configure everything before connecting, plus clean/animated talking-screen polish with auto-scrolling transcript
+- [ ] **Phase 14: Deferred v1.0 Polish, Optimization & Pre-Release Hardening** — Session lifecycle, graceful failure, and final latency tuning for both LLMs (last phase before release)
 
 ## Phase Details
 
@@ -130,25 +131,26 @@ Phase 7 was defined in the v1.0 plan but **never started** (0/2 plans). Its scop
 - [x] 12-01-avatar-scaffold-isolation-PLAN.md
 - [x] 12-02-lipsync-persona-eyecontact-PLAN.md
 
-### Phase 13: Deferred v1.0 Polish (rolled in)
+### Phase 13: UI/UX Overhaul — Landing/Setup Screen & Talking Screen Polish
 
-**Goal**: Close the loop with session lifecycle and graceful-failure handling — new/reset/end session with a full ephemeral-teardown audit (clearing KB, history, transcript, model choice, decoder cache, avatar GLB), transcript export, mic-permission-denied prompt, and empty/garbled-transcription reprompt (built on Part B's finalize) — and run the final latency-tuning pass confirming P50 < 1.0s / P95 < 1.5s for BOTH LLM choices with the new STT leg and the avatar adding no regression. This phase supersedes the unstarted v1.0 Phase 7.
-**Mode:** mvp
-**Depends on**: Phase 12
-**Requirements**: SESS-01, SESS-02, SESS-03, SESS-04, REL-01, REL-02, PERF-04
+**Goal:** Deliver a simple-but-elegant, clean, animated, and well-organized interface across the whole app. Add a dedicated first landing/setup screen where the user configures everything (persona, knowledge base, LLM/STT choice, mic, avatar toggle) BEFORE connecting to the agent, then transitions into the talking screen. On the talking screen, the live transcript auto-scrolls to the latest line. Navigation is intuitive and the experience feels polished and well-crafted throughout.
+**Mode:** ui
+**Depends on:** Phase 12
+**Requirements**: TBD
 **Success Criteria** (what must be TRUE):
 
-  1. User can start a new session, reset the current session (cleared context, same session), and end the session — end clears ALL ephemeral v1.1 state including the KB brief, history, transcript, model choice, decoder cache, and any avatar GLB
-  2. User can export/download the session transcript (txt/md, speaker labels + timestamps, no server round-trip)
-  3. When mic permission is denied the user sees a clear, actionable prompt (no silent failure); when a finalized transcription is empty or garbled the agent reprompts ("didn't catch that") rather than responding to noise
-  4. **(Operator GPU gate — verifiable only on the real consumer GPU)** Voice-to-voice latency holds P50 < 1.0s / P95 < 1.5s for BOTH LLM choices with the new STT leg, the STT finalize leg drops toward sub-100ms, and Avatar mode adds NO latency regression and ZERO server VRAM (voice-only stays byte-for-byte identical)
+  1. The app opens on a dedicated landing/setup screen where the user can configure all session options (persona, knowledge base, LLM/STT model choice, mic selection, avatar on/off) and only connects to the agent after an explicit "Connect/Start" action — no agent connection happens before setup is complete
+  2. The visual design is clean, organized, and consistently styled (clear hierarchy, spacing, and typography) with tasteful, performant animations/transitions between states and screens (no janky or distracting motion)
+  3. Navigation between landing/setup and the talking screen is intuitive and reversible (user can return to setup to change options without losing the app in a broken state)
+  4. On the talking screen the live transcript auto-scrolls to keep the newest line in view while the user is at the bottom, and does not yank the view when the user has scrolled up to read history
+  5. The experience is responsive and accessible — usable on common viewport sizes, keyboard-navigable for primary actions, with no console errors during the setup → connect → talk flow
 
 **Plans**: TBD
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → ~~7 (superseded)~~ → 8 → 9 → 10 → 11 → 12 → 13
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → ~~7 (superseded)~~ → 8 → 9 → 10 → 11 → 12 → 13 → 14
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
@@ -158,10 +160,26 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → ~~7 (supers
 | 4. Knowledge Base Layer | v1.0-rc1 | 4/4 | Complete | 2026-06-25 |
 | 5. History Management | v1.0-rc1 | 1/1 | Complete | 2026-06-26 |
 | 6. Interview Mode | v1.0-rc1 | 2/2 | Complete | 2026-06-26 |
-| 7. Polish & Reliability | — | — | Superseded → folded into Phase 13 | - |
+| 7. Polish & Reliability | — | — | Superseded → folded into Phase 14 | - |
 | 8. LLM Speed Selector (Part A) | v1.1 | 2/2 | Complete | 2026-06-26 |
 | 9. Nemotron Streaming ASR (Part B) | v1.1 | 2/2 | Code-complete (GPU gate pending) | 2026-06-26 |
 | 10. VRAM-Aware STT Placement (Part C) | v1.1 | 2/2 | Code-complete (GPU gate pending) | 2026-06-26 |
 | 11. Consumer-GPU Deployment (Part E) | v1.1 | 2/2 | Code-complete (GPU gate pending-operator) | 2026-06-26 |
 | 12. Optional 3D Avatar (Part D) | v1.1 | 2/2 | Complete    | 2026-06-26 |
-| 13. Deferred v1.0 Polish (rolled in) | v1.1 | 0/? | Not started | - |
+| 13. UI/UX Overhaul (Landing/Setup + Talking) | v1.1 | 0/? | Not started | - |
+| 14. Deferred v1.0 Polish, Optimization & Pre-Release Hardening | v1.1 | 0/? | Not started | - |
+
+### Phase 14: Deferred v1.0 Polish, Optimization & Pre-Release Hardening
+
+**Goal**: Close the loop with session lifecycle and graceful-failure handling — new/reset/end session with a full ephemeral-teardown audit (clearing KB, history, transcript, model choice, decoder cache, avatar GLB), transcript export, mic-permission-denied prompt, and empty/garbled-transcription reprompt (built on Part B's finalize) — and run the final latency-tuning pass confirming P50 < 1.0s / P95 < 1.5s for BOTH LLM choices with the new STT leg and the avatar adding no regression. This is the last phase before release: polish, optimize, and enhance on top of the new UI/UX. This phase supersedes the unstarted v1.0 Phase 7.
+**Mode:** mvp
+**Depends on**: Phase 13
+**Requirements**: SESS-01, SESS-02, SESS-03, SESS-04, REL-01, REL-02, PERF-04
+**Success Criteria** (what must be TRUE):
+
+  1. User can start a new session, reset the current session (cleared context, same session), and end the session — end clears ALL ephemeral v1.1 state including the KB brief, history, transcript, model choice, decoder cache, and any avatar GLB
+  2. User can export/download the session transcript (txt/md, speaker labels + timestamps, no server round-trip)
+  3. When mic permission is denied the user sees a clear, actionable prompt (no silent failure); when a finalized transcription is empty or garbled the agent reprompts ("didn't catch that") rather than responding to noise
+  4. **(Operator GPU gate — verifiable only on the real consumer GPU)** Voice-to-voice latency holds P50 < 1.0s / P95 < 1.5s for BOTH LLM choices with the new STT leg, the STT finalize leg drops toward sub-100ms, and Avatar mode adds NO latency regression and ZERO server VRAM (voice-only stays byte-for-byte identical)
+
+**Plans**: TBD

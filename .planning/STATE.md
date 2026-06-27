@@ -5,8 +5,8 @@ milestone_name: Local-First Pipeline Swap + Avatar
 current_phase: 13
 current_phase_name: Landing/Setup + Talking
 status: verifying
-stopped_at: Phase 13 context gathered
-last_updated: "2026-06-27T04:11:12.279Z"
+stopped_at: Phase 13 UI-SPEC approved
+last_updated: "2026-06-27T04:21:48.927Z"
 last_activity: 2026-06-26
 last_activity_desc: Phase 12 complete, transitioned to Phase 13
 progress:
@@ -166,9 +166,9 @@ Acknowledged at v1.0-rc1 close (2026-06-26) and carried into Phase 7 / v1.0:
 
 ## Session Continuity
 
-Last session: 2026-06-27T04:11:12.273Z
-Stopped at: Phase 13 context gathered
-Resume file: .planning/phases/13-ui-ux-overhaul-landing-setup-screen-and-talking-screen-polis/13-CONTEXT.md
+Last session: 2026-06-27T04:21:48.920Z
+Stopped at: Phase 13 UI-SPEC approved
+Resume file: .planning/phases/13-ui-ux-overhaul-landing-setup-screen-and-talking-screen-polis/13-UI-SPEC.md
 
 ## Operator Next Steps
 
