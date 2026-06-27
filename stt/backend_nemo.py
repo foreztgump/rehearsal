@@ -71,7 +71,11 @@ def _parse_att_context_size(raw: str) -> list[int]:
     return value
 
 
-ATT_CONTEXT_SIZE = _parse_att_context_size(os.environ.get("STT_ATT_CONTEXT_SIZE", "[56,3]"))
+# Default MUST be one of the values the cache-aware Conformer was trained on:
+# [[70,13],[70,6],[70,1],[70,0]]. [70,6] is accurate (matches [70,13] quality in
+# benchmarks) but ~4x faster to decode. [56,3] is NOT a trained setting and
+# silently degrades accuracy. Overridable via STT_ATT_CONTEXT_SIZE env / compose.
+ATT_CONTEXT_SIZE = _parse_att_context_size(os.environ.get("STT_ATT_CONTEXT_SIZE", "[70,6]"))
 
 
 def load_model() -> Any:

@@ -134,7 +134,14 @@ services:
       # backend (backend_nemo).
       - STT_RUNTIME=gpu
       - STT_MODEL=${STT_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b}
-      - STT_ATT_CONTEXT_SIZE=${STT_ATT_CONTEXT_SIZE:-[56,3]}
+      # Cache-aware Conformer only supports the att_context_size values it was
+      # TRAINED on: [[70,13],[70,6],[70,1],[70,0]]. Anything else (e.g. [56,3])
+      # runs with an attention context the encoder never saw -> degraded accuracy
+      # (drops leading "the", merges words). [70,6] matches a trained setting and
+      # benchmarks as accurate as [70,13] but ~4x faster to decode (0.11s vs 0.49s
+      # for 4.4s audio). Right-context is the speed/accuracy dial: 13=most lookahead
+      # (~1040ms), 6=~480ms, 1=~80ms fastest/least accurate.
+      - STT_ATT_CONTEXT_SIZE=${STT_ATT_CONTEXT_SIZE:-[70,6]}
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:8000:8000"
     networks:
@@ -174,6 +181,11 @@ services:
       context: ./stt
       dockerfile: Dockerfile.cpu
       args:
+        # STT_MODEL is the SOURCE .nemo the export-builder stage loads via
+        # from_pretrained to produce the ONNX bundle (export_onnx.py). It was missing
+        # here, so the build's export step ran from_pretrained("") and failed with
+        # "Model  was not found". Mirrors the GPU nemo-stt build arg (same default).
+        STT_MODEL: ${STT_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b}
         STT_ONNX_MODEL: ${STT_ONNX_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b-onnx}
         STT_QUANT: ${STT_QUANT:-int8-dynamic}
     # No env_file (M3): takes its model/params via build-ARG + env; needs none of .env
