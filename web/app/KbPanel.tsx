@@ -3,6 +3,8 @@
 import { useRoomContext, useParticipantAttributes, useVoiceAssistant } from "@livekit/components-react";
 import { useEffect, useState } from "react";
 
+import { font, inputStyle, palette, panelStyle, space } from "./ui/tokens";
+
 // Browser → agent transport contract (Plan 04-01): each picked file uploads as
 // its own byte stream on this topic; the agent publishes ingest status back on
 // the `kb.state` participant attribute (the read pattern AgentStatePill uses for
@@ -38,28 +40,6 @@ const STATUS_COLOR: Record<KbStatus, string> = {
   distilling: "#d29922",
   ready: "#3fb950",
   error: "#f85149",
-};
-
-const panelStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.6rem",
-  width: "20rem",
-  padding: "1rem",
-  border: "1px solid #30363d",
-  borderRadius: "0.5rem",
-  background: "#0d1117",
-  color: "#c9d1d9",
-  fontSize: "0.9rem",
-};
-
-const inputStyle: React.CSSProperties = {
-  padding: "0.4rem 0.5rem",
-  borderRadius: "0.35rem",
-  border: "1px solid #30363d",
-  background: "#161b22",
-  color: "#c9d1d9",
-  fontWeight: 400,
 };
 
 /**
@@ -125,9 +105,9 @@ export default function KbPanel() {
 
   return (
     <div style={panelStyle}>
-      <strong style={{ fontSize: "1rem" }}>Knowledge Base</strong>
+      <strong style={{ fontSize: font.size.heading }}>Knowledge Base</strong>
 
-      <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem", fontWeight: 600 }}>
+      <label style={{ display: "flex", flexDirection: "column", gap: space.xs, fontWeight: font.weight.semibold }}>
         Upload material
         <input
           style={inputStyle}
@@ -140,15 +120,18 @@ export default function KbPanel() {
         />
       </label>
 
-      <span style={{ minHeight: "1.2rem", color: STATUS_COLOR[status], fontWeight: 600 }}>
+      <span
+        className="transition-status"
+        style={{ minHeight: "1.2rem", color: STATUS_COLOR[status], fontWeight: font.weight.semibold }}
+      >
         {label}
       </span>
 
       {status === "error" && error && (
-        <span style={{ color: STATUS_COLOR.error, fontWeight: 400 }}>{error}</span>
+        <span style={{ color: STATUS_COLOR.error, fontWeight: font.weight.regular }}>{error}</span>
       )}
 
-      <p style={{ color: "#8b949e", margin: 0, fontWeight: 400 }}>
+      <p style={{ color: palette.textMuted, margin: 0, fontWeight: font.weight.regular }}>
         PDF, TXT, MD, or DOCX. Files stay on your LAN — they ride the existing room
         connection, nothing is uploaded to the cloud.
       </p>

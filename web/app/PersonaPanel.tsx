@@ -3,6 +3,9 @@
 import { useRoomContext, useVoiceAssistant } from "@livekit/components-react";
 import { useState } from "react";
 
+import { ApplyState, STATUS_COLOR, STATUS_LABEL } from "./ui/apply";
+import { font, inputStyle, labelStyle, palette, panelStyle, radius, space } from "./ui/tokens";
+
 // File #6 duplication seam (03-PATTERNS.md): these arrays + the seed persona
 // MUST mirror agent/persona.py (VOICE_IDS, DIFFICULTY/VERBOSITY/CORRECTION keys,
 // DEFAULT_PERSONA). There is no persona.get RPC in the MVP, so drift here is
@@ -17,8 +20,6 @@ const DIFFICULTY = ["beginner", "intermediate", "expert"] as const;
 const VERBOSITY = ["terse", "balanced", "detailed"] as const;
 const CORRECTION = ["gentle", "moderate", "aggressive"] as const;
 
-type ApplyState = "idle" | "applying" | "applied" | "error";
-
 // Seed mirrors agent/persona.py DEFAULT_PERSONA so the panel is populated on load
 // with no round-trip. Empty role_text lets the agent fall back to ROLE_PREAMBLE.
 const DEFAULT_PERSONA = {
@@ -28,49 +29,6 @@ const DEFAULT_PERSONA = {
   verbosity: "balanced",
   correction: "gentle",
   voice_id: "af_bella",
-};
-
-const STATUS_LABEL: Record<ApplyState, string> = {
-  idle: "",
-  applying: "applying…",
-  applied: "applied",
-  error: "error — could not apply",
-};
-
-const STATUS_COLOR: Record<ApplyState, string> = {
-  idle: "#8b949e",
-  applying: "#d29922",
-  applied: "#3fb950",
-  error: "#f85149",
-};
-
-const panelStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.6rem",
-  width: "20rem",
-  padding: "1rem",
-  border: "1px solid #30363d",
-  borderRadius: "0.5rem",
-  background: "#0d1117",
-  color: "#c9d1d9",
-  fontSize: "0.9rem",
-};
-
-const labelStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.25rem",
-  fontWeight: 600,
-};
-
-const inputStyle: React.CSSProperties = {
-  padding: "0.4rem 0.5rem",
-  borderRadius: "0.35rem",
-  border: "1px solid #30363d",
-  background: "#161b22",
-  color: "#c9d1d9",
-  fontWeight: 400,
 };
 
 /**
@@ -119,7 +77,7 @@ export default function PersonaPanel() {
 
   return (
     <div style={panelStyle}>
-      <strong style={{ fontSize: "1rem" }}>Persona</strong>
+      <strong style={{ fontSize: font.size.heading }}>Persona</strong>
 
       <label style={labelStyle}>
         Display name
@@ -133,7 +91,7 @@ export default function PersonaPanel() {
       <label style={labelStyle}>
         Role / instructions
         <textarea
-          style={{ ...inputStyle, minHeight: "5rem", resize: "vertical" }}
+          style={{ ...inputStyle, minHeight: "5rem", resize: "vertical", fontSize: font.size.label }}
           placeholder="Leave blank to use the default Cybersecurity Trainer role."
           value={persona.role_text}
           onChange={(e) => set("role_text", e.target.value)}
@@ -193,13 +151,14 @@ export default function PersonaPanel() {
       </label>
 
       <button
+        className="transition-hover"
         style={{
-          padding: "0.5rem 1rem",
-          borderRadius: "0.35rem",
+          padding: `${space.sm} ${space.md}`,
+          borderRadius: radius.control,
           border: "none",
-          background: "#3fb950",
-          color: "#0b0f14",
-          fontWeight: 600,
+          background: palette.action,
+          color: palette.bg,
+          fontWeight: font.weight.semibold,
           cursor: status === "applying" ? "progress" : "pointer",
         }}
         disabled={status === "applying"}
@@ -208,7 +167,10 @@ export default function PersonaPanel() {
         Apply
       </button>
 
-      <span style={{ minHeight: "1.2rem", color: STATUS_COLOR[status], fontWeight: 600 }}>
+      <span
+        className="transition-status"
+        style={{ minHeight: "1.2rem", color: STATUS_COLOR[status], fontWeight: font.weight.semibold }}
+      >
         {STATUS_LABEL[status]}
       </span>
     </div>

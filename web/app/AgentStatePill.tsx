@@ -2,6 +2,8 @@
 
 import { useVoiceAssistant } from "@livekit/components-react";
 
+import { font, palette, radius, space } from "./ui/tokens";
+
 // Distinct colour per agent state, surfaced from the agent's lk.agent.state
 // participant attribute (no custom data-channel protocol).
 const STATE_COLORS: Record<string, string> = {
@@ -21,14 +23,15 @@ export default function AgentStatePill() {
 
   return (
     <span
+      className="transition-pill"
       style={{
         display: "inline-block",
-        padding: "0.25rem 0.75rem",
-        borderRadius: "999px",
+        padding: `${space.xs} ${space.sm}`,
+        borderRadius: radius.pill,
         background: STATE_COLORS[state] ?? "#8b949e",
-        color: "#0b0f14",
-        fontWeight: 600,
-        fontSize: "0.9rem",
+        color: palette.bg,
+        fontWeight: font.weight.semibold,
+        fontSize: font.size.label,
         textTransform: "capitalize",
       }}
     >

@@ -3,6 +3,9 @@
 import { useRoomContext, useVoiceAssistant } from "@livekit/components-react";
 import { useState } from "react";
 
+import { ApplyState, STATUS_COLOR, STATUS_LABEL } from "./ui/apply";
+import { font, inputStyle, labelStyle, palette, panelStyle, radius, space } from "./ui/tokens";
+
 // Duplication seam (08-PATTERNS.md File 2): these choice keys MUST mirror
 // agent/main.py MODEL_CHOICES ("fast", "better"). There is no model.get RPC in the
 // MVP, so drift here is silent — keep in sync by hand. NEVER surface the raw Ollama
@@ -14,51 +17,6 @@ const CHOICES = ["fast", "better"] as const;
 const CHOICE_LABEL: Record<(typeof CHOICES)[number], string> = {
   fast: "Fast (snappier)",
   better: "Better (more thoughtful)",
-};
-
-type ApplyState = "idle" | "applying" | "applied" | "error";
-
-const STATUS_LABEL: Record<ApplyState, string> = {
-  idle: "",
-  applying: "applying…",
-  applied: "applied",
-  error: "error — could not apply",
-};
-
-const STATUS_COLOR: Record<ApplyState, string> = {
-  idle: "#8b949e",
-  applying: "#d29922",
-  applied: "#3fb950",
-  error: "#f85149",
-};
-
-const panelStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.6rem",
-  width: "20rem",
-  padding: "1rem",
-  border: "1px solid #30363d",
-  borderRadius: "0.5rem",
-  background: "#0d1117",
-  color: "#c9d1d9",
-  fontSize: "0.9rem",
-};
-
-const labelStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "0.25rem",
-  fontWeight: 600,
-};
-
-const inputStyle: React.CSSProperties = {
-  padding: "0.4rem 0.5rem",
-  borderRadius: "0.35rem",
-  border: "1px solid #30363d",
-  background: "#161b22",
-  color: "#c9d1d9",
-  fontWeight: 400,
 };
 
 /**
@@ -103,7 +61,7 @@ export default function ModelPanel() {
 
   return (
     <div style={panelStyle}>
-      <strong style={{ fontSize: "1rem" }}>Response model</strong>
+      <strong style={{ fontSize: font.size.heading }}>Response model</strong>
 
       <label style={labelStyle}>
         Model
@@ -119,13 +77,14 @@ export default function ModelPanel() {
       </label>
 
       <button
+        className="transition-hover"
         style={{
-          padding: "0.5rem 1rem",
-          borderRadius: "0.35rem",
+          padding: `${space.sm} ${space.md}`,
+          borderRadius: radius.control,
           border: "none",
-          background: "#3fb950",
-          color: "#0b0f14",
-          fontWeight: 600,
+          background: palette.action,
+          color: palette.bg,
+          fontWeight: font.weight.semibold,
           cursor: status === "applying" ? "progress" : "pointer",
         }}
         disabled={status === "applying"}
@@ -134,7 +93,10 @@ export default function ModelPanel() {
         Apply
       </button>
 
-      <span style={{ minHeight: "1.2rem", color: STATUS_COLOR[status], fontWeight: 600 }}>
+      <span
+        className="transition-status"
+        style={{ minHeight: "1.2rem", color: STATUS_COLOR[status], fontWeight: font.weight.semibold }}
+      >
         {STATUS_LABEL[status]}
       </span>
     </div>
