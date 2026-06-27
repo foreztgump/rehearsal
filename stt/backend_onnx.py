@@ -232,14 +232,27 @@ def decode_chunk(model, state, pcm) -> str:
     Native PnC is surfaced AS-IS (no strip/lowercase — STT-03). Recycles decoder
     state on a stall but NEVER emits FINAL (the turn detector owns finalize).
     """
+    import numpy as np  # noqa: PLC0415 - ORT-only dep
+
     mel = _extract_features(model, pcm)
+    # The exported encoder requires a `length` input (int64 [1]) — the valid mel-frame
+    # count for this chunk. NeMo's preprocessor produced it implicitly; the ONNX graph
+    # does not, so feed the full time-axis length of the recomputed mel here.
+    length = np.array([mel.shape[2]], dtype=np.int64)
     enc = model["encoder"].run(None, {
         "audio_signal": mel,
+        "length": length,
         "cache_last_channel": state["cache_last_channel"],
         "cache_last_time": state["cache_last_time"],
         "cache_last_channel_len": state["cache_last_channel_len"],
     })
-    enc_out, state["cache_last_channel"], state["cache_last_time"], state["cache_last_channel_len"] = enc
+    # Encoder outputs (in order): outputs, encoded_lengths, cache_last_channel_next,
+    # cache_last_time_next, cache_last_channel_next_len. We carry the caches forward and
+    # ignore encoded_lengths (the greedy loop walks every encoder frame).
+    enc_out = enc[0]
+    state["cache_last_channel"] = enc[2]
+    state["cache_last_time"] = enc[3]
+    state["cache_last_channel_len"] = enc[4]
     _greedy_rnnt(model, state, enc_out)
     text = model["tokenizer"].decode(state["emitted_token_ids"])
     _track_stall(state, text)
@@ -268,13 +281,19 @@ def _decode_step(model, state, enc_step):
     import numpy as np  # noqa: PLC0415 - ORT-only dep
 
     last = state["emitted_token_ids"][-1] if state["emitted_token_ids"] else _BLANK_ID
-    targets = np.array([[last]], dtype=np.int64)
-    logits, h, c = model["decoder_joint"].run(None, {
+    # The exported decoder_joint takes int32 `targets` plus a `target_length` (int32 [1])
+    # — the number of valid label steps in this 1-token query. Outputs (in order):
+    # outputs (logits), prednet_lengths, output_states_1, output_states_2.
+    targets = np.array([[last]], dtype=np.int32)
+    target_length = np.array([1], dtype=np.int32)
+    out = model["decoder_joint"].run(None, {
         "encoder_outputs": enc_step,
         "targets": targets,
+        "target_length": target_length,
         "input_states_1": state["dec_state"][0],
         "input_states_2": state["dec_state"][1],
     })
+    logits, h, c = out[0], out[2], out[3]
     return int(np.argmax(logits.reshape(-1))), [h, c]
 
 
