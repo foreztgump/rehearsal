@@ -148,7 +148,7 @@ Phase 7 was defined in the v1.0 plan but **never started** (0/2 plans). Its scop
 **Plans**: 1/3 plans executed
 
 - [x] 13-01-foundation-token-dedup-PLAN.md
-- [ ] 13-02-setup-before-connect-PLAN.md
+- [x] 13-02-setup-before-connect-PLAN.md
 - [ ] 13-03-talking-screen-polish-PLAN.md
 
 ## Progress

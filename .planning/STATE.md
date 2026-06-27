@@ -5,15 +5,15 @@ milestone_name: Local-First Pipeline Swap + Avatar
 current_phase: 13
 current_phase_name: ui-ux-overhaul-landing-setup-screen-and-talking-screen-polis
 status: executing
-stopped_at: Completed 13-01-PLAN.md
-last_updated: "2026-06-27T07:53:58.623Z"
+stopped_at: Completed 13-02-PLAN.md
+last_updated: "2026-06-27T08:16:00.000Z"
 last_activity: 2026-06-27
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 13
-  completed_plans: 5
-  percent: 29
+  completed_plans: 6
+  percent: 35
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-06-25)
 ## Current Position
 
 Phase: 13 (ui-ux-overhaul-landing-setup-screen-and-talking-screen-polis) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3 (13-01 ✓, 13-02 ✓ setup-before-connect; 13-03 talking-screen-polish next)
 
 ### (prior) Phase 12 — optional-3d-avatar-part-d — VERIFIED (browser gates signed)
 
@@ -98,6 +98,7 @@ Last activity: 2026-06-26 — Phase 9 executed (commits 7efb550..3a6d849). Next:
 | Phase 10 P01 | — | 7 tasks | 9 files |
 | Phase 10 P02 | — | 6 tasks | 6 files |
 | Phase 13 P13-01 | 14 min | 4 tasks | 7 files |
+| Phase 13 P13-02 | 22 min | 5 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -166,8 +167,8 @@ Acknowledged at v1.0-rc1 close (2026-06-26) and carried into Phase 7 / v1.0:
 
 ## Session Continuity
 
-Last session: 2026-06-27T07:53:58.618Z
-Stopped at: Completed 13-01-PLAN.md
+Last session: 2026-06-27T08:16:00.000Z
+Stopped at: Completed 13-02-PLAN.md (setup-before-connect: SetupScreen + VoiceRoom shell + ApplySetupOnConnect + controlled panels + MicPicker)
 Resume file: None
 
 ## Operator Next Steps
