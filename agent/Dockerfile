@@ -28,6 +28,10 @@ RUN python -m livekit.agents download-files
 # imported by main.py (sliding-window history + Interview mode) — without them the
 # container ImportErrors at startup.
 COPY metrics.py persona.py history.py interview.py main.py ./
+# Wave-2 STT placement + websocket client, and the Phase-12 captioned TTS plugin
+# (Kokoro /dev/captioned_speech -> audio + word timestamps for avatar lip-sync).
+# main.py imports all three at module load; without them the worker ImportErrors.
+COPY nemo_stt.py placement.py captioned_tts.py ./
 # The KB parser package (Plan 04-01) — pure, livekit-free; copied as a directory.
 COPY kb/ ./kb/
 
