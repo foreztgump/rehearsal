@@ -1,7 +1,7 @@
 "use client";
 
 import { useRoomContext, useVoiceAssistant } from "@livekit/components-react";
-import { useState } from "react";
+import { ReactNode, useState } from "react";
 
 import { ApplyState, STATUS_COLOR, STATUS_LABEL } from "./ui/apply";
 import { font, inputStyle, labelStyle, palette, panelStyle, radius, space } from "./ui/tokens";
@@ -12,25 +12,67 @@ import { font, inputStyle, labelStyle, palette, panelStyle, radius, space } from
 // tag here: the agent maps the plain key → tag (LLM-01).
 const CHOICES = ["fast", "better"] as const;
 
+// Shared model-choice type — imported by SetupScreen + ApplySetupOnConnect so the
+// pre-connect held config and the post-connect apply use the same type.
+export type ModelChoice = (typeof CHOICES)[number];
+
+// Default mirrors LLM-02 (Fast). Held by the setup screen on load.
+export const DEFAULT_MODEL: ModelChoice = "fast";
+
 // OUTCOME labels ONLY (LLM-01, REQUIREMENTS:98) — no raw tag, no latency/token
 // numbers. The RPC carries the plain key; the label is UI-only.
-const CHOICE_LABEL: Record<(typeof CHOICES)[number], string> = {
+const CHOICE_LABEL: Record<ModelChoice, string> = {
   fast: "Fast (snappier)",
   better: "Better (more thoughtful)",
 };
 
 /**
- * Side-panel response-model picker (LLM-01..LLM-03). Holds local form state — the
- * picked choice (default Fast, LLM-02; per-session persistence by construction —
- * the panel holds the choice for the session) — and sends a {choice} snapshot on
- * Apply over the `model.update` RPC. The "applying…→applied" window is a
- * panel-local ApplyState union; the native RPC return IS the ack (no agent→UI
- * attribute read for the MVP). Must render inside <LiveKitRoom> for room context.
+ * Presentational, fully-controlled model picker. Renders the panel container
+ * (heading + labeled <select>) writing every edit through `onChange`. NO room
+ * context, NO RPC — safe to render outside <LiveKitRoom> (the setup-screen path).
+ * An optional `footer` slot lets the live wrapper inject its Apply button + status.
  */
-export default function ModelPanel() {
+function ModelFields({
+  value,
+  onChange,
+  footer,
+}: {
+  value: ModelChoice;
+  onChange: (c: ModelChoice) => void;
+  footer?: ReactNode;
+}) {
+  return (
+    <div style={panelStyle}>
+      <strong style={{ fontSize: font.size.heading }}>Response model</strong>
+
+      <label style={labelStyle}>
+        Model
+        <select
+          style={inputStyle}
+          value={value}
+          onChange={(e) => onChange(e.target.value as ModelChoice)}
+        >
+          {CHOICES.map((c) => (
+            <option key={c} value={c}>{CHOICE_LABEL[c]}</option>
+          ))}
+        </select>
+      </label>
+
+      {footer}
+    </div>
+  );
+}
+
+/**
+ * Live (uncontrolled) model picker — the in-room/settings-drawer path. Holds its
+ * own choice state (default Fast, LLM-02) and sends a {choice} snapshot on Apply
+ * over the `model.update` RPC; the native RPC return IS the ack. Must render
+ * inside <LiveKitRoom> for room context.
+ */
+function ModelPanelLive() {
   const room = useRoomContext();
   const { agent } = useVoiceAssistant();
-  const [choice, setChoice] = useState<(typeof CHOICES)[number]>("fast");
+  const [choice, setChoice] = useState<ModelChoice>(DEFAULT_MODEL);
   const [status, setStatus] = useState<ApplyState>("idle");
 
   async function apply() {
@@ -60,45 +102,55 @@ export default function ModelPanel() {
   }
 
   return (
-    <div style={panelStyle}>
-      <strong style={{ fontSize: font.size.heading }}>Response model</strong>
+    <ModelFields
+      value={choice}
+      onChange={setChoice}
+      footer={
+        <>
+          <button
+            className="transition-hover"
+            style={{
+              padding: `${space.sm} ${space.md}`,
+              borderRadius: radius.control,
+              border: "none",
+              background: palette.action,
+              color: palette.bg,
+              fontWeight: font.weight.semibold,
+              cursor: status === "applying" ? "progress" : "pointer",
+            }}
+            disabled={status === "applying"}
+            onClick={apply}
+          >
+            Apply
+          </button>
 
-      <label style={labelStyle}>
-        Model
-        <select
-          style={inputStyle}
-          value={choice}
-          onChange={(e) => setChoice(e.target.value as (typeof CHOICES)[number])}
-        >
-          {CHOICES.map((c) => (
-            <option key={c} value={c}>{CHOICE_LABEL[c]}</option>
-          ))}
-        </select>
-      </label>
-
-      <button
-        className="transition-hover"
-        style={{
-          padding: `${space.sm} ${space.md}`,
-          borderRadius: radius.control,
-          border: "none",
-          background: palette.action,
-          color: palette.bg,
-          fontWeight: font.weight.semibold,
-          cursor: status === "applying" ? "progress" : "pointer",
-        }}
-        disabled={status === "applying"}
-        onClick={apply}
-      >
-        Apply
-      </button>
-
-      <span
-        className="transition-status"
-        style={{ minHeight: "1.2rem", color: STATUS_COLOR[status], fontWeight: font.weight.semibold }}
-      >
-        {STATUS_LABEL[status]}
-      </span>
-    </div>
+          <span
+            className="transition-status"
+            style={{ minHeight: "1.2rem", color: STATUS_COLOR[status], fontWeight: font.weight.semibold }}
+          >
+            {STATUS_LABEL[status]}
+          </span>
+        </>
+      }
+    />
   );
+}
+
+/**
+ * Side-panel response-model picker (LLM-01..LLM-03). Two modes:
+ * - Controlled (setup path): pass `value` + `onChange` → renders the form against
+ *   lifted state with NO Apply button and NO room context (safe outside the room).
+ * - Uncontrolled (live/drawer path): omit props → holds its own state + Apply RPC.
+ */
+export default function ModelPanel({
+  value,
+  onChange,
+}: {
+  value?: ModelChoice;
+  onChange?: (c: ModelChoice) => void;
+}) {
+  if (onChange) {
+    return <ModelFields value={value ?? DEFAULT_MODEL} onChange={onChange} />;
+  }
+  return <ModelPanelLive />;
 }
