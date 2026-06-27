@@ -23,9 +23,19 @@ import {
 // MODULATES viseme_* morphs that are already queued in animQueue (talkinghead.mjs
 // :2419-2472). Path-A feeds audio with NO viseme/timestamp data, so that queue is
 // empty and the built-in path moves nothing. We therefore drive the mouth OURSELVES:
-// measure per-frame RMS energy off the inbound track and open the mouth morphs via
-// setValue(). This keeps Path-A's no-server-coupling property (energy only, no
-// transcription/timestamps) while actually animating the mouth.
+// measure per-frame RMS energy off the inbound track and open the mouth morphs.
+//
+// We must NOT use setValue() for this. setValue() writes the 'system' tier
+// (talkinghead.mjs:1999), which is run through a velocity-ramp exponential smoother
+// in updateMorphTargets (talkinghead.mjs:1669-1697): the ramp velocity o.v resets to
+// 0 every time the morph reaches its target and re-accelerates from acc≈0.01, so
+// per-frame target changes never build speed and the mesh crawls far behind — the
+// mouth opens/closes slowly and out of sync. Instead we write the 'realtime' tier
+// (talkinghead.mjs:1620-1623), which is applied to the mesh immediately with NO
+// smoothing, and we do our own light smoothing in JS so the motion tracks syllables.
+// This keeps Path-A's no-server-coupling property (energy only, no
+// transcription/timestamps) while actually animating the mouth in time.
+type MorphTier = { realtime: number | null; needsUpdate: boolean };
 type TalkingHeadInstance = {
   showAvatar: (avatar: Record<string, unknown>) => Promise<void>;
   setMood: (mood: string) => void;
@@ -34,7 +44,18 @@ type TalkingHeadInstance = {
   lookAtCamera: (ms: number) => void;
   dispose: () => void;
   audioCtx: AudioContext;
+  mtAvatar: Record<string, MorphTier>;
 };
+
+// Apply a morph value on the immediate 'realtime' tier (bypasses TalkingHead's
+// velocity-ramp smoothing — see the mechanism note above).
+function setRealtime(head: TalkingHeadInstance, mt: string, val: number) {
+  const o = head.mtAvatar[mt];
+  if (o) {
+    o.realtime = val;
+    o.needsUpdate = true;
+  }
+}
 type TalkingHeadModule = {
   TalkingHead: new (
     node: HTMLElement,
@@ -229,7 +250,9 @@ export default function AvatarStage({ persona }: { persona?: string }) {
       const stream = new MediaStream([clone]);
       const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
+      // 2048-point FFT => ~23 Hz/bin at 48 kHz, fine enough to resolve the first two
+      // vowel formants (F1 ~250-850 Hz, F2 ~800-2500 Hz) for Path-A viseme shaping.
+      analyser.fftSize = 2048;
       analyser.smoothingTimeConstant = 0;
       source.connect(analyser);
       // NOTE: analyser is NOT connected to ctx.destination — we only read it, so the
@@ -239,11 +262,46 @@ export default function AvatarStage({ persona }: { persona?: string }) {
       // syllables, giving real open/close motion. (Frequency-band peak stays high
       // through continuous speech and pins the mouth open — that was the old bug.)
       const time = new Uint8Array(analyser.fftSize);
+      const freq = new Uint8Array(analyser.frequencyBinCount);
+      const hz = ctx.sampleRate / analyser.fftSize; // Hz per bin
+
+      // Vowel viseme templates as (F1,F2) formant centroids in Hz. Path-A can't know
+      // the phoneme, but the spectral shape of a vowel is dominated by F1/F2, so we
+      // estimate them per frame and blend toward the nearest vowel. Consonants stay
+      // approximate (energy-only) — this is the best achievable without transcription.
+      const VOWELS: { m: string; f1: number; f2: number }[] = [
+        { m: "viseme_aa", f1: 730, f2: 1090 },
+        { m: "viseme_E", f1: 530, f2: 1840 },
+        { m: "viseme_I", f1: 300, f2: 2300 },
+        { m: "viseme_O", f1: 570, f2: 840 },
+        { m: "viseme_U", f1: 440, f2: 1020 },
+      ];
+      const VKEYS = VOWELS.map((v) => v.m);
+      // Per-viseme smoothed weights so shapes cross-fade instead of snapping.
+      const vw: Record<string, number> = {};
+      for (const k of VKEYS) vw[k] = 0;
       let smooth = 0;
+
+      // Find the dominant spectral peak (bin index) within [loHz,hiHz].
+      const peakHz = (loHz: number, hiHz: number) => {
+        const lo = Math.max(1, Math.floor(loHz / hz));
+        const hi = Math.min(freq.length - 1, Math.ceil(hiHz / hz));
+        let bi = lo;
+        let bv = -1;
+        for (let i = lo; i <= hi; i++) {
+          if (freq[i] > bv) {
+            bv = freq[i];
+            bi = i;
+          }
+        }
+        return { f: bi * hz, mag: bv };
+      };
 
       const tick = () => {
         const h = headRef.current;
         if (!h || disposed) return;
+
+        // --- 1) Envelope (how far the mouth opens) from time-domain RMS. ---
         analyser.getByteTimeDomainData(time);
         let sumSq = 0;
         for (let i = 0; i < time.length; i++) {
@@ -251,18 +309,48 @@ export default function AvatarStage({ persona }: { persona?: string }) {
           sumSq += v * v;
         }
         const rms = Math.sqrt(sumSq / time.length);
-        // Gate out the noise floor (~0.01), then scale the speech band into a full
-        // open range with a cap; mutedRef holds the mouth shut during barge-in.
         const open = mutedRef.current
           ? 0
-          : Math.min(0.8, Math.max(0, rms - 0.01) * 7);
-        // Asymmetric smoothing: open fast (attack), close a touch slower (release)
-        // so the mouth tracks syllables without strobing.
-        const k = open > smooth ? 0.5 : 0.25;
+          : Math.min(0.9, Math.max(0, rms - 0.01) * 8);
+        // Snap open fast (attack), ease closed slower (release). The realtime tier
+        // applies this immediately, so this is the ONLY smoothing in the chain.
+        const k = open > smooth ? 0.9 : 0.45;
         smooth += (open - smooth) * k;
+
+        // --- 2) Vowel shape (which mouth shape) from F1/F2 formant estimate. ---
+        let target = "viseme_aa";
+        if (!mutedRef.current && smooth > 0.06) {
+          analyser.getByteFrequencyData(freq);
+          const f1 = peakHz(250, 900);
+          const f2 = peakHz(900, 2700);
+          // Only classify when there's real voiced energy in the formant bands.
+          if (f2.mag > 60) {
+            let best = VOWELS[0];
+            let bestD = Infinity;
+            for (const vo of VOWELS) {
+              // F2 dominates the classification. F1 is only lightly weighted because
+              // for high-pitched voices (e.g. Kokoro af_bella, F0 ~230 Hz) the pitch
+              // fundamental masks F1 in the 250-900 Hz band, making it unreliable.
+              const d1 = (f1.f - vo.f1) / 700;
+              const d2 = (f2.f - vo.f2) / 1200;
+              const d = 0.15 * d1 * d1 + d2 * d2;
+              if (d < bestD) {
+                bestD = d;
+                best = vo;
+              }
+            }
+            target = best.m;
+          }
+        }
+        // Cross-fade viseme weights toward the chosen vowel; decay the rest.
+        for (const key of VKEYS) {
+          const goal = key === target ? smooth : 0;
+          vw[key] += (goal - vw[key]) * (goal > vw[key] ? 0.6 : 0.35);
+        }
+
         try {
-          h.setValue("mouthOpen", smooth);
-          h.setValue("viseme_aa", smooth * 0.7);
+          setRealtime(h, "mouthOpen", smooth);
+          for (const key of VKEYS) setRealtime(h, key, vw[key]);
         } catch {
           /* non-fatal per-frame */
         }
@@ -337,8 +425,16 @@ export default function AvatarStage({ persona }: { persona?: string }) {
     mutedRef.current = !speaking;
     if (!speaking) {
       try {
-        head.setValue("mouthOpen", 0, 80);
-        head.setValue("viseme_aa", 0, 80);
+        setRealtime(head, "mouthOpen", 0);
+        for (const v of [
+          "viseme_aa",
+          "viseme_E",
+          "viseme_I",
+          "viseme_O",
+          "viseme_U",
+        ]) {
+          setRealtime(head, v, 0);
+        }
       } catch {
         /* non-fatal */
       }
