@@ -83,8 +83,15 @@ def load_model() -> Any:
     gate (10-PLACEMENT-VERIFY) — the sandbox cannot import NeMo.
     """
     import nemo.collections.asr as nemo_asr  # noqa: PLC0415 - GPU-only dep
+    import torch  # noqa: PLC0415 - GPU-only dep
 
     model = nemo_asr.models.ASRModel.from_pretrained(MODEL_NAME)
+    # from_pretrained lands on CPU; move the whole model to the GPU so the resident
+    # weights, the streaming cache (get_initial_cache_state), and the per-chunk inputs
+    # all share one device — otherwise conformer_stream_step raises "mat2 is on cpu,
+    # different from other tensors" (feats on CPU vs cache on GPU).
+    if torch.cuda.is_available():
+        model = model.cuda()
     model.eval()
     model.encoder.set_default_att_context_size(ATT_CONTEXT_SIZE)
     # Greedy single-step RNNT decoding — lowest latency for streaming.
@@ -123,8 +130,9 @@ def _extract_features(model, pcm: bytes) -> tuple[Any, Any]:
     import torch  # noqa: PLC0415 - GPU-only dep
 
     samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / INT16_FULL_SCALE
-    signal = torch.tensor(samples).unsqueeze(0)
-    length = torch.tensor([signal.shape[1]])
+    device = next(model.parameters()).device
+    signal = torch.tensor(samples, device=device).unsqueeze(0)
+    length = torch.tensor([signal.shape[1]], device=device)
     feats, feat_len = model.preprocessor(input_signal=signal, length=length)
     return feats, feat_len
 
@@ -139,7 +147,11 @@ def decode_chunk(model, state, pcm) -> str:
 
     feats, feat_len = _extract_features(model, pcm)
     with torch.inference_mode():
-        text, channel, time_state, channel_len, hyps = model.conformer_stream_step(
+        # This NeMo version returns a 6-tuple: greedy_predictions,
+        # all_hyp_or_transcribed_texts, cache_last_channel_next, cache_last_time_next,
+        # cache_last_channel_next_len, best_hyp. best_hyp is the RNNT Hypothesis list
+        # (carries .text and feeds back as previous_hypotheses for cache-aware streaming).
+        out = model.conformer_stream_step(
             processed_signal=feats,
             processed_signal_length=feat_len,
             cache_last_channel=state["cache_last_channel"],
@@ -149,6 +161,7 @@ def decode_chunk(model, state, pcm) -> str:
             previous_hypotheses=state["prev_hyps"],
             return_transcription=True,
         )
+    channel, time_state, channel_len, hyps = out[2], out[3], out[4], out[5]
     state["cache_last_channel"] = channel
     state["cache_last_time"] = time_state
     state["cache_last_channel_len"] = channel_len

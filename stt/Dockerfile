@@ -21,7 +21,9 @@ ARG STT_MODEL
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY server.py ./
+# server.py imports backend_common + backend_nemo (the GPU backend selected when
+# STT_RUNTIME=gpu). All three must be present or uvicorn fails at import.
+COPY server.py backend_common.py backend_nemo.py ./
 
 # Bake the ~2.4 GB .nemo into the image at build (the NeMo equivalent of
 # agent/Dockerfile's `download-files`) so the container starts offline-capable
