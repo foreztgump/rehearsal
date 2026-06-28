@@ -114,6 +114,19 @@ def test_no_exception_return_membership_invariant() -> None:
                 assert result in _VALID, f"{choice!r}/{env!r} → {result!r} not in {_VALID}"
 
 
+def test_floor_choice_resolves_cpu_by_default() -> None:
+    """The ~6GB floor tier (v1.2 R2) gets CPU-ONNX STT under the shipped default."""
+    assert resolve_stt_placement("floor", {}) == "cpu", "floor unmeasured → cpu"
+    assert resolve_stt_placement("floor", {"STT_FORCE_CPU": "1"}) == "cpu", "floor force → cpu"
+
+
+def test_floor_does_not_change_worst_case() -> None:
+    """Adding a small floor LLM peak must NOT change max(LLM_PEAK_MB) (no thrash)."""
+    assert "floor" in placement.LLM_PEAK_MB, "floor must be recorded in the peak table"
+    assert max(placement.LLM_PEAK_MB.values()) == placement.LLM_PEAK_MB["better"], \
+        "better must remain the worst-case LLM after adding floor"
+
+
 def _run_all() -> None:
     test_force_cpu_first_beats_measured()
     test_default_cpu_when_unmeasured()
@@ -123,6 +136,8 @@ def _run_all() -> None:
     test_unknown_choice_cpu_safe_never_raises()
     test_truthy_normalization()
     test_no_exception_return_membership_invariant()
+    test_floor_choice_resolves_cpu_by_default()
+    test_floor_does_not_change_worst_case()
     print("test_placement OK — full llm_choice × STT_FORCE_CPU × STT_HEADROOM_MEASURED matrix",
           file=sys.stderr)
 
