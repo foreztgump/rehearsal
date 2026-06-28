@@ -81,6 +81,9 @@ export default function VoiceRoom() {
   // live transcript view "forgets" everything finalized before it (the room keeps
   // accumulating transcriptions; the marker is how the UI hides the old turns).
   const [resetMarker, setResetMarker] = useState(0);
+  // Avatar framing preference (AVTR-10). Default to the upper (head-and-shoulders)
+  // frame — full body reads unnatural without body motion; the user opts into full.
+  const [avatarView, setAvatarView] = useState<"upper" | "full">("upper");
 
   async function probeMicPermission(): Promise<boolean> {
     // REL-01: fail loudly + actionably if the mic is blocked, instead of connecting
@@ -191,9 +194,14 @@ export default function VoiceRoom() {
         onNew={newSession}
         onReset={resetSession}
         resetMarker={resetMarker}
+        // Avatar framing toggle (upper ↔ full body), only shown when avatarOn.
+        avatarView={avatarView}
+        onToggleAvatarView={() =>
+          setAvatarView((current) => (current === "upper" ? "full" : "upper"))
+        }
         // Mount the avatar HERE so the dynamic-import (ssr:false) contract stays in
         // the shell; TalkingScreen only places it in the 360px region when avatarOn.
-        avatar={<AvatarStage persona={sessionConfig.persona.display_name} />}
+        avatar={<AvatarStage persona={sessionConfig.persona.display_name} view={avatarView} />}
         agentName={sessionConfig.persona.display_name}
       />
     </LiveKitRoom>

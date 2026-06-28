@@ -31,6 +31,8 @@ export default function TalkingScreen({
   onNew,
   onReset,
   resetMarker,
+  avatarView,
+  onToggleAvatarView,
   avatar,
   agentName,
 }: {
@@ -44,6 +46,9 @@ export default function TalkingScreen({
   // Wall-clock timestamp of the last Reset; the transcript hides turns finalized
   // before it (0 = nothing reset yet).
   resetMarker: number;
+  // Avatar framing (upper ↔ full body) + its toggle, surfaced only in avatar mode.
+  avatarView: "upper" | "full";
+  onToggleAvatarView: () => void;
   // The avatar stage element (mounted in the shell to preserve the dynamic-import
   // ssr:false contract); rendered here in the stage only when avatarOn.
   avatar?: ReactNode;
@@ -114,6 +119,17 @@ export default function TalkingScreen({
             )}
           </div>
           <WhoName agentName={agentName} />
+          {showAvatar && (
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={onToggleAvatarView}
+              aria-pressed={avatarView === "full"}
+              style={{ fontSize: "13px", padding: "5px 12px" }}
+            >
+              {avatarView === "upper" ? "Show full body" : "Show head & shoulders"}
+            </button>
+          )}
         </div>
 
         {/* Transcript column — centered + width-capped in voice mode. */}

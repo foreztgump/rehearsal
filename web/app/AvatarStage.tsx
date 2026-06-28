@@ -9,7 +9,6 @@ import {
   DRACO_DECODER_PATH,
   LIPSYNC_TOPIC,
   TALKINGHEAD_SPECIFIER,
-  viewForWidth,
 } from "./avatarConfig";
 
 // Surface of the TalkingHead 1.7 instance we touch. Path-A streaming API confirmed
@@ -257,7 +256,13 @@ function inboundTrack(ref: TrackReference | undefined): MediaStreamTrack | null 
  * mood off the agent state (AVTR-04), and barge-in via the existing LiveKit
  * user-speech-start interrupt (AVTR-03). Still ZERO server diff.
  */
-export default function AvatarStage({ persona }: { persona?: string }) {
+export default function AvatarStage({
+  persona,
+  view = "upper",
+}: {
+  persona?: string;
+  view?: "upper" | "full";
+}) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const headRef = useRef<TalkingHeadInstance | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
@@ -283,8 +288,6 @@ export default function AvatarStage({ persona }: { persona?: string }) {
   // barge-in flag: when the user is speaking we hold the mouth shut regardless of
   // any residual inbound audio energy.
   const mutedRef = useRef(false);
-  // Removes the responsive-framing resize listener on unmount (AVTR-10).
-  const viewCleanupRef = useRef<(() => void) | null>(null);
 
   // --- Path-B captioned lip-sync state ---
   // FIFO of word schedules received over LIPSYNC_TOPIC but not yet started. Each is
@@ -325,6 +328,13 @@ export default function AvatarStage({ persona }: { persona?: string }) {
     }
   }, []);
   useDataChannel(LIPSYNC_TOPIC, onLipsync);
+
+  // Apply the framing toggle (upper ↔ full) live, without re-mounting the avatar.
+  // No-op until the GLB finishes loading and sets headRef; the mount effect sets the
+  // initial frame, this handles every change after.
+  useEffect(() => {
+    headRef.current?.setView(view);
+  }, [view]);
 
   // --- Mount: construct head + load the persona GLB (AVTR-05/06/08). Runs once. ---
   useEffect(() => {
@@ -374,20 +384,11 @@ export default function AvatarStage({ persona }: { persona?: string }) {
 
         head.setMood(avatar.mood);
 
-        // Responsive framing (AVTR-10). TalkingHead's own ResizeObserver already
-        // handles canvas/aspect; we only switch the VIEW bucket by breakpoint.
-        let lastView = "";
-        const applyView = () => {
-          const next = viewForWidth(window.innerWidth);
-          if (next !== lastView) {
-            lastView = next;
-            head.setView(next);
-          }
-        };
-        applyView();
-        window.addEventListener("resize", applyView);
-        viewCleanupRef.current = () =>
-          window.removeEventListener("resize", applyView);
+        // Framing is USER-controlled (the Full-body toggle), not width-derived:
+        // full body reads unnatural without body motion/emotion, so default to the
+        // upper (head-and-shoulders) frame and let the user opt into full. This sets
+        // the initial frame after the GLB loads; live toggles apply via the [view] effect.
+        head.setView(view);
 
         setStatus("ready");
       } catch {
@@ -403,8 +404,6 @@ export default function AvatarStage({ persona }: { persona?: string }) {
     // audio node and loses the WebGL context. Nothing is left running.
     return () => {
       cancelled = true;
-      viewCleanupRef.current?.();
-      viewCleanupRef.current = null;
       const tap = tapRef.current;
       if (tap) {
         try {

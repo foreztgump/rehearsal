@@ -289,7 +289,8 @@ body {
   grid-template-rows: minmax(0, 0.9fr) minmax(0, 1.1fr);
 }
 .talk-main[data-avatar="true"] {
-  grid-template-columns: minmax(280px, 42%) 1fr;
+  /* Avatar is the focus in avatar mode — give it the larger share, transcript the rest. */
+  grid-template-columns: minmax(340px, 56%) 1fr;
   grid-template-rows: minmax(0, 1fr);
   align-items: stretch;
 }
