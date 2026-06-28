@@ -180,8 +180,8 @@ LiveKit published the exact pattern (blog: "Multilingual speech-to-text on your 
 ### VRAM (GPU placement)
 
 Full NeMo model on GPU is ~600M params (~1.2–1.5GB fp16 + CUDA buffers). Co-residency math on 16GB:
-- Fast/E2B (3.4GB) + NeMo-GPU (~1.5GB) + Kokoro (~2.5GB) ≈ **7.4GB** → comfortable headroom → **GPU STT**.
-- Better/E4B (5.3GB) + NeMo-GPU (~1.5GB) + Kokoro (~2.5GB) ≈ **9.3GB** → still fits 16GB but tighter once KV cache grows → **GPU STT likely OK, but this is the case Part C de-risks** by moving STT to CPU-ONNX.
+- Fast/E2B (3.4GB) + NeMo-GPU (~1.5GB) + Kokoro (~4–5GB on cu128) ≈ **9–10GB** → fits 16GB → **GPU STT** (was mis-estimated at ~2.5GB; the bulk is CUDA context + allocator reserve, not weights — see PITFALLS C1).
+- Better/E4B (5.3GB) + NeMo-GPU (~1.5GB) + Kokoro (~4–5GB on cu128) ≈ **11–12GB** → tighter once KV cache grows → **this is the case Part C de-risks** by moving STT to CPU-ONNX.
 
 ---
 
@@ -300,11 +300,11 @@ The **host setup** is the NVIDIA Container Toolkit on the machine running `docke
 ## Stack Patterns by Variant
 
 **If GPU has comfortable headroom (Fast/E2B selected, ~16GB):**
-- LLM `evalengine/unbound-e2b` (3.4GB) + **NeMo GPU STT** (~1.5GB) + Kokoro (~2.5GB) → ~7.4GB, room for KV cache.
+- LLM `evalengine/unbound-e2b` (3.4GB) + **NeMo GPU STT** (~1.5GB) + Kokoro (~4–5GB on cu128) → ~9–10GB, room for KV cache.
 - Lowest STT latency (~100ms finalize on GPU).
 
 **If GPU is tight (Better/E4B selected, 16GB):**
-- LLM `defyma85/...E4B` (5.3GB) + **CPU-ONNX STT** (~0.67–0.88GB RAM, 0 VRAM) + Kokoro (~2.5GB) → ~7.8GB VRAM, STT off-GPU.
+- LLM `defyma85/...E4B` (5.3GB) + **CPU-ONNX STT** (~0.67–0.88GB RAM, 0 VRAM) + Kokoro (~4–5GB on cu128) → ~10–11GB VRAM, STT off-GPU.
 - Slightly higher STT latency (still >RT on CPU) but VRAM-safe.
 
 **Simplest-robust (PROJECT-preferred if measurement is unfavorable):**

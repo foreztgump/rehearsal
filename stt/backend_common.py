@@ -32,3 +32,34 @@ INT16_FULL_SCALE = 32768.0
 STALL_FRAMES = int(os.environ.get("STT_STALL_FRAMES", "50"))
 RECYCLE_MIN_CHARS = int(os.environ.get("STT_RECYCLE_MIN_CHARS", "120"))
 RECYCLE_HARD_CHARS = int(os.environ.get("STT_RECYCLE_HARD_CHARS", "400"))
+
+# Diagnosis switch for the Item-1 trailing-word cut-off (15a). When truthy, the GPU
+# NeMo backend (backend_nemo) logs the drained transcript + held-token count at finalize
+# and the encoder streaming config at load, so the operator can confirm the cut-off's
+# root cause on the GPU box WITHOUT guessing the API. The cut-off complaint is on the GPU
+# NeMo path, so the CPU/ONNX backend deliberately carries no diagnostic. Default OFF.
+DEBUG_DRAIN = os.environ.get("STT_DEBUG_DRAIN", "0") == "1"
+
+# Item-1 candidate A (15a): thread previous_pred_out back into conformer_stream_step
+# for RNNT decode continuity, matching NeMo's reference streaming loop (the current
+# decode omits it). Default OFF — GPU-measured before it becomes default; likely the
+# permanent default once the GPU gate confirms it restores the tail with no WER regress.
+THREAD_PRED_OUT = os.environ.get("STT_THREAD_PRED_OUT", "0") == "1"
+
+# Item-1 candidate B (15a): trailing-silence drain. On finalize, optionally feed one
+# last stream step of silence so the final real speech frames get a complete right-
+# context attention window — the hard end-of-speech cutoff otherwise leaves the
+# trailing right-context frames without the future frames they were trained with, so
+# the RNNT can emit blanks for the last words. Default OFF (GPU-measured, unofficial
+# workaround). FINALIZE_PAD_MS defaults to 560 ms = one STREAM_CHUNK_MS step — the exact
+# chunk size the cache-aware encoder already processes live, so the drain never feeds an
+# oversized step the streaming caches were not sized for. 560 ms covers up to a [70,6]
+# right context (6 encoder frames x 80 ms = 480 ms); the shipped att_context_size is
+# [70,1] (80 ms) so this is generous — tune down via STT_FINALIZE_PAD_MS if desired.
+FINALIZE_PAD = os.environ.get("STT_FINALIZE_PAD", "0") == "1"
+FINALIZE_PAD_MS = int(os.environ.get("STT_FINALIZE_PAD_MS", "560"))
+
+
+def finalize_pad_pcm() -> bytes:
+    """Zero int16 mono PCM of FINALIZE_PAD_MS at SAMPLE_RATE — the trailing-silence drain frame."""
+    return b"\x00\x00" * (SAMPLE_RATE * FINALIZE_PAD_MS // 1000)

@@ -31,11 +31,15 @@ from typing import Any
 # depends on the other (Phase 10 C1). backend_nemo re-exports them for continuity;
 # the watchdog thresholds are defined ONCE in backend_common.
 from backend_common import (
+    DEBUG_DRAIN,
+    FINALIZE_PAD,
     INT16_FULL_SCALE,
     RECYCLE_HARD_CHARS,
     RECYCLE_MIN_CHARS,
     SAMPLE_RATE,
     STALL_FRAMES,
+    THREAD_PRED_OUT,
+    finalize_pad_pcm,
 )
 
 logger = logging.getLogger("nemo-stt")
@@ -101,6 +105,12 @@ def load_model() -> Any:
     # Greedy single-step RNNT decoding — lowest latency for streaming.
     _set_greedy_decoding(model)
     logger.info("nemo-stt model loaded: %s att_context_size=%s", MODEL_NAME, ATT_CONTEXT_SIZE)
+    if DEBUG_DRAIN:
+        logger.info(
+            "nemo-stt diag: att_context_style=%s streaming_cfg=%s",
+            getattr(model.encoder, "att_context_style", "?"),
+            getattr(model.encoder, "streaming_cfg", "?"),
+        )
     return model
 
 
@@ -123,6 +133,7 @@ def new_stream_state(model) -> dict:
         "cache_last_time": time_state,
         "cache_last_channel_len": channel_len,
         "prev_hyps": None,
+        "prev_pred_out": None,
         "frames_since_growth": 0,
         "last_text_len": 0,
     }
@@ -141,20 +152,21 @@ def _extract_features(model, pcm: bytes) -> tuple[Any, Any]:
     return feats, feat_len
 
 
-def decode_chunk(model, state, pcm) -> str:
-    """Run one cache-aware stream step; return the CUMULATIVE transcript.
+def _stream_step(model, state, pcm) -> str:
+    """One cache-aware conformer_stream_step: advance caches + prev_hyps, return cumulative.
 
-    Native PnC is surfaced AS-IS (no strip/lowercase — STT-03). Recycles decoder
-    state on a stall but NEVER emits FINAL (the turn detector owns finalize).
+    Shared decode core for the live per-chunk path (decode_chunk, which adds the stall
+    watchdog) AND the trailing-silence drain (finalize, candidate B). Kept separate from
+    _track_stall so the drain can NEVER trigger a mid-finalize recycle that would clear
+    the tail it is trying to recover. Native PnC surfaced AS-IS (no strip/lowercase).
     """
     import torch  # noqa: PLC0415 - GPU-only dep
 
     feats, feat_len = _extract_features(model, pcm)
     with torch.inference_mode():
-        # This NeMo version returns a 6-tuple: greedy_predictions,
-        # all_hyp_or_transcribed_texts, cache_last_channel_next, cache_last_time_next,
-        # cache_last_channel_next_len, best_hyp. best_hyp is the RNNT Hypothesis list
-        # (carries .text and feeds back as previous_hypotheses for cache-aware streaming).
+        # 6-tuple: greedy_predictions, transcribed_texts, cache_last_channel_next,
+        # cache_last_time_next, cache_last_channel_next_len, best_hyp (the RNNT
+        # Hypothesis list carrying .text, fed back as previous_hypotheses).
         out = model.conformer_stream_step(
             processed_signal=feats,
             processed_signal_length=feat_len,
@@ -163,14 +175,25 @@ def decode_chunk(model, state, pcm) -> str:
             cache_last_channel_len=state["cache_last_channel_len"],
             keep_all_outputs=True,
             previous_hypotheses=state["prev_hyps"],
+            previous_pred_out=state.get("prev_pred_out") if THREAD_PRED_OUT else None,
             return_transcription=True,
         )
-    channel, time_state, channel_len, hyps = out[2], out[3], out[4], out[5]
-    state["cache_last_channel"] = channel
-    state["cache_last_time"] = time_state
-    state["cache_last_channel_len"] = channel_len
-    state["prev_hyps"] = hyps
-    cumulative = hyps[0].text if hyps else ""
+    state["cache_last_channel"] = out[2]
+    state["cache_last_time"] = out[3]
+    state["cache_last_channel_len"] = out[4]
+    state["prev_hyps"] = out[5]
+    if THREAD_PRED_OUT:
+        state["prev_pred_out"] = out[0]
+    return out[5][0].text if out[5] else ""
+
+
+def decode_chunk(model, state, pcm) -> str:
+    """Run one stream step; return the CUMULATIVE transcript and run the stall watchdog.
+
+    Recycles decoder state on a stall but NEVER emits FINAL (the turn detector owns
+    finalize).
+    """
+    cumulative = _stream_step(model, state, pcm)
     _track_stall(state, cumulative)
     return cumulative
 
@@ -189,15 +212,53 @@ def _track_stall(state: dict, cumulative: str) -> None:
         # do NOT emit FINAL (single-turn-source invariant, 09-RESEARCH §1/§4).
         logger.info("nemo-stt RNNT stall recycle at %d chars (cache carried forward)", len(cumulative))
         state["prev_hyps"] = None
+        state["prev_pred_out"] = None
         state["frames_since_growth"] = 0
 
 
 def finalize(model, state) -> str:
-    """Drain the stream and return the final transcript (flush→final response)."""
-    cumulative = ""
-    if state["prev_hyps"]:
-        cumulative = state["prev_hyps"][0].text
+    """Drain the stream and return the final transcript (flush→final response).
+
+    Candidate B (15a, flag-gated): when STT_FINALIZE_PAD=1, feed one last stream step of
+    trailing silence so the final right-context frames get a complete attention window
+    before reading the tail (see _drain_tail). Default-OFF path just reads the held text.
+    """
+    held = state["prev_hyps"][0].text if state["prev_hyps"] else ""
+    if FINALIZE_PAD and state["prev_hyps"] is not None:
+        cumulative = _drain_tail(model, state, held)
+    else:
+        cumulative = held
+    if DEBUG_DRAIN:
+        logger.info("nemo-stt diag finalize: text=%r held_tokens=%d",
+                    cumulative, _held_token_count(state["prev_hyps"]))
     return cumulative
+
+
+def _drain_tail(model, state, held_text: str) -> str:
+    """Feed one trailing-silence stream step for the final attention window; no cache leak.
+
+    Uses _stream_step (NOT decode_chunk) so the stall watchdog can't recycle the tail
+    mid-drain, and SNAPSHOTS/RESTORES the encoder cache around the step: reset_turn_state
+    carries the cache forward, so without the restore the injected silence would pollute
+    the next turn's cache-aware context. Falls back to the pre-drain held text if the
+    silence step yields no hypotheses (never replace a good transcript with empty).
+    """
+    saved = (state["cache_last_channel"], state["cache_last_time"], state["cache_last_channel_len"])
+    drained = _stream_step(model, state, finalize_pad_pcm())
+    (state["cache_last_channel"], state["cache_last_time"], state["cache_last_channel_len"]) = saved
+    return drained or held_text
+
+
+def _held_token_count(prev_hyps) -> int:
+    """RNNT held-token count for the drain diagnostic — safe on a torch tensor y_sequence.
+
+    `getattr(hyp, "y_sequence", []) or []` would call bool() on the tensor and raise
+    "Boolean value of Tensor is ambiguous", so test for None explicitly instead.
+    """
+    if not prev_hyps:
+        return 0
+    y_sequence = getattr(prev_hyps[0], "y_sequence", None)
+    return len(y_sequence) if y_sequence is not None else 0
 
 
 def reset_turn_state(state: dict) -> None:
@@ -209,5 +270,6 @@ def reset_turn_state(state: dict) -> None:
     fed back into the next decode and every FINAL accumulates the whole session.
     """
     state["prev_hyps"] = None
+    state["prev_pred_out"] = None
     state["frames_since_growth"] = 0
     state["last_text_len"] = 0

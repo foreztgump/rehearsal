@@ -118,6 +118,7 @@ services:
       context: ./stt
       args:
         STT_MODEL: ${STT_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b}
+        STT_MODEL_REVISION: ${STT_MODEL_REVISION:-main}
     # M5: opt-in profile so the GPU STT (which loads ~2.4 GB RESIDENT on the GPU,
     # keep-forever) is NOT brought up by the DEFAULT `docker compose up`. The shipped
     # default (STT_FORCE_CPU=1) routes every session to the always-on nemo-stt-cpu, so
@@ -134,6 +135,9 @@ services:
       # backend (backend_nemo).
       - STT_RUNTIME=gpu
       - STT_MODEL=${STT_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b}
+      # STT_MODEL_REVISION is a BUILD-only arg (snapshot-download pin baked into the
+      # image); it is intentionally NOT a runtime env — backend_nemo loads the baked
+      # offline cache and never reads it, so a runtime entry would be dead/misleading.
       # Cache-aware Conformer only supports the att_context_size values it was
       # TRAINED on: [[70,13],[70,6],[70,1],[70,0]]. Anything else (e.g. [56,3])
       # runs with an attention context the encoder never saw -> degraded accuracy
@@ -186,6 +190,7 @@ services:
         # here, so the build's export step ran from_pretrained("") and failed with
         # "Model  was not found". Mirrors the GPU nemo-stt build arg (same default).
         STT_MODEL: ${STT_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b}
+        STT_MODEL_REVISION: ${STT_MODEL_REVISION:-main}
         STT_ONNX_MODEL: ${STT_ONNX_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b-onnx}
         STT_QUANT: ${STT_QUANT:-int8-dynamic}
     # No env_file (M3): takes its model/params via build-ARG + env; needs none of .env
@@ -216,6 +221,12 @@ services:
     # v0.2.4 image bundles PyTorch for sm_50..sm_90 only and crashes at startup
     # with "no kernel image is available for execution on the device".
     image: ghcr.io/remsky/kokoro-fastapi-gpu:v0.5.0-cu128
+    # 15a Item 3: the one free, zero-latency VRAM knob. Kokoro's ~5GB observed footprint
+    # is almost all CUDA context + PyTorch allocator reserve on cu128 (weights are
+    # ~0.33GB). expandable_segments reclaims reserved fragmentation (~0.5–1GB, operator
+    # to re-measure via nvidia-smi). No latency cost. See PITFALLS.md C1.
+    environment:
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
     # No env_file (M3): the TTS server takes its model/voice per request, so it needs
     # none of .env — and must not carry the LiveKit secret.
     ports:

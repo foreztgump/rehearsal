@@ -34,9 +34,11 @@ from typing import Any
 # backend_nemo (whose module body hard-requires STT_MODEL, which the CPU image never
 # sets — importing it on the CPU path would SystemExit at startup; Phase 10 C1).
 from backend_common import (
+    FINALIZE_PAD,
     INT16_FULL_SCALE,
     RECYCLE_MIN_CHARS,
     STALL_FRAMES,
+    finalize_pad_pcm,
 )
 
 logger = logging.getLogger("nemo-stt")
@@ -226,18 +228,17 @@ def _stft_power(signal):
     return (np.abs(spectrum) ** 2).astype(np.float32)
 
 
-def decode_chunk(model, state, pcm) -> str:
-    """Run one encoder step + greedy RNNT loop; return the CUMULATIVE transcript.
-
-    Native PnC is surfaced AS-IS (no strip/lowercase — STT-03). Recycles decoder
-    state on a stall but NEVER emits FINAL (the turn detector owns finalize).
+def _encode_decode_step(model, state, pcm) -> str:
+    """One encoder step + greedy RNNT loop → cumulative transcript (ONNX analog of
+    backend_nemo._stream_step). Advances the encoder cache + dec_state + emitted ids;
+    does NOT run the stall watchdog, so the trailing-silence drain (finalize) can reuse
+    it without recycling the tail. Native PnC surfaced AS-IS.
     """
     import numpy as np  # noqa: PLC0415 - ORT-only dep
 
     mel = _extract_features(model, pcm)
-    # The exported encoder requires a `length` input (int64 [1]) — the valid mel-frame
-    # count for this chunk. NeMo's preprocessor produced it implicitly; the ONNX graph
-    # does not, so feed the full time-axis length of the recomputed mel here.
+    # The exported encoder needs an explicit length (int64 [1]) — the valid mel-frame
+    # count for this chunk; NeMo's preprocessor produced it implicitly, the ONNX graph does not.
     length = np.array([mel.shape[2]], dtype=np.int64)
     enc = model["encoder"].run(None, {
         "audio_signal": mel,
@@ -247,14 +248,23 @@ def decode_chunk(model, state, pcm) -> str:
         "cache_last_channel_len": state["cache_last_channel_len"],
     })
     # Encoder outputs (in order): outputs, encoded_lengths, cache_last_channel_next,
-    # cache_last_time_next, cache_last_channel_next_len. We carry the caches forward and
-    # ignore encoded_lengths (the greedy loop walks every encoder frame).
+    # cache_last_time_next, cache_last_channel_next_len. Carry the caches forward; ignore
+    # enc[1] (encoded_lengths — the greedy loop walks every encoder frame).
     enc_out = enc[0]
     state["cache_last_channel"] = enc[2]
     state["cache_last_time"] = enc[3]
     state["cache_last_channel_len"] = enc[4]
     _greedy_rnnt(model, state, enc_out)
-    text = model["tokenizer"].decode(state["emitted_token_ids"])
+    return model["tokenizer"].decode(state["emitted_token_ids"])
+
+
+def decode_chunk(model, state, pcm) -> str:
+    """Run one encoder + greedy RNNT step; return the CUMULATIVE transcript + stall watch.
+
+    Recycles decoder state on a stall but NEVER emits FINAL (the turn detector owns
+    finalize).
+    """
+    text = _encode_decode_step(model, state, pcm)
     _track_stall(state, text)
     return text
 
@@ -322,8 +332,31 @@ def _track_stall(state, cumulative) -> None:
 
 
 def finalize(model, state) -> str:
-    """Drain the stream and return the final transcript (flush→final response)."""
-    return model["tokenizer"].decode(state["emitted_token_ids"]) if state["emitted_token_ids"] else ""
+    """Drain the stream and return the final transcript (flush→final response).
+
+    Candidate-B parity (15a, same STT_FINALIZE_PAD flag as backend_nemo): when enabled,
+    drain one trailing-silence step for the final window (see _drain_tail). Default-OFF
+    path just detokenizes the held ids.
+    """
+    held = model["tokenizer"].decode(state["emitted_token_ids"]) if state["emitted_token_ids"] else ""
+    if FINALIZE_PAD and state["emitted_token_ids"]:
+        return _drain_tail(model, state, held)
+    return held
+
+
+def _drain_tail(model, state, held_text: str) -> str:
+    """Feed one trailing-silence encode/decode step for the final window; no cache leak.
+
+    Uses _encode_decode_step (NOT decode_chunk) so the stall watchdog can't recycle the
+    tail mid-drain, and SNAPSHOTS/RESTORES the encoder cache around the step: reset_turn_state
+    carries the cache forward, so without the restore the injected silence would pollute the
+    next turn's cache-aware context. Falls back to the pre-drain held text if the silence step
+    adds nothing.
+    """
+    saved = (state["cache_last_channel"], state["cache_last_time"], state["cache_last_channel_len"])
+    drained = _encode_decode_step(model, state, finalize_pad_pcm())
+    (state["cache_last_channel"], state["cache_last_time"], state["cache_last_channel_len"]) = saved
+    return drained or held_text
 
 
 def reset_turn_state(state) -> None:
