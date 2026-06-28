@@ -37,6 +37,7 @@ from backend_common import (
     RECYCLE_MIN_CHARS,
     SAMPLE_RATE,
     STALL_FRAMES,
+    THREAD_PRED_OUT,
 )
 
 logger = logging.getLogger("nemo-stt")
@@ -130,6 +131,7 @@ def new_stream_state(model) -> dict:
         "cache_last_time": time_state,
         "cache_last_channel_len": channel_len,
         "prev_hyps": None,
+        "prev_pred_out": None,
         "frames_since_growth": 0,
         "last_text_len": 0,
     }
@@ -171,12 +173,15 @@ def _stream_step(model, state, pcm) -> str:
             cache_last_channel_len=state["cache_last_channel_len"],
             keep_all_outputs=True,
             previous_hypotheses=state["prev_hyps"],
+            previous_pred_out=state.get("prev_pred_out") if THREAD_PRED_OUT else None,
             return_transcription=True,
         )
     state["cache_last_channel"] = out[2]
     state["cache_last_time"] = out[3]
     state["cache_last_channel_len"] = out[4]
     state["prev_hyps"] = out[5]
+    if THREAD_PRED_OUT:
+        state["prev_pred_out"] = out[0]
     return out[5][0].text if out[5] else ""
 
 
@@ -205,6 +210,7 @@ def _track_stall(state: dict, cumulative: str) -> None:
         # do NOT emit FINAL (single-turn-source invariant, 09-RESEARCH §1/§4).
         logger.info("nemo-stt RNNT stall recycle at %d chars (cache carried forward)", len(cumulative))
         state["prev_hyps"] = None
+        state["prev_pred_out"] = None
         state["frames_since_growth"] = 0
 
 
@@ -229,5 +235,6 @@ def reset_turn_state(state: dict) -> None:
     fed back into the next decode and every FINAL accumulates the whole session.
     """
     state["prev_hyps"] = None
+    state["prev_pred_out"] = None
     state["frames_since_growth"] = 0
     state["last_text_len"] = 0

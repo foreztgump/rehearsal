@@ -38,3 +38,9 @@ RECYCLE_HARD_CHARS = int(os.environ.get("STT_RECYCLE_HARD_CHARS", "400"))
 # streaming config at load, so the operator can confirm the cut-off's root cause on
 # the GPU box WITHOUT guessing the API. Default OFF — pure no-op in production.
 DEBUG_DRAIN = os.environ.get("STT_DEBUG_DRAIN", "0") == "1"
+
+# Item-1 candidate A (15a): thread previous_pred_out back into conformer_stream_step
+# for RNNT decode continuity, matching NeMo's reference streaming loop (the current
+# decode omits it). Default OFF — GPU-measured before it becomes default; likely the
+# permanent default once the GPU gate confirms it restores the tail with no WER regress.
+THREAD_PRED_OUT = os.environ.get("STT_THREAD_PRED_OUT", "0") == "1"
