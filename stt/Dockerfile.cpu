@@ -67,6 +67,14 @@ ENV STT_QUANT=${STT_QUANT}
 ENV STT_RUNTIME=cpu
 ENV STT_ONNX_DIR=/app/onnx
 
+# Buffered Parakeet (R3): int8 ONNX baked offline; loaded only for STT_ENGINE=buffered|hybrid.
+# onnxruntime (CPU EP) is already in requirements-cpu.txt — no extra dep needed.
+ENV STT_PARAKEET_MODEL=/models/parakeet-tdt-0.6b-v2-onnx-int8
+# GATE: COPY/fetch the sherpa-onnx int8 export (encoder/decoder/joiner) into that dir.
+# G1 (operator): run `scripts/export_parakeet_onnx.py` on the GPU host, then
+#   COPY ./parakeet-tdt-0.6b-v2-onnx-int8 /models/parakeet-tdt-0.6b-v2-onnx-int8
+# after the pip install layer. Pin model rev; verify WER before enabling buffered|hybrid.
+
 EXPOSE 8000
 
 # python-urllib /health probe (NOT curl — parity with stt/Dockerfile:41-42). A

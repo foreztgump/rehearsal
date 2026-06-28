@@ -37,6 +37,10 @@ services:
     # the startup warmup, emits the one real metric, and registers as a worker.
     build: ./agent
     env_file: .env
+    # STT_ENGINE already reaches the agent via env_file; this label exposes the active
+    # engine config to `docker inspect` without grepping the container environment.
+    labels:
+      - "com.adept.stt_engine=${STT_ENGINE:-streaming}"
     networks:
       - adept
     # depends_on gates the agent on the other services STARTING (Phase 10 change):
@@ -155,6 +159,11 @@ services:
       # for 4.4s audio). Right-context is the speed/accuracy dial: 13=most lookahead
       # (~1040ms), 6=~480ms, 1=~80ms fastest/least accurate.
       - STT_ATT_CONTEXT_SIZE=${STT_ATT_CONTEXT_SIZE:-[70,6]}
+      # R3 engine selector + Parakeet ONNX knobs. Default streaming = byte-identical to
+      # pre-R3; opt in via .env (buffered|hybrid) after the operator G1 gate passes.
+      - STT_ENGINE=${STT_ENGINE:-streaming}
+      - STT_BUFFERED_DEVICE=${STT_BUFFERED_DEVICE:-cpu}
+      - STT_PARAKEET_MODEL=${STT_PARAKEET_MODEL:-/models/parakeet-tdt-0.6b-v2-onnx-int8}
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:8000:8000"
     networks:
@@ -208,6 +217,10 @@ services:
       - STT_RUNTIME=cpu
       - STT_ONNX_MODEL=${STT_ONNX_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b-onnx}
       - STT_QUANT=${STT_QUANT:-int8-dynamic}
+      # R3 engine selector + Parakeet ONNX knobs (mirrors nemo-stt above).
+      - STT_ENGINE=${STT_ENGINE:-streaming}
+      - STT_BUFFERED_DEVICE=${STT_BUFFERED_DEVICE:-cpu}
+      - STT_PARAKEET_MODEL=${STT_PARAKEET_MODEL:-/models/parakeet-tdt-0.6b-v2-onnx-int8}
     # Distinct HOST port 8001 for host probing (internal stays 8000; the agent reaches
     # it by service DNS ws://nemo-stt-cpu:8000/...). No collision with nemo-stt's 8000.
     ports:

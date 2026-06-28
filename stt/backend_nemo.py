@@ -44,6 +44,9 @@ from backend_common import (
 
 logger = logging.getLogger("nemo-stt")
 
+# Streaming backend: live partials + text-stall EOU (server.py reads this capability).
+STREAMS = True
+
 # --- Config (module scope, no hardcoded tag) ----------------------------------
 # Single-source the model tag the SAME way agent/main.py:resolved_llm_tag does:
 # KeyError → SystemExit if unset, so the baked weights and the loaded model can

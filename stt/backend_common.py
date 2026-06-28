@@ -63,3 +63,23 @@ FINALIZE_PAD_MS = int(os.environ.get("STT_FINALIZE_PAD_MS", "560"))
 def finalize_pad_pcm() -> bytes:
     """Zero int16 mono PCM of FINALIZE_PAD_MS at SAMPLE_RATE — the trailing-silence drain frame."""
     return b"\x00\x00" * (SAMPLE_RATE * FINALIZE_PAD_MS // 1000)
+
+
+# R3 buffered/energy-EOU (no numpy: stdlib array+math keeps server.py sandbox-safe).
+# When the PRIMARY backend has STREAMS=False there is no growing transcript to
+# stall-detect, so end-of-utterance is detected acoustically: chunks whose RMS sits
+# below ENERGY_SILENCE_RMS for ENDPOINT_SILENCE_MS (after voiced audio) end the turn.
+ENERGY_SILENCE_RMS = float(os.environ.get("STT_ENERGY_SILENCE_RMS", "320"))  # int16 RMS floor
+# Bound the per-turn PCM buffer so a missed EOU cannot grow memory unbounded.
+BUFFERED_MAX_S = int(os.environ.get("STT_BUFFERED_MAX_S", "60"))
+
+
+def rms_int16(pcm: bytes) -> float:
+    """RMS of int16 mono PCM via stdlib array+math (no numpy, no deprecated audioop)."""
+    import array
+    import math
+    samples = array.array("h")
+    samples.frombytes(pcm[: len(pcm) - (len(pcm) % 2)])
+    if not samples:
+        return 0.0
+    return math.sqrt(sum(s * s for s in samples) / len(samples))

@@ -97,7 +97,7 @@ def _run_exchange():
     """Drive ws_stream through delta/final/error then a disconnect; return sends."""
     server = importlib.import_module("server")
     assert server.RUNTIME == "cpu", f"expected cpu runtime, got {server.RUNTIME!r}"
-    assert sys.modules["backend_onnx"] is server.backend, "dispatch must use the stub backend_onnx"
+    assert sys.modules["backend_onnx"] is server._primary, "dispatch must use the stub backend_onnx"
     frames = [
         {"bytes": b"\x00\x01\x02\x03"},          # binary PCM → delta
         {"text": '{"type":"flush"}'},            # flush → final
@@ -144,7 +144,14 @@ def _self_check() -> None:
     assert "final" in kinds, f"flush must yield final, got {kinds}"
     assert "error" in kinds, f"bad control frame must yield error, got {kinds}"
     delta = next(m for m in sent if m.get("type") == "delta")
-    assert delta["text"] == "len=4", f"delta must echo pcm length, got {delta!r}"
+    # The 4-byte PCM frame is sub-chunk; _drain_buffer pads it to _STREAM_CHUNK_BYTES on flush.
+    server = sys.modules["server"]
+    assert delta["text"] == f"len={server._STREAM_CHUNK_BYTES}", (
+        f"delta must echo padded chunk size, got {delta!r}")
+    # R3: default engine is streaming and keeps primary==final (byte-compat).
+    assert server.ENGINE == "streaming", f"default engine must be streaming, got {server.ENGINE!r}"
+    assert server._primary is server._final, "streaming engine must share one backend"
+    assert server._primary is sys.modules["backend_onnx"], "streaming+cpu must dispatch backend_onnx"
     print(f"dispatch _self_check OK — frames: {kinds}", file=sys.stderr)
 
 
