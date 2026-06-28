@@ -9,7 +9,7 @@ Adept is built as a strict downward dependency chain dictated by the research bu
 ## Milestones
 
 - ✅ **v1.0-rc1 MVP Release Candidate** — Phases 1-6 (shipped 2026-06-26) — [archive](milestones/v1.0-rc1-ROADMAP.md)
-- 🚧 **v1.1 Local-First Pipeline Swap + Avatar** — Phases 8-13 (in progress)
+- ✅ **v1.1 Local-First Pipeline Swap + Avatar** — Phases 8-14 (feature-complete 2026-06-27; operator release sign-off pending)
 
 > **Note on Phase 7:** v1.0's *Phase 7 (Polish & Reliability)* was defined but never started (0/2 plans). Its requirements (SESS-01..04, REL-01/02, final latency tuning) were **rolled into v1.1** and now live in this milestone's REQUIREMENTS.md. v1.1 **supersedes the unstarted Phase 7** — the standalone Phase 7 is folded into the v1.1 polish phase (Phase 14) so its coverage is not double-counted. v1.1 phases continue numbering from **Phase 8**.
 
@@ -36,7 +36,7 @@ Phase 7 was defined in the v1.0 plan but **never started** (0/2 plans). Its scop
 
 </details>
 
-### 🚧 v1.1 Local-First Pipeline Swap + Avatar (In Progress)
+### ✅ v1.1 Local-First Pipeline Swap + Avatar (Feature-complete — operator release gates pending)
 
 - [x] **Phase 8: LLM Speed Selector (Part A)** — Two user-selectable Ollama models with per-build verification and the sole-guardrail persona check
 - [x] **Phase 9: Nemotron Streaming ASR (Part B)** — Replace faster-whisper with NeMo streaming STT behind a local server *(code-complete; GPU gate pending-operator)*
@@ -44,7 +44,7 @@ Phase 7 was defined in the v1.0 plan but **never started** (0/2 plans). Its scop
 - [x] **Phase 11: Consumer-GPU Deployment (Part E)** — `docker compose up` on the user's machine with GPU detection/preflight doctor *(code-complete; GPU gate pending-operator)*
 - [x] **Phase 12: Optional 3D Avatar (Part D, frontend-only)** — TalkingHead Path-A avatar that must not touch the server pipeline (completed 2026-06-26)
 - [x] **Phase 13: UI/UX Overhaul (Landing/Setup + Talking)** — Dedicated landing/setup screen to configure everything before connecting, plus clean/animated talking-screen polish with auto-scrolling transcript (completed 2026-06-27)
-- [ ] **Phase 14: Deferred v1.0 Polish, Optimization & Pre-Release Hardening** — Session lifecycle, graceful failure, and final latency tuning for both LLMs (last phase before release)
+- [x] **Phase 14: Deferred v1.0 Polish, Optimization & Pre-Release Hardening** — Session lifecycle, graceful failure, and final latency tuning for both LLMs (last phase before release) *(completed 2026-06-27; UAT'd on RTX 5090; operator latency sign-off pending in 14-VERIFY.md)*
 
 ## Phase Details
 
@@ -171,7 +171,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → ~~7 (supers
 | 11. Consumer-GPU Deployment (Part E) | v1.1 | 2/2 | Code-complete (GPU gate pending-operator) | 2026-06-26 |
 | 12. Optional 3D Avatar (Part D) | v1.1 | 2/2 | Complete    | 2026-06-26 |
 | 13. UI/UX Overhaul (Landing/Setup + Talking) | v1.1 | 3/3 | Complete    | 2026-06-27 |
-| 14. Deferred v1.0 Polish, Optimization & Pre-Release Hardening | v1.1 | 0/? | Not started | - |
+| 14. Deferred v1.0 Polish, Optimization & Pre-Release Hardening | v1.1 | 9/9 | Complete (UAT'd RTX 5090; operator latency sign-off pending) | 2026-06-27 |
 
 ### Phase 14: Deferred v1.0 Polish, Optimization & Pre-Release Hardening
 

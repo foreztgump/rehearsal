@@ -4,17 +4,17 @@ milestone: v1.1
 milestone_name: Local-First Pipeline Swap + Avatar
 current_phase: 14
 current_phase_name: Deferred v1.0 Polish, Optimization & Pre-Release Hardening
-status: executing
-stopped_at: Completed 13-03-PLAN.md
-last_updated: "2026-06-27T08:18:23.654Z"
+status: complete
+stopped_at: Phase 14 complete (release polish executed + UAT'd on RTX 5090)
+last_updated: "2026-06-27"
 last_activity: 2026-06-27
-last_activity_desc: Phase 13 complete, transitioned to Phase 14
+last_activity_desc: Phase 14 complete — conversation feel, avatar lifecycle/framing/fullscreen, UI responsiveness, End→reconnect fix; operator latency sign-off pending in 14-VERIFY.md
 progress:
   total_phases: 7
-  completed_phases: 3
-  total_plans: 13
-  completed_plans: 7
-  percent: 43
+  completed_phases: 7
+  total_plans: 22
+  completed_plans: 22
+  percent: 100
 ---
 
 # Project State
@@ -24,12 +24,28 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-25)
 
 **Core value:** The user can hold a natural spoken conversation with a credible expert persona at voice-to-voice latency that feels live (P50 < 1.0s) — practicing speaking a domain out loud.
-**Current focus:** Phase 13 — ui-ux-overhaul-landing-setup-screen-and-talking-screen-polis
+**Current focus:** Phase 14 — COMPLETE. v1.1 feature-complete; next is Phase 15 (see `.planning/phases/15-stt-accuracy-and-avatar-expressiveness/15-BACKLOG.md`).
 
 ## Current Position
 
-Phase: 14 — Deferred v1.0 Polish, Optimization & Pre-Release Hardening
-Plan: Not started
+Phase: 14 — Deferred v1.0 Polish, Optimization & Pre-Release Hardening — **COMPLETE** (2026-06-27)
+Plan: All Phase-14 plans (14-01..14-09) executed, reviewed, and UAT'd on the RTX 5090.
+
+### Phase 14 — release-polish-conversation-feel-ui-avatar-lifecycle — COMPLETE
+
+Delivered (committed to master, deployed + live-tested on the RTX 5090): mode-aware
+endpointing + VAD/interrupt retune (14-01); v4 theme system verified (14-02/14-08);
+avatar idle-fix + responsive framing + upper/full-body + full-screen toggles
+(14-03 + UAT); word-accurate lip-sync OFF-gate (14-04 — voice-only publishes no
+`lk.avatar.*`); persona/avatar presets (14-05); session lifecycle SESS-01..04 +
+REL-01/02 (14-06); `install.sh`/`down.sh` (14-07); `14-VERIFY` runbook (14-09).
+**Post-build UAT fixes:** agent Dockerfile missing-module crash-loop; End→reconnect
+dead-session (unique room per connect — JT_ROOM dispatch fires only on room creation);
+viewport-locked responsive layout; chat bubbles; lip-sync naturalness tuning; STT
+lookahead reverted `[70,13]→[70,6]` (finalize tail-drop deferred to Phase 15).
+**Pending (operator, per 14-VERIFY.md):** PERF-04 latency sign-off (P50<1.0s over ~30
+turns, both LLMs) + the Phase 9/10/11 GPU gates — consistent with how 9/10/11 are tracked.
+**Next:** Phase 15 — `.planning/phases/15-stt-accuracy-and-avatar-expressiveness/15-BACKLOG.md`.
 
 ### (prior) Phase 12 — optional-3d-avatar-part-d — VERIFIED (browser gates signed)
 
