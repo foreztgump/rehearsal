@@ -32,3 +32,9 @@ INT16_FULL_SCALE = 32768.0
 STALL_FRAMES = int(os.environ.get("STT_STALL_FRAMES", "50"))
 RECYCLE_MIN_CHARS = int(os.environ.get("STT_RECYCLE_MIN_CHARS", "120"))
 RECYCLE_HARD_CHARS = int(os.environ.get("STT_RECYCLE_HARD_CHARS", "400"))
+
+# Diagnosis switch for the Item-1 trailing-word cut-off (15a). When truthy, both
+# backends log the drained transcript + held-token count at finalize and the encoder
+# streaming config at load, so the operator can confirm the cut-off's root cause on
+# the GPU box WITHOUT guessing the API. Default OFF — pure no-op in production.
+DEBUG_DRAIN = os.environ.get("STT_DEBUG_DRAIN", "0") == "1"

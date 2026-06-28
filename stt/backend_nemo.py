@@ -31,6 +31,7 @@ from typing import Any
 # depends on the other (Phase 10 C1). backend_nemo re-exports them for continuity;
 # the watchdog thresholds are defined ONCE in backend_common.
 from backend_common import (
+    DEBUG_DRAIN,
     INT16_FULL_SCALE,
     RECYCLE_HARD_CHARS,
     RECYCLE_MIN_CHARS,
@@ -101,6 +102,12 @@ def load_model() -> Any:
     # Greedy single-step RNNT decoding — lowest latency for streaming.
     _set_greedy_decoding(model)
     logger.info("nemo-stt model loaded: %s att_context_size=%s", MODEL_NAME, ATT_CONTEXT_SIZE)
+    if DEBUG_DRAIN:
+        logger.info(
+            "nemo-stt diag: att_context_style=%s streaming_cfg=%s",
+            getattr(model.encoder, "att_context_style", "?"),
+            getattr(model.encoder, "streaming_cfg", "?"),
+        )
     return model
 
 
@@ -197,6 +204,10 @@ def finalize(model, state) -> str:
     cumulative = ""
     if state["prev_hyps"]:
         cumulative = state["prev_hyps"][0].text
+    if DEBUG_DRAIN:
+        held = state["prev_hyps"][0] if state["prev_hyps"] else None
+        token_count = len(getattr(held, "y_sequence", []) or []) if held else 0
+        logger.info("nemo-stt diag finalize: text=%r held_tokens=%d", cumulative, token_count)
     return cumulative
 
 
