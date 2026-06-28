@@ -43,6 +43,9 @@ from backend_common import (
 
 logger = logging.getLogger("nemo-stt")
 
+# Streaming backend: live partials + text-stall EOU (server.py reads this capability).
+STREAMS = True
+
 # --- Config (module scope, no hardcoded tag) ----------------------------------
 # Single-source the ONNX artifact tag/path the SAME way backend_nemo reads STT_MODEL:
 # KeyError → SystemExit if unset, so the baked artifact and the loaded artifact can
