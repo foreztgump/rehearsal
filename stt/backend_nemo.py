@@ -148,20 +148,21 @@ def _extract_features(model, pcm: bytes) -> tuple[Any, Any]:
     return feats, feat_len
 
 
-def decode_chunk(model, state, pcm) -> str:
-    """Run one cache-aware stream step; return the CUMULATIVE transcript.
+def _stream_step(model, state, pcm) -> str:
+    """One cache-aware conformer_stream_step: advance caches + prev_hyps, return cumulative.
 
-    Native PnC is surfaced AS-IS (no strip/lowercase — STT-03). Recycles decoder
-    state on a stall but NEVER emits FINAL (the turn detector owns finalize).
+    Shared decode core for the live per-chunk path (decode_chunk, which adds the stall
+    watchdog) AND the trailing-silence drain (finalize, candidate B). Kept separate from
+    _track_stall so the drain can NEVER trigger a mid-finalize recycle that would clear
+    the tail it is trying to recover. Native PnC surfaced AS-IS (no strip/lowercase).
     """
     import torch  # noqa: PLC0415 - GPU-only dep
 
     feats, feat_len = _extract_features(model, pcm)
     with torch.inference_mode():
-        # This NeMo version returns a 6-tuple: greedy_predictions,
-        # all_hyp_or_transcribed_texts, cache_last_channel_next, cache_last_time_next,
-        # cache_last_channel_next_len, best_hyp. best_hyp is the RNNT Hypothesis list
-        # (carries .text and feeds back as previous_hypotheses for cache-aware streaming).
+        # 6-tuple: greedy_predictions, transcribed_texts, cache_last_channel_next,
+        # cache_last_time_next, cache_last_channel_next_len, best_hyp (the RNNT
+        # Hypothesis list carrying .text, fed back as previous_hypotheses).
         out = model.conformer_stream_step(
             processed_signal=feats,
             processed_signal_length=feat_len,
@@ -172,12 +173,20 @@ def decode_chunk(model, state, pcm) -> str:
             previous_hypotheses=state["prev_hyps"],
             return_transcription=True,
         )
-    channel, time_state, channel_len, hyps = out[2], out[3], out[4], out[5]
-    state["cache_last_channel"] = channel
-    state["cache_last_time"] = time_state
-    state["cache_last_channel_len"] = channel_len
-    state["prev_hyps"] = hyps
-    cumulative = hyps[0].text if hyps else ""
+    state["cache_last_channel"] = out[2]
+    state["cache_last_time"] = out[3]
+    state["cache_last_channel_len"] = out[4]
+    state["prev_hyps"] = out[5]
+    return out[5][0].text if out[5] else ""
+
+
+def decode_chunk(model, state, pcm) -> str:
+    """Run one stream step; return the CUMULATIVE transcript and run the stall watchdog.
+
+    Recycles decoder state on a stall but NEVER emits FINAL (the turn detector owns
+    finalize).
+    """
+    cumulative = _stream_step(model, state, pcm)
     _track_stall(state, cumulative)
     return cumulative
 
