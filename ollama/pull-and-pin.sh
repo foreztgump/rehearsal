@@ -20,7 +20,10 @@
 #   FLOOR_LADDER (pins OLLAMA_MODEL_FLOOR — the ~6GB tier's small model, v1.2 R2):
 #     1. hf.co/mradermacher/Huihui-Qwen3-4B-Instruct-2507-abliterated-GGUF:Q4_K_M
 #          abliterated Qwen3-4B-Instruct-2507 (~2.5GB) — NON-thinking by construction
-#          (no <think> leak), dual-provenance (huihui-ai abliterate + mradermacher GGUF)
+#          (no <think> leak), dual-provenance (huihui-ai abliterate + mradermacher GGUF).
+#          NB: this GGUF's bundled Ollama template is broken — when it wins, main() grafts
+#          the correct Qwen3-2507 template via ollama/Modelfile.floor + `ollama create` and
+#          pins the built model `adept-floor` instead of the raw GGUF.
 #     2. hf.co/bartowski/mlabonne_Qwen3-1.7B-abliterated-GGUF:Q4_K_M
 #          smaller abliterated fallback (~1.1GB; mlabonne+bartowski) for tight 6GB cards
 #     3. qwen3.5:2b-q4_K_M
@@ -55,6 +58,11 @@ readonly FLOOR_LADDER=(
   "hf.co/bartowski/mlabonne_Qwen3-1.7B-abliterated-GGUF:Q4_K_M"
   "qwen3.5:2b-q4_K_M"
 )
+# When rung 1's GGUF wins, its bundled Ollama chat template is broken, so we graft the correct
+# Qwen3-2507 template (ollama/Modelfile.floor) via `ollama create` and pin the BUILT model below
+# instead of the raw GGUF (see main()). The 1.7B / qwen3.5 fallback rungs are pinned as-is.
+readonly FLOOR_MODEL_NAME="adept-floor"
+readonly FLOOR_TEMPLATE_FIX_TAG="hf.co/mradermacher/Huihui-Qwen3-4B-Instruct-2507-abliterated-GGUF:Q4_K_M"
 readonly OLLAMA_CONTAINER="${OLLAMA_CONTAINER:-ollama}"
 readonly ENV_FILE="${ENV_FILE:-.env}"
 
@@ -110,8 +118,18 @@ main() {
 
   local floor_tag=""
   if floor_tag="$(resolve_tag FLOOR_LADDER)"; then
-    write_resolved_tag OLLAMA_MODEL_FLOOR "${floor_tag}"
-    echo "pinned OLLAMA_MODEL_FLOOR=${floor_tag} in ${ENV_FILE}"
+    if [ "${floor_tag}" = "${FLOOR_TEMPLATE_FIX_TAG}" ]; then
+      # Rung-1 GGUF won but its bundled template is broken — graft the correct Qwen3-2507
+      # template (ollama/Modelfile.floor) and pin the BUILT model, not the raw GGUF.
+      echo "floor: grafting template via ollama/Modelfile.floor -> ${FLOOR_MODEL_NAME}" >&2
+      docker compose cp ollama/Modelfile.floor "${OLLAMA_CONTAINER}:/tmp/Modelfile.floor"
+      ollama_exec create "${FLOOR_MODEL_NAME}" -f /tmp/Modelfile.floor
+      write_resolved_tag OLLAMA_MODEL_FLOOR "${FLOOR_MODEL_NAME}"
+      echo "pinned OLLAMA_MODEL_FLOOR=${FLOOR_MODEL_NAME} (built from ${floor_tag}) in ${ENV_FILE}"
+    else
+      write_resolved_tag OLLAMA_MODEL_FLOOR "${floor_tag}"
+      echo "pinned OLLAMA_MODEL_FLOOR=${floor_tag} in ${ENV_FILE}"
+    fi
   else
     echo "WARN: no FLOOR_LADDER rung resolved — Floor tier unavailable on this host" >&2
   fi
