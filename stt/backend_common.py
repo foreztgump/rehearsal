@@ -44,3 +44,19 @@ DEBUG_DRAIN = os.environ.get("STT_DEBUG_DRAIN", "0") == "1"
 # decode omits it). Default OFF — GPU-measured before it becomes default; likely the
 # permanent default once the GPU gate confirms it restores the tail with no WER regress.
 THREAD_PRED_OUT = os.environ.get("STT_THREAD_PRED_OUT", "0") == "1"
+
+# Item-1 candidate B (15a): trailing-silence drain. On finalize, optionally feed one
+# last stream step of silence so the final real speech frames get a complete right-
+# context attention window — the hard end-of-speech cutoff otherwise leaves the
+# trailing right-context frames without the future frames they were trained with, so
+# the RNNT can emit blanks for the last words. Default OFF (GPU-measured, unofficial
+# workaround). FINALIZE_PAD_MS is generous on purpose: it covers up to a [70,6] right
+# context (6 encoder frames x 80 ms = 480 ms) plus preprocessor/8x-subsampling edge,
+# regardless of the configured att_context_size (shipped default is [70,1] = 80 ms).
+FINALIZE_PAD = os.environ.get("STT_FINALIZE_PAD", "0") == "1"
+FINALIZE_PAD_MS = int(os.environ.get("STT_FINALIZE_PAD_MS", "640"))
+
+
+def finalize_pad_pcm() -> bytes:
+    """Zero int16 mono PCM of FINALIZE_PAD_MS at SAMPLE_RATE — the trailing-silence drain frame."""
+    return b"\x00\x00" * (SAMPLE_RATE * FINALIZE_PAD_MS // 1000)

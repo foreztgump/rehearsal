@@ -32,12 +32,14 @@ from typing import Any
 # the watchdog thresholds are defined ONCE in backend_common.
 from backend_common import (
     DEBUG_DRAIN,
+    FINALIZE_PAD,
     INT16_FULL_SCALE,
     RECYCLE_HARD_CHARS,
     RECYCLE_MIN_CHARS,
     SAMPLE_RATE,
     STALL_FRAMES,
     THREAD_PRED_OUT,
+    finalize_pad_pcm,
 )
 
 logger = logging.getLogger("nemo-stt")
@@ -215,10 +217,18 @@ def _track_stall(state: dict, cumulative: str) -> None:
 
 
 def finalize(model, state) -> str:
-    """Drain the stream and return the final transcript (flush→final response)."""
-    cumulative = ""
-    if state["prev_hyps"]:
-        cumulative = state["prev_hyps"][0].text
+    """Drain the stream and return the final transcript (flush→final response).
+
+    Candidate B (15a, flag-gated): when STT_FINALIZE_PAD=1, feed one last stream step
+    of trailing silence so the final right-context frames get a complete attention
+    window before reading the tail. Uses _stream_step (NOT decode_chunk) so the stall
+    watchdog never recycles the tail mid-drain. Advancing the cache here is harmless —
+    the server calls reset_turn_state immediately after finalize.
+    """
+    if FINALIZE_PAD and state["prev_hyps"] is not None:
+        cumulative = _stream_step(model, state, finalize_pad_pcm())
+    else:
+        cumulative = state["prev_hyps"][0].text if state["prev_hyps"] else ""
     if DEBUG_DRAIN:
         held = state["prev_hyps"][0] if state["prev_hyps"] else None
         token_count = len(getattr(held, "y_sequence", []) or []) if held else 0
