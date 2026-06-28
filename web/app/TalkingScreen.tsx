@@ -55,7 +55,10 @@ export default function TalkingScreen({
   agentName: string;
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Full-screen avatar: the avatar fills the stage and the transcript is hidden.
+  const [avatarFullscreen, setAvatarFullscreen] = useState(false);
   const showAvatar = avatarOn && !!avatar;
+  const avatarOnly = showAvatar && avatarFullscreen;
 
   return (
     <div
@@ -84,7 +87,11 @@ export default function TalkingScreen({
       {/* Stage: visualizer/avatar hero (with who-name) + transcript. Avatar mode
           splits into two columns; voice mode stacks the orb over a centered
           transcript column. */}
-      <div className="talk-main" data-avatar={showAvatar ? "true" : "false"}>
+      <div
+        className="talk-main"
+        data-avatar={showAvatar ? "true" : "false"}
+        data-fullscreen={avatarOnly ? "true" : "false"}
+      >
         {/* Hero: avatar stage OR the canvas orb visualizer. The visualizer carries
             no 3D deps, so the voice-only bundle stays clean. */}
         <div
@@ -120,31 +127,45 @@ export default function TalkingScreen({
           </div>
           <WhoName agentName={agentName} />
           {showAvatar && (
-            <button
-              type="button"
-              className="btn-ghost"
-              onClick={onToggleAvatarView}
-              aria-pressed={avatarView === "full"}
-              style={{ fontSize: "13px", padding: "5px 12px" }}
-            >
-              {avatarView === "upper" ? "Show full body" : "Show head & shoulders"}
-            </button>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={onToggleAvatarView}
+                aria-pressed={avatarView === "full"}
+                style={{ fontSize: "13px", padding: "5px 12px" }}
+              >
+                {avatarView === "upper" ? "Show full body" : "Show head & shoulders"}
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => setAvatarFullscreen((on) => !on)}
+                aria-pressed={avatarFullscreen}
+                style={{ fontSize: "13px", padding: "5px 12px" }}
+              >
+                {avatarFullscreen ? "Show transcript" : "Full screen"}
+              </button>
+            </div>
           )}
         </div>
 
-        {/* Transcript column — centered + width-capped in voice mode. */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            minHeight: 0,
-            width: "100%",
-            maxWidth: showAvatar ? undefined : "720px",
-            margin: showAvatar ? undefined : "0 auto",
-          }}
-        >
-          <Transcript resetAfter={resetMarker} />
-        </div>
+        {/* Transcript column — centered + width-capped in voice mode. Hidden when the
+            avatar is full-screen. */}
+        {!avatarOnly && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              minHeight: 0,
+              width: "100%",
+              maxWidth: showAvatar ? undefined : "720px",
+              margin: showAvatar ? undefined : "0 auto",
+            }}
+          >
+            <Transcript resetAfter={resetMarker} />
+          </div>
+        )}
       </div>
 
       <SettingsDrawer

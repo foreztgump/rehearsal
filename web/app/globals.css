@@ -294,6 +294,11 @@ body {
   grid-template-rows: minmax(0, 1fr);
   align-items: stretch;
 }
+/* Full-screen avatar: transcript is unmounted, avatar fills the whole stage. */
+.talk-main[data-avatar="true"][data-fullscreen="true"] {
+  grid-template-columns: 1fr;
+}
+
 /* Smaller, less-dominant bubbles in avatar mode so the avatar stays the focus. */
 .talk-main[data-avatar="true"] .bubble {
   font-size: 13px;
