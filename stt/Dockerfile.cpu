@@ -22,8 +22,9 @@ ARG STT_MODEL
 ARG STT_ONNX_MODEL
 ARG STT_QUANT=int8-dynamic
 # Revision pin for the export SOURCE .nemo (15a Item 2a) — mirrors stt/Dockerfile so the
-# shipped-default CPU ONNX bundle honors STT_MODEL_REVISION too. Default main = prior behavior.
-ARG STT_MODEL_REVISION=main
+# shipped-default CPU ONNX bundle honors STT_MODEL_REVISION too. No default literal here
+# (mirrors ARG STT_MODEL); Compose build.args supplies ${STT_MODEL_REVISION:-main}.
+ARG STT_MODEL_REVISION
 COPY export_onnx.py ./
 ENV STT_MODEL=${STT_MODEL} STT_ONNX_MODEL=${STT_ONNX_MODEL} STT_QUANT=${STT_QUANT} STT_ONNX_DIR=/build/onnx
 # onnxruntime is needed here for the int8 quantize step (quantize_dynamic). The NeMo

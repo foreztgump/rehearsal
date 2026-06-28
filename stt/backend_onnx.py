@@ -335,13 +335,28 @@ def finalize(model, state) -> str:
     """Drain the stream and return the final transcript (flush→final response).
 
     Candidate-B parity (15a, same STT_FINALIZE_PAD flag as backend_nemo): when enabled,
-    feed one last encode/decode step of trailing silence so the final encoder frames get
-    a complete window before reading the tail. Uses _encode_decode_step (NOT decode_chunk)
-    so the stall watchdog never recycles the tail mid-drain.
+    drain one trailing-silence step for the final window (see _drain_tail). Default-OFF
+    path just detokenizes the held ids.
     """
+    held = model["tokenizer"].decode(state["emitted_token_ids"]) if state["emitted_token_ids"] else ""
     if FINALIZE_PAD and state["emitted_token_ids"]:
-        return _encode_decode_step(model, state, finalize_pad_pcm())
-    return model["tokenizer"].decode(state["emitted_token_ids"]) if state["emitted_token_ids"] else ""
+        return _drain_tail(model, state, held)
+    return held
+
+
+def _drain_tail(model, state, held_text: str) -> str:
+    """Feed one trailing-silence encode/decode step for the final window; no cache leak.
+
+    Uses _encode_decode_step (NOT decode_chunk) so the stall watchdog can't recycle the
+    tail mid-drain, and SNAPSHOTS/RESTORES the encoder cache around the step: reset_turn_state
+    carries the cache forward, so without the restore the injected silence would pollute the
+    next turn's cache-aware context. Falls back to the pre-drain held text if the silence step
+    adds nothing.
+    """
+    saved = (state["cache_last_channel"], state["cache_last_time"], state["cache_last_channel_len"])
+    drained = _encode_decode_step(model, state, finalize_pad_pcm())
+    (state["cache_last_channel"], state["cache_last_time"], state["cache_last_channel_len"]) = saved
+    return drained or held_text
 
 
 def reset_turn_state(state) -> None:

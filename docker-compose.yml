@@ -135,7 +135,9 @@ services:
       # backend (backend_nemo).
       - STT_RUNTIME=gpu
       - STT_MODEL=${STT_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b}
-      - STT_MODEL_REVISION=${STT_MODEL_REVISION:-main}
+      # STT_MODEL_REVISION is a BUILD-only arg (snapshot-download pin baked into the
+      # image); it is intentionally NOT a runtime env — backend_nemo loads the baked
+      # offline cache and never reads it, so a runtime entry would be dead/misleading.
       # Cache-aware Conformer only supports the att_context_size values it was
       # TRAINED on: [[70,13],[70,6],[70,1],[70,0]]. Anything else (e.g. [56,3])
       # runs with an attention context the encoder never saw -> degraded accuracy

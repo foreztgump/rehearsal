@@ -219,21 +219,46 @@ def _track_stall(state: dict, cumulative: str) -> None:
 def finalize(model, state) -> str:
     """Drain the stream and return the final transcript (flush→final response).
 
-    Candidate B (15a, flag-gated): when STT_FINALIZE_PAD=1, feed one last stream step
-    of trailing silence so the final right-context frames get a complete attention
-    window before reading the tail. Uses _stream_step (NOT decode_chunk) so the stall
-    watchdog never recycles the tail mid-drain. Advancing the cache here is harmless —
-    the server calls reset_turn_state immediately after finalize.
+    Candidate B (15a, flag-gated): when STT_FINALIZE_PAD=1, feed one last stream step of
+    trailing silence so the final right-context frames get a complete attention window
+    before reading the tail (see _drain_tail). Default-OFF path just reads the held text.
     """
+    held = state["prev_hyps"][0].text if state["prev_hyps"] else ""
     if FINALIZE_PAD and state["prev_hyps"] is not None:
-        cumulative = _stream_step(model, state, finalize_pad_pcm())
+        cumulative = _drain_tail(model, state, held)
     else:
-        cumulative = state["prev_hyps"][0].text if state["prev_hyps"] else ""
+        cumulative = held
     if DEBUG_DRAIN:
-        held = state["prev_hyps"][0] if state["prev_hyps"] else None
-        token_count = len(getattr(held, "y_sequence", []) or []) if held else 0
-        logger.info("nemo-stt diag finalize: text=%r held_tokens=%d", cumulative, token_count)
+        logger.info("nemo-stt diag finalize: text=%r held_tokens=%d",
+                    cumulative, _held_token_count(state["prev_hyps"]))
     return cumulative
+
+
+def _drain_tail(model, state, held_text: str) -> str:
+    """Feed one trailing-silence stream step for the final attention window; no cache leak.
+
+    Uses _stream_step (NOT decode_chunk) so the stall watchdog can't recycle the tail
+    mid-drain, and SNAPSHOTS/RESTORES the encoder cache around the step: reset_turn_state
+    carries the cache forward, so without the restore the injected silence would pollute
+    the next turn's cache-aware context. Falls back to the pre-drain held text if the
+    silence step yields no hypotheses (never replace a good transcript with empty).
+    """
+    saved = (state["cache_last_channel"], state["cache_last_time"], state["cache_last_channel_len"])
+    drained = _stream_step(model, state, finalize_pad_pcm())
+    (state["cache_last_channel"], state["cache_last_time"], state["cache_last_channel_len"]) = saved
+    return drained or held_text
+
+
+def _held_token_count(prev_hyps) -> int:
+    """RNNT held-token count for the drain diagnostic — safe on a torch tensor y_sequence.
+
+    `getattr(hyp, "y_sequence", []) or []` would call bool() on the tensor and raise
+    "Boolean value of Tensor is ambiguous", so test for None explicitly instead.
+    """
+    if not prev_hyps:
+        return 0
+    y_sequence = getattr(prev_hyps[0], "y_sequence", None)
+    return len(y_sequence) if y_sequence is not None else 0
 
 
 def reset_turn_state(state: dict) -> None:

@@ -15,9 +15,11 @@ WORKDIR /app
 # Single-sourced model tag (no hardcoded literal in this Dockerfile body — the
 # Compose build.args supplies it from the single-sourced STT_MODEL env, AGENTS.md).
 ARG STT_MODEL
-# Revision pin (15a Item 2a). Default main = prior behavior; operator pins the
-# March-2026 commit SHA via STT_MODEL_REVISION so the baked weights never drift.
-ARG STT_MODEL_REVISION=main
+# Revision pin (15a Item 2a). No default literal here (mirrors ARG STT_MODEL) — the
+# single-sourced value comes from Compose build.args (${STT_MODEL_REVISION:-main}), so a
+# bare `docker build` without the arg fails LOUD at snapshot_download rather than silently
+# baking `main`. Operator pins the March-2026 commit SHA so the baked weights never drift.
+ARG STT_MODEL_REVISION
 
 # Server deps the base image does not already ship (torch/CUDA/NeMo come from the
 # base — see requirements.txt). Use pip (this base is not uv-managed).
@@ -41,8 +43,9 @@ RUN python -c "from huggingface_hub import snapshot_download; p=snapshot_downloa
 RUN HF_HUB_OFFLINE=1 python -c "import nemo.collections.asr as a; a.models.ASRModel.from_pretrained('${STT_MODEL}')"
 
 # Runtime tag == bake tag so the loaded model never drifts from the baked weights.
+# (STT_MODEL_REVISION is build-only — the pin is already baked into the offline cache
+# below; a runtime ENV for it would be dead state, so it is intentionally not set.)
 ENV STT_MODEL=${STT_MODEL}
-ENV STT_MODEL_REVISION=${STT_MODEL_REVISION}
 # Runtime loads ONLY from the baked, pinned cache — never re-resolves a newer main.
 ENV HF_HUB_OFFLINE=1
 
