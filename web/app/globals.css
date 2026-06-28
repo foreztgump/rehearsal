@@ -272,6 +272,40 @@ body {
   }
 }
 
+/* Talking-screen hero+transcript region. Voice-only stacks orb over a transcript;
+   avatar mode is two columns on wide screens but MUST stack on narrow ones, or the
+   300px-min avatar column squeezes the transcript off-screen (data-avatar drives it
+   so a media query can reach it — inline styles can't). */
+.talk-main {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  gap: 22px;
+  padding: 18px 22px 26px;
+  grid-template-columns: 1fr;
+  /* minmax(0,...) lets the hero row SHRINK below its content (a square canvas /
+     avatar) instead of forcing the grid taller than the viewport — the orb/avatar
+     then scales to fit and only the transcript scrolls. */
+  grid-template-rows: minmax(0, 0.9fr) minmax(0, 1.1fr);
+}
+.talk-main[data-avatar="true"] {
+  grid-template-columns: minmax(280px, 42%) 1fr;
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
+}
+@media (max-width: 760px) {
+  .talk-main[data-avatar="true"] {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  }
+}
+@media (max-width: 600px) {
+  .talk-main {
+    padding: 12px 14px 18px;
+    gap: 16px;
+  }
+}
+
 /* A single labeled field (label stacked over its control). */
 .field {
   display: flex;

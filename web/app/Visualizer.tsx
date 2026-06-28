@@ -544,12 +544,18 @@ export default function Visualizer() {
       raf = 0,
       last = performance.now();
 
+    // Largest square that fits the parent box on BOTH axes (capped), so the orb
+    // scales to fit a short/wide cell instead of overflowing when width alone drives it.
+    const ORB_MAX_PX = 340;
     const resize = () => {
       const parent = canvas.parentElement;
-      const s = parent?.clientWidth ?? 0;
+      if (!parent) return;
+      const s = Math.min(parent.clientWidth, parent.clientHeight, ORB_MAX_PX);
       if (!s) return;
       W = s;
       H = s;
+      canvas.style.width = `${s}px`;
+      canvas.style.height = `${s}px`;
       canvas.width = s * DPR;
       canvas.height = s * DPR;
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -622,12 +628,13 @@ export default function Visualizer() {
       style={{
         position: "relative",
         width: "100%",
-        maxWidth: "340px",
-        aspectRatio: "1 / 1",
-        margin: "0 auto",
+        height: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
       }}
     >
-      <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block" }} />
+      <canvas ref={canvasRef} style={{ display: "block" }} />
     </div>
   );
 }

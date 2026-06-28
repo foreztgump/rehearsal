@@ -55,7 +55,7 @@ export default function TalkingScreen({
   return (
     <div
       className="screen-enter"
-      style={{ minHeight: "100vh", width: "100%", display: "flex", flexDirection: "column" }}
+      style={{ height: "100dvh", width: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}
     >
       {/* Sticky blurred top bar. */}
       <div className="topbar">
@@ -79,18 +79,7 @@ export default function TalkingScreen({
       {/* Stage: visualizer/avatar hero (with who-name) + transcript. Avatar mode
           splits into two columns; voice mode stacks the orb over a centered
           transcript column. */}
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          display: "grid",
-          gap: "22px",
-          padding: "18px 22px 26px",
-          gridTemplateColumns: showAvatar ? "minmax(300px, 44%) 1fr" : "1fr",
-          gridTemplateRows: showAvatar ? "1fr" : "auto 1fr",
-          alignItems: showAvatar ? "stretch" : undefined,
-        }}
-      >
+      <div className="talk-main" data-avatar={showAvatar ? "true" : "false"}>
         {/* Hero: avatar stage OR the canvas orb visualizer. The visualizer carries
             no 3D deps, so the voice-only bundle stays clean. */}
         <div
@@ -99,15 +88,31 @@ export default function TalkingScreen({
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            gap: "18px",
+            gap: "12px",
             minHeight: 0,
+            minWidth: 0,
+            overflow: "hidden",
           }}
         >
-          {showAvatar ? (
-            <div style={{ width: "100%", height: "100%", minHeight: "320px" }}>{avatar}</div>
-          ) : (
-            <Visualizer />
-          )}
+          {/* Bounded stage: flex:1 + minHeight:0 + overflow:hidden makes the avatar
+              or orb scale to fit the cell on any viewport instead of overflowing. */}
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              overflow: "hidden",
+            }}
+          >
+            {showAvatar ? (
+              <div style={{ width: "100%", height: "100%" }}>{avatar}</div>
+            ) : (
+              <Visualizer />
+            )}
+          </div>
           <WhoName agentName={agentName} />
         </div>
 
