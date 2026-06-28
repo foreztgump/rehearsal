@@ -172,34 +172,31 @@ async def _send_final(ws: WebSocket, state: dict, text: str, dur_ms: int = 0) ->
     await ws.send_json({"type": "final", "text": text, "dur_ms": dur_ms})
 
 
-async def _run_finalize(ws: WebSocket, state: dict, timed: bool = True) -> tuple | None:
-    """Run _final.finalize under lock; on exception emit error + empty final, return None.
+async def _run_finalize(ws: WebSocket, state: dict, timed: bool = True) -> None:
+    """Run _final.finalize under lock; emit final on success, error+empty-final on exception.
 
-    Returns (text, dur_ms) on success. On exception: logs, sends {"type":"error"},
-    then sends an empty {"type":"final"} via _send_final so the agent turn unblocks.
-    timed=False yields dur_ms=0 (explicit flush path — the agent owns that span).
+    timed=False → dur_ms=0 (explicit flush — agent owns the span via _flush_started).
+    timed=True → stamps the server-measured EOU→finalize span (buffered/hybrid only).
+    On exception: logs, sends {"type":"error"}, then sends empty {"type":"final"} so
+    the agent turn unblocks.
     """
     started = time.perf_counter()
     try:
         async with _gpu_lock:
             text = await asyncio.to_thread(_final.finalize, _final_model, state)
         dur_ms = int((time.perf_counter() - started) * 1000) if timed else 0
-        return text, dur_ms
+        await _send_final(ws, state, text, dur_ms)
     except Exception as exc:  # noqa: BLE001
         logger.exception("nemo-stt finalize error")
         await ws.send_json({"type": "error", "message": str(exc)})
         await _send_final(ws, state, "", 0)
-        return None
 
 
 async def _handle_control(ws: WebSocket, state: dict, msg: dict) -> dict:
     """Handle a JSON control frame; return the (possibly rebuilt) stream state."""
     kind = msg.get("type")
     if kind == "flush":
-        result = await _run_finalize(ws, state, timed=False)
-        if result is not None:
-            text, dur_ms = result
-            await _send_final(ws, state, text, dur_ms)
+        await _run_finalize(ws, state, timed=False)
     elif kind == "reset":
         state = _primary.new_stream_state(_primary_model)
     return state
@@ -318,10 +315,9 @@ async def _emit_streaming(websocket: WebSocket, state: dict, pcm: bytes) -> None
         return
     state["_silent_chunks"] = state.get("_silent_chunks", 0) + 1
     if state["_silent_chunks"] >= _ENDPOINT_SILENCE_CHUNKS:
-        result = await _run_finalize(websocket, state)
-        if result is not None:
-            text, dur_ms = result
-            await _send_final(websocket, state, text, dur_ms)
+        # timed=_ACCUMULATE_PCM: stamp measured span only for hybrid (buffered Parakeet final);
+        # pure streaming keeps dur_ms=0 to preserve pre-R3 stt_ms byte-identity (F2).
+        await _run_finalize(websocket, state, timed=_ACCUMULATE_PCM)
 
 
 async def _emit_buffered(websocket: WebSocket, state: dict, pcm: bytes) -> None:
@@ -329,7 +325,7 @@ async def _emit_buffered(websocket: WebSocket, state: dict, pcm: bytes) -> None:
     following voiced audio, or when the max-buffer cap is hit."""
     state.setdefault("_turn_pcm", bytearray()).extend(pcm)
     if len(state["_turn_pcm"]) >= _MAX_BUFFER_BYTES:
-        await _finalize_buffered(websocket, state)
+        await _run_finalize(websocket, state)
         return
     if rms_int16(pcm) >= ENERGY_SILENCE_RMS:
         state["_voiced"] = True
@@ -339,15 +335,7 @@ async def _emit_buffered(websocket: WebSocket, state: dict, pcm: bytes) -> None:
         return
     state["_silent_chunks"] = state.get("_silent_chunks", 0) + 1
     if state["_silent_chunks"] >= _ENDPOINT_SILENCE_CHUNKS:
-        await _finalize_buffered(websocket, state)
-
-
-async def _finalize_buffered(websocket: WebSocket, state: dict) -> None:
-    """Run the final backend over the accumulated buffer; emit final; reset the turn."""
-    result = await _run_finalize(websocket, state)
-    if result is not None:
-        text, dur_ms = result
-        await _send_final(websocket, state, text, dur_ms)
+        await _run_finalize(websocket, state)
 
 
 @app.post("/v1/audio/transcriptions")

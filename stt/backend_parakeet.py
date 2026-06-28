@@ -48,9 +48,9 @@ def new_stream_state(model: Any) -> dict:
 
 
 def decode_chunk(model: Any, state: dict, pcm: bytes) -> str:
-    """Buffered: no partials. Accumulate is the SERVER's job (it owns _turn_pcm); we
-    keep a defensive append so a direct caller (offline VERIFY path) still buffers."""
-    state["_turn_pcm"].extend(pcm)
+    """Buffered: no partials. Pure no-op — SERVER owns _turn_pcm accumulation.
+    The live buffered path (_emit_buffered) and the offline path (_transcribe_wav)
+    both accumulate via server-side _ACCUMULATE_PCM; this backend must not double-append."""
     return ""
 
 

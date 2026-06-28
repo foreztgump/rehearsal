@@ -68,9 +68,10 @@ class NemoSTT(stt.STT):
 
     @property
     def model(self) -> str:
-        # Per-engine metrics label sourced from STT_ENGINE so the label
-        # matches the actual mode without a hardcoded string that drifts.
-        return os.environ.get("STT_ENGINE", "nemotron-streaming")
+        # STT_ENGINE=streaming (or unset) keeps the pre-R3 label "nemotron-streaming"
+        # for byte-identical metrics. Buffered/hybrid return their engine name.
+        engine = os.environ.get("STT_ENGINE", "streaming")
+        return "nemotron-streaming" if engine == "streaming" else engine
 
     @property
     def provider(self) -> str:
@@ -181,8 +182,10 @@ class NemoSpeechStream(stt.RecognizeStream):
         )
         # Prefer the agent's own flush span (includes network RTT) when available;
         # fall back to the server-measured EOU→finalize span for autonomous finals.
+        # Consume _flush_started so later autonomous finals don't reuse a stale span.
         dur = (time.perf_counter() - self._flush_started if self._flush_started is not None
                else (dur_ms / 1000.0 if dur_ms is not None else 0.0))
+        self._flush_started = None  # ponytail: reset so subsequent autonomous finals use server dur_ms
         self._stt.emit(
             "metrics_collected",
             STTMetrics(

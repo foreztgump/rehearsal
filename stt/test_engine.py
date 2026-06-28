@@ -19,8 +19,9 @@ def _assert_parakeet_imports_without_ort() -> None:
         "assert all(hasattr(b, n) for n in "
         "('load_model','new_stream_state','decode_chunk','finalize','reset_turn_state')); "
         "st = b.new_stream_state(None); "
+        "before = bytes(st['_turn_pcm']); "
         "assert b.decode_chunk(None, st, b'\\x01\\x02') == ''; "
-        "assert bytes(st['_turn_pcm']) == b'\\x01\\x02'; "
+        "assert bytes(st['_turn_pcm']) == before, 'server owns _turn_pcm — decode_chunk must not mutate'; "
         "b.reset_turn_state(st); assert bytes(st['_turn_pcm']) == b''"
     )
     proc = subprocess.run(
@@ -217,6 +218,45 @@ def _assert_reset_turn_pcm_safe() -> None:
     assert raised is None, f"reset+PCM must not raise, got {type(raised).__name__}: {raised}"
 
 
+def _run_streaming_eou_exchange():
+    """Streaming stub: text-stall EOU must yield a final with dur_ms == 0 (pre-R3 compat, F2)."""
+    import asyncio, importlib, types
+    from test_dispatch import _install_fastapi_stub, _FakeWebSocket
+
+    chunk = b"\x40\x10" * 8960   # 17920 bytes = 1 stream chunk @ 16kHz int16
+    prim = types.ModuleType("backend_nemo"); prim.STREAMS = True
+    prim.load_model = lambda: {"n": 0}
+    prim.new_stream_state = lambda m: {"text": "", "n": 0}
+    def _dec(m, s, pcm):
+        if pcm.strip(b"\x00"):
+            s["n"] += 1; s["text"] = f"word{s['n']}"
+        return s["text"]
+    prim.decode_chunk = _dec
+    prim.finalize = lambda m, s: s.get("text", "")
+    prim.reset_turn_state = lambda s: s.update(text="", n=0)
+    sys.modules["backend_nemo"] = prim
+    _install_fastapi_stub()
+    os.environ["STT_ENGINE"] = "streaming"; os.environ["STT_RUNTIME"] = "gpu"
+    os.environ["STT_MODEL"] = "x"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    frames = [{"bytes": chunk}, {"bytes": chunk}] + \
+             [{"bytes": b"\x00\x00" * 8960} for _ in range(server._ENDPOINT_SILENCE_CHUNKS + 1)] + \
+             [{"type": "websocket.disconnect"}]
+    ws = _FakeWebSocket(frames)
+    asyncio.run(server.ws_stream(ws))
+    return ws.sent
+
+
+def _assert_streaming_eou_dur_ms() -> None:
+    """F2: streaming autonomous final must carry dur_ms==0 (pre-R3 stt_ms byte-identity)."""
+    sent = _run_streaming_eou_exchange()
+    final = next((m for m in sent if m.get("type") == "final"), None)
+    assert final is not None, "streaming EOU must yield a final"
+    assert final.get("dur_ms") == 0, (
+        f"streaming autonomous final must carry dur_ms==0 (pre-R3 compat), got {final!r}")
+
+
 def _self_check() -> None:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     _assert_parakeet_imports_without_ort()
@@ -224,7 +264,9 @@ def _self_check() -> None:
     _assert_hybrid()
     _assert_finalize_error_boundary()
     _assert_reset_turn_pcm_safe()
-    print("engine _self_check OK — seam, hybrid, I1 finalize-boundary, M2 reset-pcm", file=sys.stderr)
+    _assert_streaming_eou_dur_ms()
+    print("engine _self_check OK — seam, hybrid, I1 finalize-boundary, M2 reset-pcm, F2 streaming-dur-ms",
+          file=sys.stderr)
 
 
 if __name__ == "__main__":
