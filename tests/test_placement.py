@@ -106,7 +106,7 @@ def test_truthy_normalization() -> None:
 
 def test_no_exception_return_membership_invariant() -> None:
     """Every combination in the matrix returns a value in {"gpu","cpu"}, never raises."""
-    for choice in ("fast", "better", "nonsense", ""):
+    for choice in ("fast", "better", "floor", "nonsense", ""):
         for force in ("", "0", "1", "true", "yes", "on", "no"):
             for measured in ("", "0", "1", "true"):
                 env = {"STT_FORCE_CPU": force, "STT_HEADROOM_MEASURED": measured}

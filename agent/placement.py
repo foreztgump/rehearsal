@@ -57,10 +57,6 @@ KOKORO_MB: int = 2048           # ⚠️ UNMEASURED PLACEHOLDER — Kokoro-82M G
 # Derived ceiling: the peak must stay strictly under total − 1 GB headroom.
 _CEILING_MB: int = VRAM_TOTAL_MB - VRAM_HEADROOM_MB  # 15360
 
-# Local copy of the LLM choices so this module stays livekit-free (do NOT import
-# main.py). Mirrors agent/main.py:132 MODEL_CHOICES.
-MODEL_CHOICES: tuple[str, ...] = ("fast", "better", "floor")
-
 # Env booleans normalize to this truthy set (lower/strip) — the single source for
 # both STT_FORCE_CPU and STT_HEADROOM_MEASURED.
 _TRUTHY: frozenset[str] = frozenset({"1", "true", "yes", "on"})

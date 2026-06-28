@@ -587,10 +587,15 @@ async def entrypoint(ctx: JobContext) -> None:
         if choice not in MODEL_CHOICES:
             logger.warning("model.update rejected: unknown choice %r", choice)
             return "error"
+        try:
+            tag = resolved_model_tag(choice)
+        except SystemExit:
+            logger.warning("model.update rejected: %r has no pinned tag (env unset)", choice)
+            return "error"
         current_model[0] = choice
         # In-place swap on the existing LLM instance (mirrors the TTS voice swap at
         # session.tts.update_options above): the next chat() re-reads _opts.model.
-        session.llm._opts.model = resolved_model_tag(choice)
+        session.llm._opts.model = tag
         return "applied"
 
     ctx.room.local_participant.register_rpc_method(

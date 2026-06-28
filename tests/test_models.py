@@ -11,7 +11,6 @@ import sys
 # models.py lives in agent/ (flat module, imported as `models` by main.py).
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "agent"))
 
-import models  # noqa: E402
 from models import MODEL_CHOICES, default_model_choice, resolved_model_tag  # noqa: E402
 
 
