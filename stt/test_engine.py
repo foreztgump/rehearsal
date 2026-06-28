@@ -121,9 +121,100 @@ def _assert_hybrid() -> None:
     sent = _run_hybrid_exchange()
     kinds = [m.get("type") for m in sent]
     assert "delta" in kinds, f"hybrid must emit Nemotron deltas, got {kinds}"
-    final = next(m for m in sent if m.get("type") == "final")
+    final = next((m for m in sent if m.get("type") == "final"), None)
+    assert final is not None, "hybrid must emit a final"
     assert final["text"].startswith("PARAKEET:"), f"hybrid final must be Parakeet, got {final!r}"
     assert int(final["text"].split(":")[1]) > 0, "hybrid final must see accumulated _turn_pcm"
+    assert "dur_ms" in final and isinstance(final["dur_ms"], int) and final["dur_ms"] >= 0, (
+        f"hybrid final must carry dur_ms int >= 0, got {final!r}")
+
+
+def _run_finalize_error_exchange():
+    """I1 proof: stub finalize RAISES → ws_stream must emit both error + final (turn unblocks)."""
+    import asyncio, importlib, types
+    from test_dispatch import _install_fastapi_stub, _FakeWebSocket
+
+    def _raise_finalize(m, s):
+        raise RuntimeError("finalize exploded")
+
+    voiced = b"\x40\x10" * 8960
+    silence = b"\x00\x00" * 8960
+    stub = types.ModuleType("backend_parakeet")
+    stub.STREAMS = False
+    stub.load_model = lambda: {}
+    stub.new_stream_state = lambda m: {"_turn_pcm": bytearray()}
+    stub.decode_chunk = lambda m, s, pcm: ""
+    stub.finalize = _raise_finalize
+    stub.reset_turn_state = lambda s: s.update(_turn_pcm=bytearray())
+    sys.modules["backend_parakeet"] = stub
+    _install_fastapi_stub()
+    os.environ["STT_ENGINE"] = "buffered"; os.environ["STT_RUNTIME"] = "cpu"
+    os.environ["STT_ONNX_MODEL"] = "x"; os.environ["STT_PARAKEET_MODEL"] = "x"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    frames = [{"bytes": voiced}, {"bytes": voiced}] + \
+             [{"bytes": silence} for _ in range(server._ENDPOINT_SILENCE_CHUNKS + 1)] + \
+             [{"type": "websocket.disconnect"}]
+    ws = _FakeWebSocket(frames)
+    asyncio.run(server.ws_stream(ws))
+    return ws.sent
+
+
+def _assert_finalize_error_boundary() -> None:
+    sent = _run_finalize_error_exchange()
+    types_sent = [m.get("type") for m in sent]
+    assert "error" in types_sent, f"finalize exception must emit error frame, got {types_sent}"
+    assert "final" in types_sent, f"finalize exception must still emit final (unblocks turn), got {types_sent}"
+    error_idx = next(i for i, m in enumerate(sent) if m.get("type") == "error")
+    final_idx = next(i for i, m in enumerate(sent) if m.get("type") == "final")
+    assert error_idx < final_idx, "error frame must precede final"
+
+
+def _run_reset_pcm_exchange():
+    """M2 proof: reset then PCM must not KeyError (hybrid new_stream_state omits _turn_pcm)."""
+    import asyncio, importlib, types
+    from test_dispatch import _install_fastapi_stub, _FakeWebSocket
+
+    chunk = b"\x40\x10" * 8960
+    prim = types.ModuleType("backend_nemo"); prim.STREAMS = True
+    prim.load_model = lambda: {}
+    prim.new_stream_state = lambda m: {"text": "", "n": 0}  # intentionally no _turn_pcm
+    def _dec(m, s, pcm):
+        if pcm.strip(b"\x00"): s["n"] += 1; s["text"] = f"w{s['n']}"
+        return s["text"]
+    prim.decode_chunk = _dec
+    prim.finalize = lambda m, s: s.get("text", "")
+    prim.reset_turn_state = lambda s: s.update(text="", n=0)
+    fin = types.ModuleType("backend_parakeet"); fin.STREAMS = False
+    fin.load_model = lambda: {}
+    fin.new_stream_state = lambda m: {"_turn_pcm": bytearray()}
+    fin.decode_chunk = lambda m, s, pcm: ""
+    fin.finalize = lambda m, s: f"P:{len(s.get('_turn_pcm', b''))}"
+    fin.reset_turn_state = lambda s: s.update(_turn_pcm=bytearray())
+    sys.modules["backend_nemo"] = prim; sys.modules["backend_parakeet"] = fin
+    _install_fastapi_stub()
+    os.environ["STT_ENGINE"] = "hybrid"; os.environ["STT_RUNTIME"] = "gpu"
+    os.environ["STT_MODEL"] = "x"; os.environ["STT_PARAKEET_MODEL"] = "x"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    frames = [
+        {"bytes": chunk},
+        {"text": '{"type":"reset"}'},  # new_stream_state omits _turn_pcm
+        {"bytes": chunk},              # would KeyError without M2 fix
+        {"type": "websocket.disconnect"},
+    ]
+    ws = _FakeWebSocket(frames)
+    raised = None
+    try:
+        asyncio.run(server.ws_stream(ws))
+    except Exception as exc:
+        raised = exc
+    return raised
+
+
+def _assert_reset_turn_pcm_safe() -> None:
+    raised = _run_reset_pcm_exchange()
+    assert raised is None, f"reset+PCM must not raise, got {type(raised).__name__}: {raised}"
 
 
 def _self_check() -> None:
@@ -131,7 +222,9 @@ def _self_check() -> None:
     _assert_parakeet_imports_without_ort()
     _assert_buffered_eou()
     _assert_hybrid()
-    print("engine _self_check OK — backend_parakeet seam + hybrid composition", file=sys.stderr)
+    _assert_finalize_error_boundary()
+    _assert_reset_turn_pcm_safe()
+    print("engine _self_check OK — seam, hybrid, I1 finalize-boundary, M2 reset-pcm", file=sys.stderr)
 
 
 if __name__ == "__main__":
