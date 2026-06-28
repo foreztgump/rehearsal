@@ -74,7 +74,8 @@ services:
     environment:
       # VRAM-budget trio (01-02): flash-attn is REQUIRED for the q8_0 KV cache
       # quant, which ~halves KV memory so STT+LLM+TTS co-reside under 16GB;
-      # keep_alive=-1 pins the model resident (no cold reload / KV dump).
+      # keep_alive is env-driven (default 10m; see OLLAMA_KEEP_ALIVE below) and
+      # OLLAMA_MAX_LOADED_MODELS=1 keeps a single model resident (v1.2 R2).
       # q8_0 silently falls back to F16 if gemma4 is off Ollama's flash-attn
       # allowlist — scripts/vram-validate.sh verifies engagement empirically.
       - OLLAMA_FLASH_ATTENTION=1
