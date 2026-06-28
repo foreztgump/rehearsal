@@ -18,9 +18,14 @@
 #     2. gemma4:e4b                       stock E4B fallback rung (LLM-05 fallback)
 #
 #   FLOOR_LADDER (pins OLLAMA_MODEL_FLOOR — the ~6GB tier's small model, v1.2 R2):
-#     1. PLACEHOLDER_ABLITERATED_QWEN3:REPLACE_VIA_TASK5
-#                                         abliterated small Qwen3 (tag TBD by Task-5 gate)
-#     2. qwen3:4b-instruct                stock fallback rung (LLM-05 fallback)
+#     1. hf.co/mradermacher/Huihui-Qwen3-4B-Instruct-2507-abliterated-GGUF:Q4_K_M
+#          abliterated Qwen3-4B-Instruct-2507 (~2.5GB) — NON-thinking by construction
+#          (no <think> leak), dual-provenance (huihui-ai abliterate + mradermacher GGUF)
+#     2. hf.co/bartowski/mlabonne_Qwen3-1.7B-abliterated-GGUF:Q4_K_M
+#          smaller abliterated fallback (~1.1GB; mlabonne+bartowski) for tight 6GB cards
+#     3. qwen3.5:2b-q4_K_M
+#          first-party non-abliterated LAST RESORT (operator-accepted; content-filtered,
+#          so the persona is no longer the sole guardrail on this tier)
 #
 # OLLAMA_MODEL is ALSO pinned to the resolved Fast tag as a back-compat alias so
 # existing readers (warmup.py / vram-validate.sh / kb/distill.py / Modelfile) keep
@@ -39,13 +44,16 @@ readonly BETTER_LADDER=(
   "defyma85/gemma-4-E4B-it-ultra-uncensored-heretic-Q4_K_M_gguf:latest"
   "gemma4:e4b"
 )
-# FLOOR_LADDER (pins OLLAMA_MODEL_FLOOR — the ~6GB tier's small model, v1.2 R2). Rung 1
-# is an ABLITERATED small Qwen3 (persona stays the sole guardrail across tiers, D8) —
-# its exact tag is resolved + verified by the R2 Task-5 research gate; until then this
-# rung is a placeholder the operator replaces. Rung 2 is the stock fallback (LLM-05).
+# FLOOR_LADDER (pins OLLAMA_MODEL_FLOOR — the ~6GB tier's small model, v1.2 R2). Rungs 1-2
+# are ABLITERATED small Qwen3 so the persona stays the sole guardrail across tiers (D8);
+# rung 1 (Qwen3-4B-Instruct-2507 abliterated) is non-thinking by construction, which also
+# satisfies the hot-path thinking-OFF rule. Rung 3 is the first-party qwen3.5:2b-q4_K_M
+# last resort — non-abliterated/content-filtered (operator-accepted). The resolved tag is
+# still gated by ollama/verify-build.sh (template + thinking-off artifact scan) at the R2 GPU test.
 readonly FLOOR_LADDER=(
-  "PLACEHOLDER_ABLITERATED_QWEN3:REPLACE_VIA_TASK5"
-  "qwen3:4b-instruct"
+  "hf.co/mradermacher/Huihui-Qwen3-4B-Instruct-2507-abliterated-GGUF:Q4_K_M"
+  "hf.co/bartowski/mlabonne_Qwen3-1.7B-abliterated-GGUF:Q4_K_M"
+  "qwen3.5:2b-q4_K_M"
 )
 readonly OLLAMA_CONTAINER="${OLLAMA_CONTAINER:-ollama}"
 readonly ENV_FILE="${ENV_FILE:-.env}"
