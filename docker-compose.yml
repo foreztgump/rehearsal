@@ -79,7 +79,13 @@ services:
       # allowlist — scripts/vram-validate.sh verifies engagement empirically.
       - OLLAMA_FLASH_ATTENTION=1
       - OLLAMA_KV_CACHE_TYPE=q8_0
-      - OLLAMA_KEEP_ALIVE=-1
+      # v1.2 R2 — model lifecycle. MAX_LOADED_MODELS=1 forces SINGLE-RESIDENT: loading
+      # the newly-picked model EVICTS the previous one, so a Fast/Better/Floor swap can
+      # never double-occupy VRAM (the 6GB-floor invariant). KEEP_ALIVE is now env-driven
+      # (default 10m) instead of the old -1 pin, so an idle session frees VRAM; set
+      # OLLAMA_KEEP_ALIVE=-1 in .env for lowest-latency-always on a roomy GPU. (D4)
+      - OLLAMA_MAX_LOADED_MODELS=1
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-10m}
       # Effective context = ctx-size / num_parallel. With num_parallel defaulting
       # to 2, the pinned 8192 was silently HALVED to 4096 per slot, truncating real
       # KB prompts (`truncating input prompt limit=4096` — UAT 04-04 GAP-1). MVP is
@@ -221,10 +227,11 @@ services:
     # v0.2.4 image bundles PyTorch for sm_50..sm_90 only and crashes at startup
     # with "no kernel image is available for execution on the device".
     image: ghcr.io/remsky/kokoro-fastapi-gpu:v0.5.0-cu128
-    # 15a Item 3: the one free, zero-latency VRAM knob. Kokoro's ~5GB observed footprint
-    # is almost all CUDA context + PyTorch allocator reserve on cu128 (weights are
-    # ~0.33GB). expandable_segments reclaims reserved fragmentation (~0.5–1GB, operator
-    # to re-measure via nvidia-smi). No latency cost. See PITFALLS.md C1.
+    # 15a Item 3: the one free, zero-latency VRAM knob. Kokoro-82M weights are ~0.33GB;
+    # the footprint is almost all CUDA context + PyTorch allocator reserve on cu128.
+    # MEASURED on this stack (STACK.md:183): ~954 MiB warmed WITH expandable_segments
+    # (down from ~1832 MiB without) — far below the old ~5GB upstream worst-case guess.
+    # expandable_segments reclaims reserved fragmentation at no latency cost. See PITFALLS.md C1.
     environment:
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
     # No env_file (M3): the TTS server takes its model/voice per request, so it needs
