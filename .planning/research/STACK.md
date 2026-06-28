@@ -180,8 +180,8 @@ LiveKit published the exact pattern (blog: "Multilingual speech-to-text on your 
 ### VRAM (GPU placement)
 
 Full NeMo model on GPU is ~600M params (~1.2–1.5GB fp16 + CUDA buffers). Co-residency math on 16GB:
-- Fast/E2B (3.4GB) + NeMo-GPU (~1.5GB) + Kokoro (~4–5GB on cu128) ≈ **9–10GB** → fits 16GB → **GPU STT** (was mis-estimated at ~2.5GB; the bulk is CUDA context + allocator reserve, not weights — see PITFALLS C1).
-- Better/E4B (5.3GB) + NeMo-GPU (~1.5GB) + Kokoro (~4–5GB on cu128) ≈ **11–12GB** → tighter once KV cache grows → **this is the case Part C de-risks** by moving STT to CPU-ONNX.
+- Fast/E2B (3.4GB) + NeMo-GPU (~1.5GB) + Kokoro (~1–2GB **measured**) ≈ **6–7GB** → fits 16GB comfortably → **GPU STT**. (15a `nvidia-smi`: Kokoro = 954 MiB warmed with `expandable_segments`, 1832 MiB aged without — far below both the old ~2.5GB guess AND the design's ~4–5GB over-estimate; CUDA-context overhead is real but modest on this box. See PITFALLS C1.)
+- Better/E4B (5.3GB) + NeMo-GPU (~1.5GB) + Kokoro (~1–2GB **measured**) ≈ **8–9GB** → fits 16GB → **GPU STT viable**; Part C (CPU-ONNX) remains the de-risk for tighter / 6GB budgets.
 
 ---
 
@@ -300,11 +300,11 @@ The **host setup** is the NVIDIA Container Toolkit on the machine running `docke
 ## Stack Patterns by Variant
 
 **If GPU has comfortable headroom (Fast/E2B selected, ~16GB):**
-- LLM `evalengine/unbound-e2b` (3.4GB) + **NeMo GPU STT** (~1.5GB) + Kokoro (~4–5GB on cu128) → ~9–10GB, room for KV cache.
+- LLM `evalengine/unbound-e2b` (3.4GB) + **NeMo GPU STT** (~1.5GB) + Kokoro (~1–2GB measured) → ~6–7GB, ample KV-cache room.
 - Lowest STT latency (~100ms finalize on GPU).
 
 **If GPU is tight (Better/E4B selected, 16GB):**
-- LLM `defyma85/...E4B` (5.3GB) + **CPU-ONNX STT** (~0.67–0.88GB RAM, 0 VRAM) + Kokoro (~4–5GB on cu128) → ~10–11GB VRAM, STT off-GPU.
+- LLM `defyma85/...E4B` (5.3GB) + **CPU-ONNX STT** (~0.67–0.88GB RAM, 0 VRAM) + Kokoro (~1–2GB measured) → ~6–7GB VRAM, STT off-GPU.
 - Slightly higher STT latency (still >RT on CPU) but VRAM-safe.
 
 **Simplest-robust (PROJECT-preferred if measurement is unfavorable):**

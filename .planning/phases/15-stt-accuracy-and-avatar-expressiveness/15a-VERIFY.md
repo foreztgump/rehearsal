@@ -45,15 +45,21 @@ the pinned snapshot `models--nvidia--nemotron-speech-streaming-en-0.6b/snapshots
 this snapshot hash changes to the pinned SHA. Resolves review finding F5 (offline export
 fails loud at build, not silently at runtime).
 
-## Item 2b — RNNT stall-recycle: NOT verified (blocked)
-The `nemo-stt` app logger does not emit INFO to stdout, so neither the "RNNT stall recycle"
-log (Phase 9) nor the new `STT_DEBUG_DRAIN` diagnostic is visible in `docker logs`. This is
-a **pre-existing logging-config gap**, not a 15a regression. Follow-up: add a logging
-config so these surface (one-liner + rebuild) before relying on either for diagnosis.
+## Item 2b — RNNT stall-recycle: logger gap FIXED (was blocking)
+Root cause confirmed: the `nemo-stt` app logger emitted nothing to `docker logs` because
+uvicorn configures only its own loggers. **Fixed** in `stt/server.py` — the shared
+`nemo-stt` logger now gets its own handler at `STT_LOG_LEVEL` (default INFO, propagate
+off), so model-loaded, RNNT stall-recycle, and the `STT_DEBUG_DRAIN` diagnostics now
+surface. (Both STT images carry `server.py`; rebuild `nemo-stt-cpu` to get it there too.)
+With logs visible, the stall-recycle behaviour (2b) can now actually be observed live.
 
-## Item 3 — Kokoro expandable_segments: deployed, not yet measured
-`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` is on the kokoro service. `nvidia-smi`
-before/after re-measure still outstanding (estimate ~0.5–1GB reclaimed).
+## Item 3 — Kokoro expandable_segments: MEASURED
+`nvidia-smi` (per-process): Kokoro = **954 MiB** warmed with `expandable_segments:True`
+vs **1832 MiB** on the 27h-aged container without it. Both are far below the design's
+~4–5GB over-estimate (and the old ~2.5GB guess) — Kokoro's real footprint is **~1–2GB**
+on this cu128 box. The one-shot before/after is confounded (fresh vs aged; the knob
+mainly fights fragmentation over time), but the knob is harmless and Kokoro is simply not
+a VRAM hog here. STACK.md + PITFALLS C1 corrected to the measured numbers.
 
 ## Net
 v1.2 backlog gains: **R3 must carry the STT accuracy + trailing-word work** (the surgical

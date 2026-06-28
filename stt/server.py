@@ -48,6 +48,16 @@ from typing import Any
 from fastapi import FastAPI, Response, UploadFile, WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger("nemo-stt")
+# Give the shared "nemo-stt" app logger (this module + both backends use the same name)
+# its own handler at STT_LOG_LEVEL. uvicorn configures only its own loggers, so without
+# this the app's INFO lines — model-loaded, RNNT stall recycle, the STT_DEBUG_DRAIN
+# diagnostics — never reach `docker logs`. propagate=False avoids double-emit via root.
+if not logger.handlers:
+    _log_handler = logging.StreamHandler()
+    _log_handler.setFormatter(logging.Formatter("%(asctime)s nemo-stt %(levelname)s %(message)s"))
+    logger.addHandler(_log_handler)
+logger.setLevel(os.environ.get("STT_LOG_LEVEL", "INFO").upper())
+logger.propagate = False
 
 # --- Backend dispatch (validate-or-SystemExit, mirrors _parse_att_context_size) ---
 # STT_RUNTIME selects which decode backend module to import lazily by name. The

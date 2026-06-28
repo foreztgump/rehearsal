@@ -208,10 +208,13 @@ Latency cliffs mid-session (CPU offload); `nvidia-smi` near 100%; ollama "unable
 
 **Phase to address:** C (co-residency matrix is the gate that picks GPU-vs-CPU-vs-global-CPU), re-checked at the KB-load peak.
 
-> **15a note:** the per-process CUDA-context overhead this pitfall flagged is the
-> bulk of Kokoro's footprint — observed ~4–5GB on the cu128 image vs ~0.33GB weights.
-> 15a Item 3 reclaims the reducible fragment via `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
-> (zero latency); ~2.4–3GB context floor is irreducible and genuinely contends on the shared GPU.
+> **15a note (measured):** the feared multi-GB Kokoro footprint did NOT materialize on
+> this cu128 box. `nvidia-smi`: Kokoro = **954 MiB** warmed with `expandable_segments`,
+> **1832 MiB** aged without it (weights ~0.33GB; the rest is CUDA context). So both the
+> old ~2.5GB guess and the design's ~4–5GB over-estimate were wrong — real cost is ~1–2GB.
+> 15a Item 3's `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (zero latency) helps
+> fragmentation over time; the one-shot before/after is confounded (fresh vs 27h-aged),
+> but Kokoro simply isn't a VRAM hog here — the C1 co-residency risk is milder than feared.
 
 ---
 
