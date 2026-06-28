@@ -208,6 +208,11 @@ Latency cliffs mid-session (CPU offload); `nvidia-smi` near 100%; ollama "unable
 
 **Phase to address:** C (co-residency matrix is the gate that picks GPU-vs-CPU-vs-global-CPU), re-checked at the KB-load peak.
 
+> **15a note:** the per-process CUDA-context overhead this pitfall flagged is the
+> bulk of Kokoro's footprint — observed ~4–5GB on the cu128 image vs ~0.33GB weights.
+> 15a Item 3 reclaims the reducible fragment via `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
+> (zero latency); ~2.4–3GB context floor is irreducible and genuinely contends on the shared GPU.
+
 ---
 
 ### Pitfall C2: Mid-session GPU↔CPU STT thrashing (the failure PROJECT explicitly forbids)

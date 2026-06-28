@@ -219,6 +219,12 @@ services:
     # v0.2.4 image bundles PyTorch for sm_50..sm_90 only and crashes at startup
     # with "no kernel image is available for execution on the device".
     image: ghcr.io/remsky/kokoro-fastapi-gpu:v0.5.0-cu128
+    # 15a Item 3: the one free, zero-latency VRAM knob. Kokoro's ~5GB observed footprint
+    # is almost all CUDA context + PyTorch allocator reserve on cu128 (weights are
+    # ~0.33GB). expandable_segments reclaims reserved fragmentation (~0.5–1GB, operator
+    # to re-measure via nvidia-smi). No latency cost. See PITFALLS.md C1.
+    environment:
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
     # No env_file (M3): the TTS server takes its model/voice per request, so it needs
     # none of .env — and must not carry the LiveKit secret.
     ports:
