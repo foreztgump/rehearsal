@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 
 import aiohttp
@@ -67,10 +68,9 @@ class NemoSTT(stt.STT):
 
     @property
     def model(self) -> str:
-        # Generic metrics label only — the real model tag is single-sourced
-        # server-side via STT_MODEL (no model-name literal in agent code that
-        # could drift from the server's actual checkpoint).
-        return "nemotron-streaming"
+        # Per-engine metrics label sourced from STT_ENGINE so the label
+        # matches the actual mode without a hardcoded string that drifts.
+        return os.environ.get("STT_ENGINE", "nemotron-streaming")
 
     @property
     def provider(self) -> str:
@@ -156,22 +156,22 @@ class NemoSpeechStream(stt.RecognizeStream):
                     )
                 )
             elif kind == "final":
-                # FINAL only ever comes from the server in response to the
-                # turn-detector-triggered flush — never a client-side heuristic.
-                self._emit_final(evt["text"])
+                # Autonomous finals carry server-measured dur_ms; flush finals
+                # carry dur_ms=0 (agent's _flush_started span is used instead).
+                self._emit_final(evt["text"], evt.get("dur_ms"))
             elif kind == "error":
                 # Log only; do NOT synthesize a transcript event on error.
                 logger.error("nemo-stt error: %s", evt.get("message", ""))
 
-    def _emit_final(self, text: str) -> None:
+    def _emit_final(self, text: str, dur_ms: int | None = None) -> None:
         """Emit FINAL_TRANSCRIPT, then an explicit STTMetrics with finalize dur.
 
         LOAD-BEARING: the streaming path does NOT auto-emit a timed STTMetrics
         (the base monitor hardcodes duration=0.0 for streamed=True). metrics.py
         is READ-ONLY and ``_on_stt_metrics`` reads ``STTMetrics.duration``, so
         WITHOUT this explicit emit ``stt_ms`` stays NULL forever. ``duration``
-        is the finalize latency (flush-send → final-receipt wall-clock seconds),
-        compared against ``BUDGET_MS["stt"]`` in the runbook.
+        is the finalize latency — agent's flush span when present (explicit flush
+        path), else server-stamped dur_ms/1000 (autonomous buffered/hybrid path).
         """
         self._event_ch.send_nowait(
             stt.SpeechEvent(
@@ -179,11 +179,10 @@ class NemoSpeechStream(stt.RecognizeStream):
                 alternatives=[stt.SpeechData(language=self._language, text=text)],
             )
         )
-        dur = (
-            time.perf_counter() - self._flush_started
-            if self._flush_started is not None
-            else 0.0
-        )
+        # Prefer the agent's own flush span (includes network RTT) when available;
+        # fall back to the server-measured EOU→finalize span for autonomous finals.
+        dur = (time.perf_counter() - self._flush_started if self._flush_started is not None
+               else (dur_ms / 1000.0 if dur_ms is not None else 0.0))
         self._stt.emit(
             "metrics_collected",
             STTMetrics(

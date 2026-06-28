@@ -42,6 +42,7 @@ import io
 import json
 import logging
 import os
+import time
 import wave
 from typing import Any
 
@@ -151,12 +152,14 @@ async def _decode_off_loop(state: dict, pcm: bytes) -> str:
         return await asyncio.to_thread(_primary.decode_chunk, _primary_model, state, pcm)
 
 
-async def _send_final(ws: WebSocket, state: dict, text: str) -> None:
-    """Emit {"type":"final"} and reset per-turn decode + endpoint/dedup markers.
+async def _send_final(ws: WebSocket, state: dict, text: str, dur_ms: int = 0) -> None:
+    """Emit {"type":"final","dur_ms":…} and reset per-turn decode + endpoint/dedup markers.
 
     Shared by the explicit `flush` control frame AND the autonomous end-of-utterance
     path. reset_turn_state carries the encoder cache forward (cache-aware streaming
     preserved) but clears prev_hyps so the NEXT final is that turn only.
+    dur_ms is the server-measured EOU→finalize span; 0 on the explicit flush path
+    (the agent owns that span via _flush_started).
     """
     _primary.reset_turn_state(state)
     state.pop("_last_delta_text", None)
@@ -164,7 +167,7 @@ async def _send_final(ws: WebSocket, state: dict, text: str) -> None:
     state["_final_pending"] = False
     if _ACCUMULATE_PCM:
         state["_turn_pcm"] = bytearray()
-    await ws.send_json({"type": "final", "text": text})
+    await ws.send_json({"type": "final", "text": text, "dur_ms": dur_ms})
 
 
 async def _handle_control(ws: WebSocket, state: dict, msg: dict) -> dict:
@@ -292,9 +295,11 @@ async def _emit_streaming(websocket: WebSocket, state: dict, pcm: bytes) -> None
         return
     state["_silent_chunks"] = state.get("_silent_chunks", 0) + 1
     if state["_silent_chunks"] >= _ENDPOINT_SILENCE_CHUNKS:
+        started = time.perf_counter()
         async with _gpu_lock:
             text = await asyncio.to_thread(_final.finalize, _final_model, state)
-        await _send_final(websocket, state, text)
+        dur_ms = int((time.perf_counter() - started) * 1000)
+        await _send_final(websocket, state, text, dur_ms)
 
 
 async def _emit_buffered(websocket: WebSocket, state: dict, pcm: bytes) -> None:
@@ -317,10 +322,12 @@ async def _emit_buffered(websocket: WebSocket, state: dict, pcm: bytes) -> None:
 
 async def _finalize_buffered(websocket: WebSocket, state: dict) -> None:
     """Run the final backend over the accumulated buffer; emit final; reset the turn."""
+    started = time.perf_counter()
     async with _gpu_lock:
         text = await asyncio.to_thread(_final.finalize, _final_model, state)
+    dur_ms = int((time.perf_counter() - started) * 1000)
     state["_voiced"] = False
-    await _send_final(websocket, state, text)
+    await _send_final(websocket, state, text, dur_ms)
 
 
 @app.post("/v1/audio/transcriptions")

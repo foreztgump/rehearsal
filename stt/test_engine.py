@@ -69,6 +69,8 @@ def _assert_buffered_eou() -> None:
     assert "delta" not in kinds, f"buffered must emit NO deltas, got {kinds}"
     assert kinds.count("final") == 1, f"buffered must emit exactly one final, got {kinds}"
     assert msgs[-1]["text"].startswith("buffered:"), "final must come from the buffered backend"
+    assert "dur_ms" in msgs[-1], "autonomous final must carry server-measured dur_ms"
+    assert isinstance(msgs[-1]["dur_ms"], int) and msgs[-1]["dur_ms"] >= 0
 
 
 def _run_hybrid_exchange():
