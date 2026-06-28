@@ -117,26 +117,33 @@ export default function Transcript({ resetAfter = 0 }: { resetAfter?: number }) 
             </span>
           </div>
         ) : (
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          <ul
+            style={{
+              listStyle: "none",
+              padding: `${space.xs} 0`,
+              margin: 0,
+              display: "flex",
+              flexDirection: "column",
+              gap: space.sm,
+            }}
+          >
             {visibleSegments.map((segment) => {
-              const identity = segment.participantInfo.identity;
-              const isUser = identity.startsWith(USER_IDENTITY_PREFIX);
+              const isUser = segment.participantInfo.identity.startsWith(USER_IDENTITY_PREFIX);
               const isFinal =
                 segment.streamInfo.attributes?.[TRANSCRIPTION_FINAL_ATTRIBUTE] === "true";
+              // Use the theme-reactive .bubble classes (globals.css): agent = glass
+              // left, user = accent-gradient right, .interim = tentative, .bubble-pop
+              // = one-shot entrance (runs once; the <li> is keyed by segment id so a
+              // streaming text update reuses the node and never re-animates).
               return (
                 <li
                   key={segment.streamInfo.id}
                   data-from={isUser ? "user" : "agent"}
                   data-final={isFinal ? "true" : "false"}
-                  style={{
-                    textAlign: isUser ? "right" : "left",
-                    color: isUser ? palette.text : palette.accent,
-                    margin: `${space.xs} 0`,
-                    opacity: isFinal ? 1 : 0.7,
-                    fontStyle: isFinal ? "normal" : "italic",
-                  }}
+                  className={`bubble bubble-pop ${isUser ? "user" : "agent"}${isFinal ? "" : " interim"}`}
                 >
-                  <strong>{isUser ? "You" : "Agent"}:</strong> {segment.text}
+                  <span className="who">{isUser ? "You" : "Agent"}</span>
+                  {segment.text}
                 </li>
               );
             })}
