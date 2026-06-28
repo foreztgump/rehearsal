@@ -15,6 +15,9 @@ WORKDIR /app
 # Single-sourced model tag (no hardcoded literal in this Dockerfile body — the
 # Compose build.args supplies it from the single-sourced STT_MODEL env, AGENTS.md).
 ARG STT_MODEL
+# Revision pin (15a Item 2a). Default main = prior behavior; operator pins the
+# March-2026 commit SHA via STT_MODEL_REVISION so the baked weights never drift.
+ARG STT_MODEL_REVISION=main
 
 # Server deps the base image does not already ship (torch/CUDA/NeMo come from the
 # base — see requirements.txt). Use pip (this base is not uv-managed).
@@ -29,10 +32,19 @@ COPY server.py backend_common.py backend_nemo.py ./
 # agent/Dockerfile's `download-files`) so the container starts offline-capable
 # with no first-run download (local-first). References ARG STT_MODEL → no
 # hardcoded tag.
-RUN python -c "import nemo.collections.asr as a; a.models.ASRModel.from_pretrained('${STT_MODEL}')"
+# Snapshot-download the EXACT pinned commit into the HF cache (huggingface_hub has a
+# documented `revision` arg; NeMo's from_pretrained does not), printing the resolved
+# commit so the operator can confirm the baked snapshot matches the intended SHA.
+RUN python -c "from huggingface_hub import snapshot_download; p=snapshot_download(repo_id='${STT_MODEL}', revision='${STT_MODEL_REVISION}'); print('baked snapshot commit dir:', p)"
+# Bake the .nemo from the pinned cache. HF_HUB_OFFLINE forces resolution from the cache
+# populated above instead of re-fetching `main`, so the baked weights == the pinned commit.
+RUN HF_HUB_OFFLINE=1 python -c "import nemo.collections.asr as a; a.models.ASRModel.from_pretrained('${STT_MODEL}')"
 
 # Runtime tag == bake tag so the loaded model never drifts from the baked weights.
 ENV STT_MODEL=${STT_MODEL}
+ENV STT_MODEL_REVISION=${STT_MODEL_REVISION}
+# Runtime loads ONLY from the baked, pinned cache — never re-resolves a newer main.
+ENV HF_HUB_OFFLINE=1
 
 EXPOSE 8000
 

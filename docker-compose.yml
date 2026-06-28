@@ -118,6 +118,7 @@ services:
       context: ./stt
       args:
         STT_MODEL: ${STT_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b}
+        STT_MODEL_REVISION: ${STT_MODEL_REVISION:-main}
     # M5: opt-in profile so the GPU STT (which loads ~2.4 GB RESIDENT on the GPU,
     # keep-forever) is NOT brought up by the DEFAULT `docker compose up`. The shipped
     # default (STT_FORCE_CPU=1) routes every session to the always-on nemo-stt-cpu, so
@@ -134,6 +135,7 @@ services:
       # backend (backend_nemo).
       - STT_RUNTIME=gpu
       - STT_MODEL=${STT_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b}
+      - STT_MODEL_REVISION=${STT_MODEL_REVISION:-main}
       # Cache-aware Conformer only supports the att_context_size values it was
       # TRAINED on: [[70,13],[70,6],[70,1],[70,0]]. Anything else (e.g. [56,3])
       # runs with an attention context the encoder never saw -> degraded accuracy
@@ -186,6 +188,7 @@ services:
         # here, so the build's export step ran from_pretrained("") and failed with
         # "Model  was not found". Mirrors the GPU nemo-stt build arg (same default).
         STT_MODEL: ${STT_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b}
+        STT_MODEL_REVISION: ${STT_MODEL_REVISION:-main}
         STT_ONNX_MODEL: ${STT_ONNX_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b-onnx}
         STT_QUANT: ${STT_QUANT:-int8-dynamic}
     # No env_file (M3): takes its model/params via build-ARG + env; needs none of .env
