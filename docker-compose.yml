@@ -74,19 +74,21 @@ services:
     environment:
       # VRAM-budget trio (01-02): flash-attn is REQUIRED for the q8_0 KV cache
       # quant, which ~halves KV memory so STT+LLM+TTS co-reside under 16GB;
-      # keep_alive is env-driven (default 10m; see OLLAMA_KEEP_ALIVE below) and
-      # OLLAMA_MAX_LOADED_MODELS=1 keeps a single model resident (v1.2 R2).
+      # keep_alive defaults to -1 (always-resident, P50-safe) and OLLAMA_MAX_LOADED_MODELS=1
+      # keeps a single model resident — both env-tunable (see OLLAMA_KEEP_ALIVE below) (v1.2 R2).
       # q8_0 silently falls back to F16 if gemma4 is off Ollama's flash-attn
       # allowlist — scripts/vram-validate.sh verifies engagement empirically.
       - OLLAMA_FLASH_ATTENTION=1
       - OLLAMA_KV_CACHE_TYPE=q8_0
-      # v1.2 R2 — model lifecycle. MAX_LOADED_MODELS=1 forces SINGLE-RESIDENT: loading
-      # the newly-picked model EVICTS the previous one, so a Fast/Better/Floor swap can
-      # never double-occupy VRAM (the 6GB-floor invariant). KEEP_ALIVE is now env-driven
-      # (default 10m) instead of the old -1 pin, so an idle session frees VRAM; set
-      # OLLAMA_KEEP_ALIVE=-1 in .env for lowest-latency-always on a roomy GPU. (D4)
-      - OLLAMA_MAX_LOADED_MODELS=1
-      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-10m}
+      # v1.2 R2 — model lifecycle. MAX_LOADED_MODELS=1 forces SINGLE-RESIDENT: loading the
+      # newly-picked model EVICTS the previous one, so a Fast/Better/Floor swap can never
+      # double-occupy VRAM (the 6GB-floor invariant). That alone caps residency at one, so
+      # KEEP_ALIVE defaults to -1 (always-resident) to protect the voice-to-voice P50<1.0s
+      # metric — a finite idle-unload would only re-introduce a cold reload on the next
+      # utterance, with no VRAM gain. Both env-tunable: OLLAMA_MAX_LOADED_MODELS=2 on a
+      # roomy GPU = warm Fast<->Better swaps; OLLAMA_KEEP_ALIVE=10m frees idle VRAM. (D4)
+      - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS:-1}
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:--1}
       # Effective context = ctx-size / num_parallel. With num_parallel defaulting
       # to 2, the pinned 8192 was silently HALVED to 4096 per slot, truncating real
       # KB prompts (`truncating input prompt limit=4096` — UAT 04-04 GAP-1). MVP is

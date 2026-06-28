@@ -131,12 +131,12 @@ def resolved_llm_tag() -> str:
 
 
 # --- LLM Speed Selector (Phase 8, LLM-01..LLM-04) -----------------------------
-# Two user-selectable response models exposed via plain-language OUTCOME labels in
-# the UI ("Fast (snappier)" / "Better (more thoughtful)"). The agent only ever sees
-# the validated plain choice key here — NEVER a raw Ollama tag from the client
-# (LLM-01). Fast is the configurable default (LLM-02). No hardcoded gemma tag: each
-# choice resolves to its own env var (the v1.0 no-hardcoded-tag invariant,
-# generalized from resolved_llm_tag above).
+# User-selectable response models via plain-language OUTCOME labels in the UI
+# ("Fast (snappier)" / "Better (more thoughtful)"); v1.2 R2 adds a third "floor" tier
+# (a small model for ~6GB hosts — see agent/models.py MODEL_CHOICES). The agent only ever
+# sees the validated plain choice key here — NEVER a raw Ollama tag from the client
+# (LLM-01). Fast is the default unless ADEPT_DEFAULT_MODEL overrides (LLM-02). No
+# hardcoded gemma tag: each choice resolves to its own env var (no-hardcoded-tag invariant).
 # Session default choice — env-overridable (ADEPT_DEFAULT_MODEL) so the R7 installer can
 # boot a weak host on "floor". build_session/placement read this once at startup.
 DEFAULT_MODEL_CHOICE = default_model_choice(os.environ)
