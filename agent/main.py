@@ -42,6 +42,7 @@ import metrics
 import transcript_gate
 from captioned_tts import CaptionedTTS
 from nemo_stt import NemoSTT
+from models import MODEL_CHOICES, default_model_choice, resolved_model_tag
 from placement import resolve_stt_placement
 from kb import KB_AGGREGATE_MAX_TOKENS, DistillError, KbParseError, ParsedDoc
 from kb import distill as kb_distill
@@ -136,9 +137,9 @@ def resolved_llm_tag() -> str:
 # (LLM-01). Fast is the configurable default (LLM-02). No hardcoded gemma tag: each
 # choice resolves to its own env var (the v1.0 no-hardcoded-tag invariant,
 # generalized from resolved_llm_tag above).
-MODEL_CHOICES = ("fast", "better")
-DEFAULT_MODEL_CHOICE = "fast"
-_MODEL_ENV = {"fast": "OLLAMA_MODEL_FAST", "better": "OLLAMA_MODEL_BETTER"}
+# Session default choice — env-overridable (ADEPT_DEFAULT_MODEL) so the R7 installer can
+# boot a weak host on "floor". build_session/placement read this once at startup.
+DEFAULT_MODEL_CHOICE = default_model_choice(os.environ)
 
 # Live hot-path generation cap (LLM-04 "capped num_predict"). Sized to the
 # SPOKEN_STYLE_FOOTER "a sentence or two at a time" budget (persona.py:71) — it
@@ -152,18 +153,6 @@ _MODEL_ENV = {"fast": "OLLAMA_MODEL_FAST", "better": "OLLAMA_MODEL_BETTER"}
 # The fix sets `_opts.extra_body = {"max_tokens": CAP}`; the plugin forwards
 # extra_body verbatim into the request body, landing the cap where Ollama reads it.
 LIVE_NUM_PREDICT_CAP: int = 256
-
-
-def resolved_model_tag(choice: str) -> str:
-    """Resolve a Fast/Better picker choice to its pinned Ollama tag from env.
-
-    Mirrors resolved_llm_tag's SystemExit-if-unset posture — no hardcoded tag.
-    """
-    env_var = _MODEL_ENV[choice]
-    tag = os.environ.get(env_var, "").strip()
-    if not tag:
-        raise SystemExit(f"{env_var} is not set — run ollama/pull-and-pin.sh first")
-    return tag
 
 
 def _warmup_llm_ttft_ms(tag: str) -> float:
