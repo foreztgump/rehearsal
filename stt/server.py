@@ -59,16 +59,24 @@ if not logger.handlers:
 logger.setLevel(os.environ.get("STT_LOG_LEVEL", "INFO").upper())
 logger.propagate = False
 
-# --- Backend dispatch (validate-or-SystemExit, mirrors _parse_att_context_size) ---
-# STT_RUNTIME selects which decode backend module to import lazily by name. The
-# backend exposes load_model()/new_stream_state(model)/decode_chunk(model,state,pcm)/
-# finalize(model,state)/reset_turn_state(state); server.py owns the single model
-# handle + the WS/HTTP layer. Heavy imports stay inside the backend so this module
-# byte-compiles in the GPU-less, ORT-less sandbox.
+# --- Engine + backend dispatch (validate-or-SystemExit) ---------------------
+# STT_RUNTIME selects the DEVICE for the streaming Nemotron backend (gpu→backend_nemo,
+# cpu→backend_onnx). STT_ENGINE selects the MODE: streaming (Nemotron only), buffered
+# (Parakeet int8-ONNX only), hybrid (Nemotron partials + Parakeet authoritative final).
+# The server composes a `_primary` backend (deltas + EOU) and a `_final` backend
+# (authoritative transcript); they are the SAME module for streaming/buffered.
 RUNTIME = os.environ.get("STT_RUNTIME", "gpu")
 if RUNTIME not in ("gpu", "cpu"):
     raise SystemExit(f"STT_RUNTIME must be gpu|cpu, got {RUNTIME!r}")
-backend = importlib.import_module("backend_nemo" if RUNTIME == "gpu" else "backend_onnx")
+ENGINE = os.environ.get("STT_ENGINE", "streaming")
+if ENGINE not in ("streaming", "buffered", "hybrid"):
+    raise SystemExit(f"STT_ENGINE must be streaming|buffered|hybrid, got {ENGINE!r}")
+
+_STREAMING_BACKEND = "backend_nemo" if RUNTIME == "gpu" else "backend_onnx"
+_PRIMARY_BACKEND = "backend_parakeet" if ENGINE == "buffered" else _STREAMING_BACKEND
+_FINAL_BACKEND = "backend_parakeet" if ENGINE in ("buffered", "hybrid") else _STREAMING_BACKEND
+_primary = importlib.import_module(_PRIMARY_BACKEND)
+_final = _primary if _FINAL_BACKEND == _PRIMARY_BACKEND else importlib.import_module(_FINAL_BACKEND)
 
 PORT = 8000
 SAMPLE_RATE = 16000
@@ -100,20 +108,21 @@ _STREAM_CHUNK_BYTES = (SAMPLE_RATE * STREAM_CHUNK_MS // 1000) * _BYTES_PER_SAMPL
 ENDPOINT_SILENCE_MS = int(os.environ.get("STT_ENDPOINT_SILENCE_MS", "700"))
 _ENDPOINT_SILENCE_CHUNKS = max(1, -(-ENDPOINT_SILENCE_MS // STREAM_CHUNK_MS))  # ceil
 
-# Module-level model handle + readiness gate + decode serialization lock. The
-# _gpu_lock name is kept for continuity but it now serializes the single decode
-# session per connection for BOTH runtimes (under cpu it serializes the one ORT
-# session — single-user, one active stream); no behavioural change.
-_model: Any = None
+# Module-level model handles + readiness gate + decode serialization lock. The
+# _gpu_lock name is kept for continuity but it serializes decode for BOTH runtimes.
+# For streaming/buffered, _final_model IS _primary_model (same object).
+_primary_model: Any = None
+_final_model: Any = None
 _ready: bool = False
 _gpu_lock = asyncio.Lock()
 
 
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Load the model resident at startup; keep it forever (no offload)."""
-    global _model, _ready
-    _model = await asyncio.to_thread(backend.load_model)
+    """Load primary (+ final, if distinct) resident at startup; keep forever."""
+    global _primary_model, _final_model, _ready
+    _primary_model = await asyncio.to_thread(_primary.load_model)
+    _final_model = _primary_model if _final is _primary else await asyncio.to_thread(_final.load_model)
     _ready = True
     yield
     # No offload on shutdown — keep-resident-forever mirrors WHISPER__TTL=-1.
@@ -134,7 +143,7 @@ async def health() -> Response:
 async def _decode_off_loop(state: dict, pcm: bytes) -> str:
     """Serialize decode access (asyncio.Lock) and run the blocking decode off-loop."""
     async with _gpu_lock:
-        return await asyncio.to_thread(backend.decode_chunk, _model, state, pcm)
+        return await asyncio.to_thread(_primary.decode_chunk, _primary_model, state, pcm)
 
 
 async def _send_final(ws: WebSocket, state: dict, text: str) -> None:
@@ -144,7 +153,7 @@ async def _send_final(ws: WebSocket, state: dict, text: str) -> None:
     path. reset_turn_state carries the encoder cache forward (cache-aware streaming
     preserved) but clears prev_hyps so the NEXT final is that turn only.
     """
-    backend.reset_turn_state(state)
+    _primary.reset_turn_state(state)
     state.pop("_last_delta_text", None)
     state["_silent_chunks"] = 0
     state["_final_pending"] = False
@@ -156,10 +165,10 @@ async def _handle_control(ws: WebSocket, state: dict, msg: dict) -> dict:
     kind = msg.get("type")
     if kind == "flush":
         async with _gpu_lock:
-            text = await asyncio.to_thread(backend.finalize, _model, state)
+            text = await asyncio.to_thread(_final.finalize, _final_model, state)
         await _send_final(ws, state, text)
     elif kind == "reset":
-        state = backend.new_stream_state(_model)
+        state = _primary.new_stream_state(_primary_model)
     return state
 
 
@@ -169,7 +178,7 @@ async def ws_stream(websocket: WebSocket) -> None:
     await websocket.accept()
     await websocket.receive_json()  # the {"type":"config", ...} handshake
     await websocket.send_json({"type": "ready"})
-    state = backend.new_stream_state(_model)
+    state = _primary.new_stream_state(_primary_model)
     try:
         await _stream_loop(websocket, state)
     except WebSocketDisconnect:
@@ -265,7 +274,7 @@ async def _emit_delta(websocket: WebSocket, state: dict, pcm: bytes) -> None:
     state["_silent_chunks"] = state.get("_silent_chunks", 0) + 1
     if state["_silent_chunks"] >= _ENDPOINT_SILENCE_CHUNKS:
         async with _gpu_lock:
-            text = await asyncio.to_thread(backend.finalize, _model, state)
+            text = await asyncio.to_thread(_final.finalize, _final_model, state)
         await _send_final(websocket, state, text)
 
 
@@ -286,8 +295,8 @@ def _transcribe_wav(raw: bytes) -> str:
     """
     with wave.open(io.BytesIO(raw), "rb") as wav:
         pcm = wav.readframes(wav.getnframes())
-    state = backend.new_stream_state(_model)
+    state = _primary.new_stream_state(_primary_model)
     step = (SAMPLE_RATE * OFFLINE_CHUNK_MS // 1000) * _BYTES_PER_SAMPLE
     for start in range(0, len(pcm), step):
-        backend.decode_chunk(_model, state, pcm[start:start + step])
-    return backend.finalize(_model, state)
+        _primary.decode_chunk(_primary_model, state, pcm[start:start + step])
+    return _final.finalize(_final_model, state)
