@@ -10,6 +10,7 @@ Adept is built as a strict downward dependency chain dictated by the research bu
 
 - ✅ **v1.0-rc1 MVP Release Candidate** — Phases 1-6 (shipped 2026-06-26) — [archive](milestones/v1.0-rc1-ROADMAP.md)
 - ✅ **v1.1 Local-First Pipeline Swap + Avatar** — Phases 8-14 (feature-complete 2026-06-27; operator release sign-off pending)
+- 🔜 **Phase 15 — STT surgical fixes** (in flight; **15a only**) → then **v1.2 Polish & Hardware-Aware Pipeline** (planned; R1–R7 below)
 
 > **Note on Phase 7:** v1.0's *Phase 7 (Polish & Reliability)* was defined but never started (0/2 plans). Its requirements (SESS-01..04, REL-01/02, final latency tuning) were **rolled into v1.1** and now live in this milestone's REQUIREMENTS.md. v1.1 **supersedes the unstarted Phase 7** — the standalone Phase 7 is folded into the v1.1 polish phase (Phase 14) so its coverage is not double-counted. v1.1 phases continue numbering from **Phase 8**.
 
@@ -45,6 +46,35 @@ Phase 7 was defined in the v1.0 plan but **never started** (0/2 plans). Its scop
 - [x] **Phase 12: Optional 3D Avatar (Part D, frontend-only)** — TalkingHead Path-A avatar that must not touch the server pipeline (completed 2026-06-26)
 - [x] **Phase 13: UI/UX Overhaul (Landing/Setup + Talking)** — Dedicated landing/setup screen to configure everything before connecting, plus clean/animated talking-screen polish with auto-scrolling transcript (completed 2026-06-27)
 - [x] **Phase 14: Deferred v1.0 Polish, Optimization & Pre-Release Hardening** — Session lifecycle, graceful failure, and final latency tuning for both LLMs (last phase before release) *(completed 2026-06-27; UAT'd on RTX 5090; operator latency sign-off pending in 14-VERIFY.md)*
+
+### 🔜 Phase 15 + v1.2 Next Release (planned)
+
+**Phase 15 — STT surgical fixes (15a UAT'd 2026-06-27).** Scoped to **15a only**: trailing-word
+cut-off fix, post-2026-03-12 Nemotron checkpoint pin, and the one free Kokoro VRAM knob
+(`expandable_segments`). **UAT outcome (`15a-VERIFY.md`):** the cut-off **surgical fixes FAILED** —
+both drain candidates (`STT_THREAD_PRED_OUT`, `STT_FINALIZE_PAD`) regressed; the best trained
+lookahead `[70,13]` only *mitigates* it (slight accuracy cost). **Cut-off + STT accuracy are
+escalated to v1.2 R3** (selectable engines / `15b`). The checkpoint pin (Item 2a) and Kokoro knob
+(Item 3) shipped and stand. Drain code stays dormant (default OFF) on `master`.
+See `phases/15-stt-accuracy-and-avatar-expressiveness/15a-DESIGN.md` + `15a-VERIFY.md`.
+
+**v1.2 — Polish & Hardware-Aware Pipeline (later release).** The Phase-14 UAT backlog + the
+operator's 2026-06-27 request list. UI/UX, avatar, and conversation-feel each shipped a *first pass*
+in v1.1 (Phases 12–14); v1.2 is **polish on top**, plus three genuinely new streams (6GB lifecycle,
+AMD, installer). Sequenced so each foundation lands before what depends on it:
+
+| # | Stream | Folds in | Notes |
+|---|--------|----------|-------|
+| R1 | Conversation feel — barge-in reliability, EOU/VAD, perceived latency | req #1/#6, backlog #8 | tuning on shipped Phase-14 turn-taking; distinct from 15a's cut-off bug |
+| R2 | Model lifecycle & **~6GB** budget — lazy/on-demand load, single resident LLM, UI-driven backend swap | req #2 | **foundational**; supersedes the 16GB / two-resident-LLM / `keep_alive=-1` assumption |
+| R3 | Hardware-aware engines + models (STT/LLM/TTS) | req #10, **15b**, 15a accuracy-escalation | designs the install/selection pattern once |
+| R4 | UI/UX polish from `design-mockups/v4` + flow (landing-sets-settings, in-session drawer, disconnect) | req #3/#8 | builds on Phase 13 |
+| R5 | Avatar polish — responsive fill, natural idle, lip-sync upgrade | req #4/#7, backlog #3/#4 | builds on Phase 12/14 |
+| R6 | AMD GPU support (ROCm) for STT/TTS/LLM | req #5 | cross-cutting; today the whole stack is CUDA |
+| R7 | Idiot-proof installer — one-line curl-to-shell, spec detection, confirm, start/stop docs | req #9 | **last** — installs what R2/R3/R6 define |
+
+Each R-stream becomes its own phase + spec when v1.2 starts; this table is the **awareness map**, not
+a committed plan. **R2 is the keystone** — its VRAM-budget decisions gate R3, R6, and R7.
 
 ## Phase Details
 
