@@ -45,14 +45,15 @@ VRAM_HEADROOM_MB: int = 1024    # peak must stay < total − 1 GB (vram-validate
 LLM_PEAK_MB: dict[str, int] = {
     "fast": 7408,               # E2B, MEASURED Phase 8 Gate D (STATE.md:114)
     "better": 8912,             # E4B, MEASURED Phase 8 Gate D (STATE.md:114)
-    "floor": 2600,              # ⚠️ PLACEHOLDER (abliterated Qwen3-4B q4 ~2.6GB) — PIN
-    #                             via Task 5 GPU measure; gated like KOKORO_MB. Below
-    #                             `better`, so it never changes the worst-case math.
+    "floor": 3456,              # MEASURED 2026-06-28 (adept-floor: abliterated Qwen3-4B-2507
+    #                             q4 + 8192 ctx resident, RTX 5090). Below `better`, so it
+    #                             never changes the worst-case math (documentary for R3).
 }
 STT_GPU_MB: int = 2400          # GPU-NeMo .nemo + activations (~2.4 GB, Phase 9)
 STT_CPU_GPU_MB: int = 0         # CPU-ONNX uses NO VRAM (runs off-GPU; ~0.67–0.88 GB RAM)
-KOKORO_MB: int = 2048           # ⚠️ UNMEASURED PLACEHOLDER — Kokoro-82M GPU footprint;
-#                                  the operator co-residency gate pins the real number.
+KOKORO_MB: int = 954            # MEASURED 2026-06-28 (warmed, expandable_segments, RTX 5090).
+#                                  GPU branch still gates on STT_HEADROOM_MEASURED until the full
+#                                  E4B+GPU-STT+Kokoro KB-prefill co-residency matrix is measured.
 
 # Derived ceiling: the peak must stay strictly under total − 1 GB headroom.
 _CEILING_MB: int = VRAM_TOTAL_MB - VRAM_HEADROOM_MB  # 15360
