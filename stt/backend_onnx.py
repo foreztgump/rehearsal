@@ -237,6 +237,8 @@ def _encode_decode_step(model, state, pcm) -> str:
     import numpy as np  # noqa: PLC0415 - ORT-only dep
 
     mel = _extract_features(model, pcm)
+    # The exported encoder needs an explicit length (int64 [1]) — the valid mel-frame
+    # count for this chunk; NeMo's preprocessor produced it implicitly, the ONNX graph does not.
     length = np.array([mel.shape[2]], dtype=np.int64)
     enc = model["encoder"].run(None, {
         "audio_signal": mel,
@@ -245,6 +247,9 @@ def _encode_decode_step(model, state, pcm) -> str:
         "cache_last_time": state["cache_last_time"],
         "cache_last_channel_len": state["cache_last_channel_len"],
     })
+    # Encoder outputs (in order): outputs, encoded_lengths, cache_last_channel_next,
+    # cache_last_time_next, cache_last_channel_next_len. Carry the caches forward; ignore
+    # enc[1] (encoded_lengths — the greedy loop walks every encoder frame).
     enc_out = enc[0]
     state["cache_last_channel"] = enc[2]
     state["cache_last_time"] = enc[3]

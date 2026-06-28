@@ -21,13 +21,19 @@ WORKDIR /build
 ARG STT_MODEL
 ARG STT_ONNX_MODEL
 ARG STT_QUANT=int8-dynamic
+# Revision pin for the export SOURCE .nemo (15a Item 2a) — mirrors stt/Dockerfile so the
+# shipped-default CPU ONNX bundle honors STT_MODEL_REVISION too. Default main = prior behavior.
+ARG STT_MODEL_REVISION=main
 COPY export_onnx.py ./
 ENV STT_MODEL=${STT_MODEL} STT_ONNX_MODEL=${STT_ONNX_MODEL} STT_QUANT=${STT_QUANT} STT_ONNX_DIR=/build/onnx
 # onnxruntime is needed here for the int8 quantize step (quantize_dynamic). The NeMo
 # base ships torch/NeMo but NOT onnxruntime, so install it in the builder too (it is
 # already a runtime dep in requirements-cpu.txt; the runtime stage installs its own).
 RUN pip install --no-cache-dir "onnxruntime~=1.20"
-RUN python export_onnx.py
+# Pin the export source to the exact commit: snapshot-download the revision into cache,
+# then run the export OFFLINE so export_onnx.py's from_pretrained can't re-resolve main.
+RUN python -c "from huggingface_hub import snapshot_download; p=snapshot_download(repo_id='${STT_MODEL}', revision='${STT_MODEL_REVISION}'); print('cpu export baked snapshot commit dir:', p)"
+RUN HF_HUB_OFFLINE=1 python export_onnx.py
 
 # --- Stage 2: lean CPU runtime (python:3.11-slim — no CUDA/NeMo/torch) --------------
 FROM python:3.11-slim
