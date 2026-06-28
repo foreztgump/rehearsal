@@ -524,6 +524,17 @@ export default function AvatarStage({
       // below LO to mark silent — prevents anchor thrash on syllable dips.
       const RMS_HI = 0.04;
       const RMS_LO = 0.015;
+      // --- Mouth-feel tuning (natural, not exaggerated). The jaw opens GENTLY and
+      // the viseme shapes sit BELOW the jaw envelope so the mouth never gapes or
+      // snaps. These are perception knobs — nudge up if too subtle, down if overdone. ---
+      const MOUTH_OPEN_GAIN = 6; // loudness→openness slope (was 8)
+      const MOUTH_OPEN_MAX = 0.6; // cap so the mouth never gapes wide (was 0.9)
+      const MOUTH_OPEN_FLOOR = 0.01; // ignore room/noise below this rms
+      const MOUTH_ATTACK = 0.5; // jaw open speed (was 0.9 — snapped open)
+      const MOUTH_RELEASE = 0.3; // jaw close speed (was 0.45)
+      const VISEME_INTENSITY = 0.7; // lip shapes sit below the jaw envelope (was 1.0)
+      const VISEME_ATTACK = 0.4; // shape blend-in (was 0.6 — too snappy)
+      const VISEME_RELEASE = 0.28; // shape decay (was 0.35)
 
       // Find the dominant spectral peak (bin index) within [loHz,hiHz].
       const peakHz = (loHz: number, hiHz: number) => {
@@ -566,10 +577,10 @@ export default function AvatarStage({
         const rms = Math.sqrt(sumSq / time.length);
         const open = mutedRef.current
           ? 0
-          : Math.min(0.9, Math.max(0, rms - 0.01) * 8);
-        // Snap open fast (attack), ease closed slower (release). The realtime tier
-        // applies this immediately, so this is the ONLY smoothing in the chain.
-        const k = open > smooth ? 0.9 : 0.45;
+          : Math.min(MOUTH_OPEN_MAX, Math.max(0, rms - MOUTH_OPEN_FLOOR) * MOUTH_OPEN_GAIN);
+        // Ease open (attack), ease closed slower (release). The realtime tier applies
+        // this immediately, so this is the ONLY smoothing in the chain.
+        const k = open > smooth ? MOUTH_ATTACK : MOUTH_RELEASE;
         smooth += (open - smooth) * k;
 
         // --- 2) Audio-onset anchoring (Path-B): when a queued schedule exists and
@@ -640,8 +651,8 @@ export default function AvatarStage({
         // envelope (smooth) scales how far the active shape opens — so both paths
         // share the same energy-driven amplitude, only the SHAPE source differs.
         for (const key of VISEME_MORPHS) {
-          const goal = key === target ? smooth : 0;
-          vw[key] += (goal - vw[key]) * (goal > vw[key] ? 0.6 : 0.35);
+          const goal = key === target ? smooth * VISEME_INTENSITY : 0;
+          vw[key] += (goal - vw[key]) * (goal > vw[key] ? VISEME_ATTACK : VISEME_RELEASE);
         }
 
         try {

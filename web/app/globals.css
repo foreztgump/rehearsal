@@ -289,10 +289,20 @@ body {
   grid-template-rows: minmax(0, 0.9fr) minmax(0, 1.1fr);
 }
 .talk-main[data-avatar="true"] {
-  /* Avatar is the focus in avatar mode — give it the larger share, transcript the rest. */
-  grid-template-columns: minmax(340px, 56%) 1fr;
+  /* Avatar is the focus in avatar mode — give it the dominant share, transcript the rest. */
+  grid-template-columns: minmax(360px, 66%) 1fr;
   grid-template-rows: minmax(0, 1fr);
   align-items: stretch;
+}
+/* Smaller, less-dominant bubbles in avatar mode so the avatar stays the focus. */
+.talk-main[data-avatar="true"] .bubble {
+  font-size: 13px;
+  padding: 9px 12px;
+  border-radius: 13px;
+}
+.talk-main[data-avatar="true"] .bubble .who {
+  font-size: 9.5px;
+  margin-bottom: 3px;
 }
 @media (max-width: 760px) {
   .talk-main[data-avatar="true"] {
