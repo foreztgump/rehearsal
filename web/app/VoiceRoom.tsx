@@ -124,6 +124,10 @@ export default function VoiceRoom() {
     setSessionConfig(DEFAULT_SESSION_CONFIG);
     setError(null);
     setResetMarker(0);
+    // start() set connecting=true and never reset it on success (SetupScreen
+    // unmounts on token). Returning to setup must clear it, or the Start button
+    // stays stuck disabled on "Connecting…" and a new session can't begin.
+    setConnecting(false);
   }
 
   // SESS-01 New: fresh room/token, KEEP the user's setup choices. Drop the token so

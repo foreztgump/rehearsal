@@ -11,7 +11,13 @@ import { NextResponse } from "next/server";
 // Always run on demand (per-request signing) — never statically cached.
 export const dynamic = "force-dynamic";
 
-const DEFAULT_ROOM = "adept";
+// A FRESH room name per token (not a fixed "adept"). Automatic agent dispatch is a
+// JT_ROOM job that fires only when a room is CREATED — never on a join into an
+// existing room (livekit.yaml). With a fixed name, End → quick Start rejoins the
+// still-alive room (inside empty_timeout/departure_timeout) and gets NO agent — a
+// dead "Listening…" session. A unique room per connect makes every session a fresh
+// room, so the agent always dispatches. The agent is room-name-agnostic (ctx.room).
+const ROOM_PREFIX = "adept";
 const DEFAULT_IDENTITY_PREFIX = "user";
 const TOKEN_TTL = "1h";
 
@@ -31,17 +37,18 @@ export async function GET(): Promise<NextResponse> {
   // participant when a duplicate identity joins. The `user-` prefix is the
   // cross-file contract Transcript.tsx uses to attribute local vs agent messages.
   const identity = `${DEFAULT_IDENTITY_PREFIX}-${randomUUID()}`;
+  const room = `${ROOM_PREFIX}-${randomUUID()}`;
   const accessToken = new AccessToken(apiKey, apiSecret, {
     identity,
     ttl: TOKEN_TTL,
   });
   accessToken.addGrant({
     roomJoin: true,
-    room: DEFAULT_ROOM,
+    room,
     canPublish: true,
     canSubscribe: true,
   });
 
   const token = await accessToken.toJwt();
-  return NextResponse.json({ token, identity, room: DEFAULT_ROOM });
+  return NextResponse.json({ token, identity, room });
 }
