@@ -42,8 +42,10 @@ and **avatar expressiveness / word-accurate lip-sync**.
   tail emits before reading `prev_hyps`.
 - **Where:** `stt/backend_nemo.py:195` (`finalize`), `stt/server.py:147-150` (flush), `_drain_buffer` (server.py:195).
 
-## 3. Lip-sync — word-accurate Path-B reliability + multi-sentence anchoring  *(P2)*
+## 3. Lip-sync — word-accurate Path-B reliability + multi-sentence anchoring  *(P3 — deferred, accepted)*
 
+- **Status:** the user **accepted the current tuned Path-A lip-sync as good-enough** (2026-06-27)
+  and explicitly deferred this — low urgency, not blocking. The word-accurate upgrade below stays on the Phase-15 list.
 - **Why:** Phase-14 only **tuned the Path-A formant fallback** for naturalness (capped
   mouth-open 0.6, softer attack, viseme intensity 0.7×). The real upgrade is the
   **word-accurate Path-B** (captioned-TTS `lk.avatar.lipsync` schedule).
