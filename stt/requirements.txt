@@ -8,6 +8,9 @@ fastapi~=0.115
 uvicorn[standard]~=0.34
 numpy~=1.26
 soundfile~=0.12
+# R3 buffered Parakeet backend: ONNX Runtime GPU EP. Loaded only when
+# STT_ENGINE=buffered|hybrid; disk cost only for streaming (the default).
+onnxruntime-gpu~=1.20
 # NeMo ASR toolkit — [asr] ONLY, never [all] (image-bloat PITFALL B1). Needed
 # only if the base image does not already ship NeMo. The nvcr.io/nvidia/nemo:25.11
 # base PROVIDES NeMo, so this is commented out for that base; uncomment it (and

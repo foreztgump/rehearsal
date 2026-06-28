@@ -49,6 +49,13 @@ ENV STT_MODEL=${STT_MODEL}
 # Runtime loads ONLY from the baked, pinned cache — never re-resolves a newer main.
 ENV HF_HUB_OFFLINE=1
 
+# Buffered Parakeet (R3): int8 ONNX baked offline; loaded only for STT_ENGINE=buffered|hybrid.
+ENV STT_PARAKEET_MODEL=/models/parakeet-tdt-0.6b-v2-onnx-int8
+# GATE: COPY/fetch the sherpa-onnx int8 export (encoder/decoder/joiner) into that dir.
+# G1 (operator): run `scripts/export_parakeet_onnx.py` on the GPU host, then
+#   COPY ./parakeet-tdt-0.6b-v2-onnx-int8 /models/parakeet-tdt-0.6b-v2-onnx-int8
+# after the pip install layer. Pin model rev; verify WER before enabling buffered|hybrid.
+
 EXPOSE 8000
 
 # Generous start_period — the model load is slow. Use a python urllib probe (NOT

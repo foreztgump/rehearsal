@@ -54,6 +54,12 @@ c=json.load(sys.stdin).get("services",{}).get(sys.argv[1],{})
 devs=c.get("deploy",{}).get("resources",{}).get("reservations",{}).get("devices",[])
 print(str(any((d.get("driver")=="nvidia") for d in devs)).lower())' "$2"
 }
+# env_var_value <json> <service> <var> -> resolved env var value (empty if unset)
+env_var_value() {
+  printf '%s' "$1" | python3 -c 'import json,sys
+c=json.load(sys.stdin).get("services",{}).get(sys.argv[1],{})
+print(c.get("environment",{}).get(sys.argv[2],""))' "$2" "$3"
+}
 
 # 1. Default render: CPU STT present, GPU STT absent, CPU STT has no GPU reservation.
 check "default: nemo-stt-cpu present"        "$(has_service "${DEFAULT_JSON}" nemo-stt-cpu)"
@@ -70,6 +76,16 @@ for svc in ollama kokoro; do
   check "default: ${svc} has GPU reservation" "$(has_gpu_reservation "${DEFAULT_JSON}" "${svc}")"
   check "stt-gpu: ${svc} has GPU reservation" "$(has_gpu_reservation "${GPU_JSON}" "${svc}")"
 done
+
+# 4. R3 default-streaming guard: STT_ENGINE must resolve to "streaming" for every
+#    present STT service in the default + stt-gpu renders. Verifies no buffered/hybrid
+#    engine leaks into the default boot without an explicit operator opt-in.
+check "default: nemo-stt-cpu STT_ENGINE=streaming" \
+  "$([ "$(env_var_value "${DEFAULT_JSON}" nemo-stt-cpu STT_ENGINE)" = "streaming" ] && echo true || echo false)"
+check "stt-gpu: nemo-stt STT_ENGINE=streaming" \
+  "$([ "$(env_var_value "${GPU_JSON}" nemo-stt STT_ENGINE)" = "streaming" ] && echo true || echo false)"
+check "stt-gpu: nemo-stt-cpu STT_ENGINE=streaming" \
+  "$([ "$(env_var_value "${GPU_JSON}" nemo-stt-cpu STT_ENGINE)" = "streaming" ] && echo true || echo false)"
 
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]
