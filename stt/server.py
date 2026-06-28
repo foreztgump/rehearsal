@@ -46,6 +46,7 @@ import wave
 from typing import Any
 
 from fastapi import FastAPI, Response, UploadFile, WebSocket, WebSocketDisconnect
+from backend_common import BUFFERED_MAX_S, ENERGY_SILENCE_RMS, rms_int16
 
 logger = logging.getLogger("nemo-stt")
 # Give the shared "nemo-stt" app logger (this module + both backends use the same name)
@@ -107,6 +108,10 @@ _STREAM_CHUNK_BYTES = (SAMPLE_RATE * STREAM_CHUNK_MS // 1000) * _BYTES_PER_SAMPL
 # so a mid-sentence pause that fires early is recombined, not lost.
 ENDPOINT_SILENCE_MS = int(os.environ.get("STT_ENDPOINT_SILENCE_MS", "700"))
 _ENDPOINT_SILENCE_CHUNKS = max(1, -(-ENDPOINT_SILENCE_MS // STREAM_CHUNK_MS))  # ceil
+# getattr defaults to True (streaming) for backends that pre-date the STREAMS flag.
+_ACCUMULATE_PCM = getattr(_final, "STREAMS", True) is False   # server owns _turn_pcm for buffered finals
+_PRIMARY_STREAMS = getattr(_primary, "STREAMS", True)
+_MAX_BUFFER_BYTES = SAMPLE_RATE * BUFFERED_MAX_S * _BYTES_PER_SAMPLE
 
 # Module-level model handles + readiness gate + decode serialization lock. The
 # _gpu_lock name is kept for continuity but it serializes decode for BOTH runtimes.
@@ -157,6 +162,8 @@ async def _send_final(ws: WebSocket, state: dict, text: str) -> None:
     state.pop("_last_delta_text", None)
     state["_silent_chunks"] = 0
     state["_final_pending"] = False
+    if _ACCUMULATE_PCM:
+        state["_turn_pcm"] = bytearray()
     await ws.send_json({"type": "final", "text": text})
 
 
@@ -179,6 +186,8 @@ async def ws_stream(websocket: WebSocket) -> None:
     await websocket.receive_json()  # the {"type":"config", ...} handshake
     await websocket.send_json({"type": "ready"})
     state = _primary.new_stream_state(_primary_model)
+    if _ACCUMULATE_PCM:
+        state.setdefault("_turn_pcm", bytearray())
     try:
         await _stream_loop(websocket, state)
     except WebSocketDisconnect:
@@ -238,6 +247,14 @@ async def _handle_control_frame(websocket: WebSocket, state: dict, text: str) ->
 
 
 async def _emit_delta(websocket: WebSocket, state: dict, pcm: bytes) -> None:
+    """Streaming: decode→delta/text-stall-EOU. Buffered: accumulate→RMS energy-EOU."""
+    if _PRIMARY_STREAMS:
+        await _emit_streaming(websocket, state, pcm)
+    else:
+        await _emit_buffered(websocket, state, pcm)
+
+
+async def _emit_streaming(websocket: WebSocket, state: dict, pcm: bytes) -> None:
     """Decode one PCM frame; emit a delta on growth, an autonomous final on silence.
 
     Two jobs, both driven by whether the cumulative transcript GREW this chunk:
@@ -254,6 +271,8 @@ async def _emit_delta(websocket: WebSocket, state: dict, pcm: bytes) -> None:
        it pushes silence and waits for the plugin's FINAL (see ENDPOINT_SILENCE_MS
        note above). Without this the turn never commits and the LLM never runs.
     """
+    if _ACCUMULATE_PCM:
+        state["_turn_pcm"].extend(pcm)
     try:
         cumulative = await _decode_off_loop(state, pcm)
     except Exception as exc:  # noqa: BLE001 - report any decode error to the client
@@ -276,6 +295,32 @@ async def _emit_delta(websocket: WebSocket, state: dict, pcm: bytes) -> None:
         async with _gpu_lock:
             text = await asyncio.to_thread(_final.finalize, _final_model, state)
         await _send_final(websocket, state, text)
+
+
+async def _emit_buffered(websocket: WebSocket, state: dict, pcm: bytes) -> None:
+    """No partials. Accumulate PCM; fire ONE final after ENDPOINT silence of low RMS
+    following voiced audio, or when the max-buffer cap is hit."""
+    state["_turn_pcm"].extend(pcm)
+    if len(state["_turn_pcm"]) >= _MAX_BUFFER_BYTES:
+        await _finalize_buffered(websocket, state)
+        return
+    if rms_int16(pcm) >= ENERGY_SILENCE_RMS:
+        state["_voiced"] = True
+        state["_silent_chunks"] = 0
+        return
+    if not state.get("_voiced"):
+        return
+    state["_silent_chunks"] = state.get("_silent_chunks", 0) + 1
+    if state["_silent_chunks"] >= _ENDPOINT_SILENCE_CHUNKS:
+        await _finalize_buffered(websocket, state)
+
+
+async def _finalize_buffered(websocket: WebSocket, state: dict) -> None:
+    """Run the final backend over the accumulated buffer; emit final; reset the turn."""
+    async with _gpu_lock:
+        text = await asyncio.to_thread(_final.finalize, _final_model, state)
+    state["_voiced"] = False
+    await _send_final(websocket, state, text)
 
 
 @app.post("/v1/audio/transcriptions")
