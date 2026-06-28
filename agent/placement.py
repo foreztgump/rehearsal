@@ -45,6 +45,9 @@ VRAM_HEADROOM_MB: int = 1024    # peak must stay < total − 1 GB (vram-validate
 LLM_PEAK_MB: dict[str, int] = {
     "fast": 7408,               # E2B, MEASURED Phase 8 Gate D (STATE.md:114)
     "better": 8912,             # E4B, MEASURED Phase 8 Gate D (STATE.md:114)
+    "floor": 2600,              # ⚠️ PLACEHOLDER (abliterated Qwen3-4B q4 ~2.6GB) — PIN
+    #                             via Task 5 GPU measure; gated like KOKORO_MB. Below
+    #                             `better`, so it never changes the worst-case math.
 }
 STT_GPU_MB: int = 2400          # GPU-NeMo .nemo + activations (~2.4 GB, Phase 9)
 STT_CPU_GPU_MB: int = 0         # CPU-ONNX uses NO VRAM (runs off-GPU; ~0.67–0.88 GB RAM)
@@ -53,10 +56,6 @@ KOKORO_MB: int = 2048           # ⚠️ UNMEASURED PLACEHOLDER — Kokoro-82M G
 
 # Derived ceiling: the peak must stay strictly under total − 1 GB headroom.
 _CEILING_MB: int = VRAM_TOTAL_MB - VRAM_HEADROOM_MB  # 15360
-
-# Local copy of the LLM choices so this module stays livekit-free (do NOT import
-# main.py). Mirrors agent/main.py:132 MODEL_CHOICES.
-MODEL_CHOICES: tuple[str, ...] = ("fast", "better")
 
 # Env booleans normalize to this truthy set (lower/strip) — the single source for
 # both STT_FORCE_CPU and STT_HEADROOM_MEASURED.

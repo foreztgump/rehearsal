@@ -42,6 +42,7 @@ import metrics
 import transcript_gate
 from captioned_tts import CaptionedTTS
 from nemo_stt import NemoSTT
+from models import MODEL_CHOICES, default_model_choice, resolved_model_tag
 from placement import resolve_stt_placement
 from kb import KB_AGGREGATE_MAX_TOKENS, DistillError, KbParseError, ParsedDoc
 from kb import distill as kb_distill
@@ -130,15 +131,15 @@ def resolved_llm_tag() -> str:
 
 
 # --- LLM Speed Selector (Phase 8, LLM-01..LLM-04) -----------------------------
-# Two user-selectable response models exposed via plain-language OUTCOME labels in
-# the UI ("Fast (snappier)" / "Better (more thoughtful)"). The agent only ever sees
-# the validated plain choice key here — NEVER a raw Ollama tag from the client
-# (LLM-01). Fast is the configurable default (LLM-02). No hardcoded gemma tag: each
-# choice resolves to its own env var (the v1.0 no-hardcoded-tag invariant,
-# generalized from resolved_llm_tag above).
-MODEL_CHOICES = ("fast", "better")
-DEFAULT_MODEL_CHOICE = "fast"
-_MODEL_ENV = {"fast": "OLLAMA_MODEL_FAST", "better": "OLLAMA_MODEL_BETTER"}
+# User-selectable response models via plain-language OUTCOME labels in the UI
+# ("Fast (snappier)" / "Better (more thoughtful)"); v1.2 R2 adds a third "floor" tier
+# (a small model for ~6GB hosts — see agent/models.py MODEL_CHOICES). The agent only ever
+# sees the validated plain choice key here — NEVER a raw Ollama tag from the client
+# (LLM-01). Fast is the default unless ADEPT_DEFAULT_MODEL overrides (LLM-02). No
+# hardcoded gemma tag: each choice resolves to its own env var (no-hardcoded-tag invariant).
+# Session default choice — env-overridable (ADEPT_DEFAULT_MODEL) so the R7 installer can
+# boot a weak host on "floor". build_session/placement read this once at startup.
+DEFAULT_MODEL_CHOICE = default_model_choice(os.environ)
 
 # Live hot-path generation cap (LLM-04 "capped num_predict"). Sized to the
 # SPOKEN_STYLE_FOOTER "a sentence or two at a time" budget (persona.py:71) — it
@@ -152,18 +153,6 @@ _MODEL_ENV = {"fast": "OLLAMA_MODEL_FAST", "better": "OLLAMA_MODEL_BETTER"}
 # The fix sets `_opts.extra_body = {"max_tokens": CAP}`; the plugin forwards
 # extra_body verbatim into the request body, landing the cap where Ollama reads it.
 LIVE_NUM_PREDICT_CAP: int = 256
-
-
-def resolved_model_tag(choice: str) -> str:
-    """Resolve a Fast/Better picker choice to its pinned Ollama tag from env.
-
-    Mirrors resolved_llm_tag's SystemExit-if-unset posture — no hardcoded tag.
-    """
-    env_var = _MODEL_ENV[choice]
-    tag = os.environ.get(env_var, "").strip()
-    if not tag:
-        raise SystemExit(f"{env_var} is not set — run ollama/pull-and-pin.sh first")
-    return tag
 
 
 def _warmup_llm_ttft_ms(tag: str) -> float:
@@ -598,10 +587,15 @@ async def entrypoint(ctx: JobContext) -> None:
         if choice not in MODEL_CHOICES:
             logger.warning("model.update rejected: unknown choice %r", choice)
             return "error"
+        try:
+            tag = resolved_model_tag(choice)
+        except SystemExit:
+            logger.warning("model.update rejected: %r has no pinned tag (env unset)", choice)
+            return "error"
         current_model[0] = choice
         # In-place swap on the existing LLM instance (mirrors the TTS voice swap at
         # session.tts.update_options above): the next chat() re-reads _opts.model.
-        session.llm._opts.model = resolved_model_tag(choice)
+        session.llm._opts.model = tag
         return "applied"
 
     ctx.room.local_participant.register_rpc_method(

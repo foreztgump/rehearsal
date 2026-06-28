@@ -5,7 +5,7 @@
 #
 # Runs each model's decision ladder against the running ollama container, then
 # writes the winning tags to .env so the rest of the stack consumes resolved tags
-# (no hardcoded gemma tag anywhere else). Two named ladders (first rung that pulls
+# (no hardcoded gemma tag anywhere else). Three named ladders (first rung that pulls
 # AND appears in `ollama list` wins):
 #
 #   FAST_LADDER  (pins OLLAMA_MODEL_FAST — the picker default, LLM-02):
@@ -16,6 +16,11 @@
 #     1. defyma85/gemma-4-E4B-it-ultra-uncensored-heretic-Q4_K_M_gguf:latest
 #                                         Heretic abliteration of Gemma 4 E4B (~5.3GB)
 #     2. gemma4:e4b                       stock E4B fallback rung (LLM-05 fallback)
+#
+#   FLOOR_LADDER (pins OLLAMA_MODEL_FLOOR — the ~6GB tier's small model, v1.2 R2):
+#     1. PLACEHOLDER_ABLITERATED_QWEN3:REPLACE_VIA_TASK5
+#                                         abliterated small Qwen3 (tag TBD by Task-5 gate)
+#     2. qwen3:4b-instruct                stock fallback rung (LLM-05 fallback)
 #
 # OLLAMA_MODEL is ALSO pinned to the resolved Fast tag as a back-compat alias so
 # existing readers (warmup.py / vram-validate.sh / kb/distill.py / Modelfile) keep
@@ -33,6 +38,14 @@ readonly FAST_LADDER=(
 readonly BETTER_LADDER=(
   "defyma85/gemma-4-E4B-it-ultra-uncensored-heretic-Q4_K_M_gguf:latest"
   "gemma4:e4b"
+)
+# FLOOR_LADDER (pins OLLAMA_MODEL_FLOOR — the ~6GB tier's small model, v1.2 R2). Rung 1
+# is an ABLITERATED small Qwen3 (persona stays the sole guardrail across tiers, D8) —
+# its exact tag is resolved + verified by the R2 Task-5 research gate; until then this
+# rung is a placeholder the operator replaces. Rung 2 is the stock fallback (LLM-05).
+readonly FLOOR_LADDER=(
+  "PLACEHOLDER_ABLITERATED_QWEN3:REPLACE_VIA_TASK5"
+  "qwen3:4b-instruct"
 )
 readonly OLLAMA_CONTAINER="${OLLAMA_CONTAINER:-ollama}"
 readonly ENV_FILE="${ENV_FILE:-.env}"
@@ -85,6 +98,14 @@ main() {
   if ! better_tag="$(resolve_tag BETTER_LADDER)"; then
     echo "FATAL: no BETTER_LADDER rung resolved a usable model tag" >&2
     exit 1
+  fi
+
+  local floor_tag=""
+  if floor_tag="$(resolve_tag FLOOR_LADDER)"; then
+    write_resolved_tag OLLAMA_MODEL_FLOOR "${floor_tag}"
+    echo "pinned OLLAMA_MODEL_FLOOR=${floor_tag} in ${ENV_FILE}"
+  else
+    echo "WARN: no FLOOR_LADDER rung resolved — Floor tier unavailable on this host" >&2
   fi
 
   write_resolved_tag OLLAMA_MODEL_FAST "${fast_tag}"
