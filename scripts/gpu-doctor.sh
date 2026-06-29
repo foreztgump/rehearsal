@@ -58,7 +58,7 @@ advise() { printf 'ADVISE: %s\n' "$*"; DEGRADED=1; }
 hr()     { printf -- '----------------------------------------------------------------------\n'; }
 
 detect_gpu_vendor() {
-  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+  if command -v nvidia-smi >/dev/null 2>&1; then
     GPU_VENDOR="nvidia"
   elif [ -e "${AMD_DEVICE_ROOT}/kfd" ] && [ -d "${AMD_DEVICE_ROOT}/dri" ]; then
     GPU_VENDOR="amd"

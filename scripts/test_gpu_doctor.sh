@@ -20,9 +20,11 @@ trap 'rm -rf "${SHIM_DIR}" "${AMD_DEVICE_ROOT}"' EXIT
 
 # --- fake nvidia-smi -------------------------------------------------------------
 # FAKE_SMI=missing  -> not created (command -v fails)
+# FAKE_SMI=broken   -> created but exits non-zero (driver/library mismatch)
 # FAKE_SMI=ok       -> responds; serves cuda_version / memory.total queries
 cat > "${SHIM_DIR}/nvidia-smi" <<'SMI'
 #!/usr/bin/env bash
+[ "${FAKE_SMI:-ok}" = "broken" ] && exit 1
 case "$*" in
   *cuda_version*)  echo "${FAKE_SMI_CUDA:-12.8}" ;;
   *memory.total*)  echo "${FAKE_SMI_VRAM:-32607}" ;;
@@ -82,7 +84,7 @@ run_doctor() {
     path="$(command -v "${tool}")" && ln -sf "${path}" "${tmpdir}/${tool}"
   done
   DOCTOR_OUT="$(env -i PATH="${tmpdir}" \
-    FAKE_SMI_CUDA="${FAKE_SMI_CUDA:-}" FAKE_SMI_VRAM="${FAKE_SMI_VRAM:-}" \
+    FAKE_SMI="${FAKE_SMI:-}" FAKE_SMI_CUDA="${FAKE_SMI_CUDA:-}" FAKE_SMI_VRAM="${FAKE_SMI_VRAM:-}" \
     FAKE_DOCKER="${FAKE_DOCKER:-}" AMD_DEVICE_ROOT="${AMD_DEVICE_ROOT}" \
     "${BASH}" "${DOCTOR}" 2>&1)"
   DOCTOR_RC=$?
@@ -140,6 +142,12 @@ assert_not_contains() {
 reset_fake_amd_devices
 FAKE_SMI_CUDA="" FAKE_SMI_VRAM="" FAKE_DOCKER="" run_doctor "no-nvidia-smi"
 assert_scenario "nvidia-smi-missing" "No \`nvidia-smi\` on PATH" "degraded"
+
+# 1a. nvidia-smi present but broken -> NVIDIA-specific driver advice.
+reset_fake_amd_devices
+FAKE_SMI="broken" FAKE_SMI_CUDA="" FAKE_SMI_VRAM="" FAKE_DOCKER="" run_doctor ""
+assert_scenario "nvidia-smi-broken" "driver did not respond" "degraded"
+FAKE_SMI=""
 
 # 1b. nvidia-smi missing + AMD device nodes -> AMD ROCm advice, no NVIDIA degraded copy.
 enable_fake_amd_devices
