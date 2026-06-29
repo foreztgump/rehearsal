@@ -120,6 +120,21 @@ pinned dev-tool versions in [`requirements-dev.txt`](requirements-dev.txt).
 R3 STT gate helpers also use that file for `scripts/stt-wer.py` (`jiwer` +
 `sherpa-onnx`).
 
+## Local security baseline
+
+Run the local baseline before release-sensitive changes:
+
+```bash
+./scripts/security-check.sh
+```
+
+It checks npm dependencies, Python dependencies, OSV advisories, Syft SBOM output,
+Grype vulnerabilities, and tracked-source secrets. Reports are written to
+`security/reports/` and are not committed.
+
+See [`SECURITY_PROVENANCE.md`](SECURITY_PROVENANCE.md) for Docker images, vendored
+browser assets, model downloads, and known pinning gaps.
+
 ## GPU setup (NVIDIA Container Toolkit)
 
 `docker compose up` on your own machine is the only supported deployment. The three
