@@ -40,7 +40,7 @@ from typing import Mapping
 # UNMEASURED PLACEHOLDER, which is exactly why the GPU branch stays gated behind the
 # operator STT_HEADROOM_MEASURED flag (the arithmetic *says* GPU fits, but the LLM
 # peaks were measured WITHOUT a co-resident GPU-STT and Kokoro is a guess).
-VRAM_TOTAL_MB: int = 16384      # 16 GB consumer-GPU floor (PERF-02 target)
+VRAM_TOTAL_MB: int = 16384      # DEFAULT total when VRAM_TOTAL_MB unset in env (16GB floor, PERF-02)
 VRAM_HEADROOM_MB: int = 1024    # peak must stay < total − 1 GB (vram-validate ceiling)
 LLM_PEAK_MB: dict[str, int] = {
     "fast": 7408,               # E2B, MEASURED Phase 8 Gate D (STATE.md:114)
@@ -55,9 +55,6 @@ KOKORO_MB: int = 954            # MEASURED 2026-06-28 (warmed, expandable_segmen
 #                                  GPU branch still gates on STT_HEADROOM_MEASURED until the full
 #                                  E4B+GPU-STT+Kokoro KB-prefill co-residency matrix is measured.
 
-# Derived ceiling: the peak must stay strictly under total − 1 GB headroom.
-_CEILING_MB: int = VRAM_TOTAL_MB - VRAM_HEADROOM_MB  # 15360
-
 # Env booleans normalize to this truthy set (lower/strip) — the single source for
 # both STT_FORCE_CPU and STT_HEADROOM_MEASURED.
 _TRUTHY: frozenset[str] = frozenset({"1", "true", "yes", "on"})
@@ -68,13 +65,23 @@ def _truthy(env: Mapping[str, str], key: str) -> bool:
     return env.get(key, "").strip().lower() in _TRUTHY
 
 
-def _gpu_fits() -> bool:
-    """Worst-case-LLM headroom math (STT-06): does the HEAVIEST LLM + Kokoro + GPU-STT
-    fit under the ceiling? Keying off ``max(LLM_PEAK_MB)`` means the decision is the
-    SAME for fast and better, so a mid-session swap can never strand placement.
+def _vram_total_mb(env: Mapping[str, str]) -> int:
+    """Env-derived total VRAM (MB). Non-numeric/missing → the 16384 default. Never raises."""
+    raw = env.get("VRAM_TOTAL_MB", "").strip()
+    if not raw.isdigit():
+        return VRAM_TOTAL_MB
+    return int(raw)
+
+
+def _gpu_fits(env: Mapping[str, str]) -> bool:
+    """Worst-case-LLM headroom math (STT-06) against the ENV-derived VRAM total: does
+    the HEAVIEST LLM + Kokoro + GPU-STT fit under (total − 1GB headroom)? Keying off
+    ``max(LLM_PEAK_MB)`` means the decision is the SAME for fast and better, so a
+    mid-session swap can never strand placement.
     """
+    ceiling = _vram_total_mb(env) - VRAM_HEADROOM_MB
     worst_llm = max(LLM_PEAK_MB.values())
-    return worst_llm + KOKORO_MB + STT_GPU_MB <= _CEILING_MB
+    return worst_llm + KOKORO_MB + STT_GPU_MB <= ceiling
 
 
 def resolve_stt_placement(llm_choice: str, env: Mapping[str, str]) -> str:
@@ -96,7 +103,7 @@ def resolve_stt_placement(llm_choice: str, env: Mapping[str, str]) -> str:
         return "cpu"
     # (3) Worst-case-LLM headroom decision. An unknown choice is irrelevant to the
     # math (which uses the heaviest LLM) — it is treated as worst-case, CPU-safe.
-    return "gpu" if _gpu_fits() else "cpu"
+    return "gpu" if _gpu_fits(env) else "cpu"
 
 
 def _self_check() -> None:
@@ -116,9 +123,19 @@ def _self_check() -> None:
     assert resolve_stt_placement("better", unmeasured) == "cpu", "unmeasured default must be cpu"
 
     measured = {"STT_HEADROOM_MEASURED": "1"}
-    assert _gpu_fits() is True, "placeholder table must fit GPU (gated by measured flag)"
+    assert _gpu_fits({}) is True, "placeholder table must fit GPU (gated by measured flag)"
     assert resolve_stt_placement("fast", measured) == "gpu", "measured + fits → gpu"
     assert resolve_stt_placement("better", measured) == "gpu", "measured + fits → gpu"
+
+    # R3 Plan B: VRAM_TOTAL_MB is env-derived. A measured 12GB card cannot co-fit
+    # GPU-STT (worst-LLM 8912 + Kokoro 954 + STT 2400 = 12266 > 12288-1024), so the
+    # ceiling must drop it to CPU even though a 16GB total would say GPU.
+    small = {"STT_HEADROOM_MEASURED": "1", "VRAM_TOTAL_MB": "12288"}
+    assert resolve_stt_placement("better", small) == "cpu", "measured 12GB total must not fit GPU-STT"
+    assert _gpu_fits({"VRAM_TOTAL_MB": "16384"}) is True, "16GB total fits (default)"
+    assert _gpu_fits({"VRAM_TOTAL_MB": "12288"}) is False, "12GB total does not fit"
+    # A garbage total must NOT raise and must fall back to the 16384 default (fits).
+    assert _gpu_fits({"VRAM_TOTAL_MB": "not-a-number"}) is True, "bad total falls back to default"
 
     # Worst-case-LLM lock: identical decision for fast and better under the same env.
     assert resolve_stt_placement("fast", measured) == resolve_stt_placement("better", measured), \
