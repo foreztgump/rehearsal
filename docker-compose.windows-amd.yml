@@ -1,0 +1,26 @@
+# Adept Windows AMD override — native Ollama off-stack, CPU services in Docker.
+# Use with:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.windows-amd.yml:docker-compose.cpu-tts.yml docker compose up -d
+#
+# Native Ollama serves the LLM on localhost:11434 (host). Docker services reach it
+# through host.docker.internal:11434. The in-stack ollama service is reduced to a
+# no-op stub (alpine sleep) so the base agent.depends_on:ollama still resolves at
+# config time — the real LLM is the native host Ollama, not this container. TTS uses
+# the CPU Kokoro override (loaded alongside). STT stays on nemo-stt-cpu (unchanged).
+services:
+  ollama:
+    # ponytail: no-op stub — the real LLM is native host Ollama. Kept as a
+    # sleep container so the base agent.depends_on:ollama resolves at config time
+    # (profile-gating ollama out makes depends_on reference an undefined service).
+    # Upgrade path: if Compose adds per-key depends_on removal, drop this + the dep.
+    image: alpine:3.21
+    command: ["sleep", "infinity"]
+    deploy:
+      resources:
+        reservations:
+          devices: !reset []
+
+  agent:
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
+      - OLLAMA_GENERATE_URL=http://host.docker.internal:11434/api/generate

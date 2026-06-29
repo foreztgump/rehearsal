@@ -120,8 +120,7 @@ Windows AMD is intentionally hybrid and the highest-risk profile:
 
 The default `docker-compose.yml` has `agent.depends_on: ollama (service_started)`, and the `ollama` service is **not** profile-gated (always-on). The Windows-AMD override (`docker-compose.windows-amd.yml`) must:
 
-- Remove the in-stack `ollama` service (`!reset` or override to a no-op stub) so Docker does not start a second Ollama.
-- Rewrite `agent.depends_on` to drop the `ollama` dependency (the agent reaches native Ollama by URL, not service DNS).
+- Reduce the in-stack `ollama` service to a no-op stub (`alpine:3.21 sleep infinity`, no GPU reservation). Profile-gating it out is not viable because Compose then fails `agent.depends_on: ollama` as an undefined service, and Compose has no per-key `depends_on` removal. The stub keeps the config valid while the real LLM is the native host Ollama.
 - Set `OLLAMA_BASE_URL=http://host.docker.internal:11434/v1` and `OLLAMA_GENERATE_URL=http://host.docker.internal:11434/api/generate` in the agent environment (the agent defaults are in-stack `http://ollama:11434/...`, which do not resolve when Ollama is off-stack).
 
 ### CPU Kokoro Compose path (new artifact)

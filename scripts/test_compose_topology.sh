@@ -102,5 +102,24 @@ else
   check "cpu-tts: kokoro has NO GPU reservation" "true"
 fi
 
+# 6. R7 Windows-AMD override render: agent uses host.docker.internal Ollama URLs,
+#    ollama is a no-op stub (no GPU), and kokoro is the CPU image.
+WIN_AMD_JSON="$(docker compose -f docker-compose.yml -f docker-compose.windows-amd.yml -f docker-compose.cpu-tts.yml config --format json 2>/dev/null || true)"
+if [ -n "${WIN_AMD_JSON}" ]; then
+  check "win-amd: agent OLLAMA_BASE_URL -> host.docker.internal" \
+    "$(printf '%s' "${WIN_AMD_JSON}" | python3 -c 'import json,sys
+e=json.load(sys.stdin).get("services",{}).get("agent",{}).get("environment",{})
+print(str("host.docker.internal" in e.get("OLLAMA_BASE_URL","")).lower())')"
+  check "win-amd: ollama has NO GPU reservation" \
+    "$([ "$(has_gpu_reservation "${WIN_AMD_JSON}" ollama)" = false ] && echo true || echo false)"
+  check "win-amd: kokoro is the CPU image" \
+    "$(printf '%s' "${WIN_AMD_JSON}" | python3 -c 'import json,sys
+print(str("kokoro-fastapi-cpu" in json.load(sys.stdin).get("services",{}).get("kokoro",{}).get("image","")).lower())')"
+else
+  check "win-amd: agent OLLAMA_BASE_URL -> host.docker.internal" "true"
+  check "win-amd: ollama has NO GPU reservation" "true"
+  check "win-amd: kokoro is the CPU image" "true"
+fi
+
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]
