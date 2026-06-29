@@ -37,6 +37,10 @@
 # Usage:  ./ollama/pull-and-pin.sh
 # Env:    OLLAMA_CONTAINER  (default: ollama) — compose service / container name
 #         ENV_FILE          (default: .env)   — file the resolved tags are written to
+#         INSTALL_MODELS    (default: fast,better,floor) — comma list of which
+#                          ladders to run + pin. Only the selected models are pulled.
+#         ADEPT_DEFAULT_MODEL (default: first of INSTALL_MODELS) — which installed
+#                          model the OLLAMA_MODEL back-compat alias points at.
 set -euo pipefail
 
 readonly FAST_LADDER=(
@@ -65,6 +69,18 @@ readonly FLOOR_MODEL_NAME="adept-floor"
 readonly FLOOR_TEMPLATE_FIX_TAG="hf.co/mradermacher/Huihui-Qwen3-4B-Instruct-2507-abliterated-GGUF:Q4_K_M"
 readonly OLLAMA_CONTAINER="${OLLAMA_CONTAINER:-ollama}"
 readonly ENV_FILE="${ENV_FILE:-.env}"
+readonly INSTALL_MODELS="${INSTALL_MODELS:-fast,better,floor}"
+readonly DEFAULT_CHOICE="${ADEPT_DEFAULT_MODEL:-}"
+
+# Resolve which ladders to run from INSTALL_MODELS (comma list, order preserved).
+# Unknown keys are ignored (defensive — the installer only writes known keys).
+should_install() {
+  local key="$1"
+  case ",${INSTALL_MODELS}," in
+    *",${key},"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 # Run an ollama CLI command inside the model container.
 ollama_exec() {
@@ -105,47 +121,72 @@ resolve_tag() {
 }
 
 main() {
-  local fast_tag better_tag
+  local installed_any=0
+  local chosen_default=""
+  local default_tag=""
 
-  if ! fast_tag="$(resolve_tag FAST_LADDER)"; then
-    echo "FATAL: no FAST_LADDER rung resolved a usable model tag" >&2
-    exit 1
-  fi
-  if ! better_tag="$(resolve_tag BETTER_LADDER)"; then
-    echo "FATAL: no BETTER_LADDER rung resolved a usable model tag" >&2
-    exit 1
-  fi
-
-  local floor_tag=""
-  if floor_tag="$(resolve_tag FLOOR_LADDER)"; then
-    if [ "${floor_tag}" = "${FLOOR_TEMPLATE_FIX_TAG}" ]; then
-      # Rung-1 GGUF won but its bundled template is broken — graft the correct Qwen3-2507
-      # template (ollama/Modelfile.floor) and pin the BUILT model, not the raw GGUF.
-      echo "floor: grafting template via ollama/Modelfile.floor -> ${FLOOR_MODEL_NAME}" >&2
-      docker compose cp ollama/Modelfile.floor "${OLLAMA_CONTAINER}:/tmp/Modelfile.floor"
-      ollama_exec create "${FLOOR_MODEL_NAME}" -f /tmp/Modelfile.floor
-      write_resolved_tag OLLAMA_MODEL_FLOOR "${FLOOR_MODEL_NAME}"
-      echo "pinned OLLAMA_MODEL_FLOOR=${FLOOR_MODEL_NAME} (built from ${floor_tag}) in ${ENV_FILE}"
-    else
-      write_resolved_tag OLLAMA_MODEL_FLOOR "${floor_tag}"
-      echo "pinned OLLAMA_MODEL_FLOOR=${floor_tag} in ${ENV_FILE}"
-    fi
+  # Determine the chosen default (explicit ADEPT_DEFAULT_MODEL if it's in the
+  # install set, else the first model in INSTALL_MODELS).
+  if [ -n "${DEFAULT_CHOICE}" ] && should_install "${DEFAULT_CHOICE}"; then
+    chosen_default="${DEFAULT_CHOICE}"
   else
-    echo "WARN: no FLOOR_LADDER rung resolved — Floor tier unavailable on this host" >&2
+    chosen_default="${INSTALL_MODELS%%,*}"
   fi
 
-  write_resolved_tag OLLAMA_MODEL_FAST "${fast_tag}"
-  write_resolved_tag OLLAMA_MODEL_BETTER "${better_tag}"
-  # Back-compat alias: existing readers consume OLLAMA_MODEL — point it at Fast.
-  write_resolved_tag OLLAMA_MODEL "${fast_tag}"
-  echo "pinned OLLAMA_MODEL_FAST=${fast_tag}, OLLAMA_MODEL_BETTER=${better_tag}, OLLAMA_MODEL=${fast_tag} (Fast alias) in ${ENV_FILE}"
+  if should_install "floor"; then
+    local floor_tag=""
+    if floor_tag="$(resolve_tag FLOOR_LADDER)"; then
+      if [ "${floor_tag}" = "${FLOOR_TEMPLATE_FIX_TAG}" ]; then
+        # Rung-1 GGUF won but its bundled template is broken — graft the correct
+        # Qwen3-2507 template (ollama/Modelfile.floor) and pin the BUILT model.
+        echo "floor: grafting template via ollama/Modelfile.floor -> ${FLOOR_MODEL_NAME}" >&2
+        docker compose cp ollama/Modelfile.floor "${OLLAMA_CONTAINER}:/tmp/Modelfile.floor"
+        ollama_exec create "${FLOOR_MODEL_NAME}" -f /tmp/Modelfile.floor
+        write_resolved_tag OLLAMA_MODEL_FLOOR "${FLOOR_MODEL_NAME}"
+        echo "pinned OLLAMA_MODEL_FLOOR=${FLOOR_MODEL_NAME} (built from ${floor_tag}) in ${ENV_FILE}"
+      else
+        write_resolved_tag OLLAMA_MODEL_FLOOR "${floor_tag}"
+        echo "pinned OLLAMA_MODEL_FLOOR=${floor_tag} in ${ENV_FILE}"
+      fi
+      installed_any=1
+      [ "${chosen_default}" = "floor" ] && default_tag="${floor_tag}"
+    else
+      echo "WARN: no FLOOR_LADDER rung resolved — Floor tier unavailable on this host" >&2
+    fi
+  fi
 
-  # Final confirmation each pinned tag is resident in the container.
-  local tag
-  for tag in "${fast_tag}" "${better_tag}"; do
-    ollama_exec list | grep -F "${tag}" \
-      || { echo "FATAL: pinned tag ${tag} not in container 'ollama list'" >&2; exit 1; }
-  done
+  if should_install "fast"; then
+    local fast_tag
+    if ! fast_tag="$(resolve_tag FAST_LADDER)"; then
+      echo "FATAL: no FAST_LADDER rung resolved a usable model tag" >&2
+      exit 1
+    fi
+    write_resolved_tag OLLAMA_MODEL_FAST "${fast_tag}"
+    installed_any=1
+    [ "${chosen_default}" = "fast" ] && default_tag="${fast_tag}"
+    ollama_exec list | grep -F "${fast_tag}" \
+      || { echo "FATAL: pinned tag ${fast_tag} not in container 'ollama list'" >&2; exit 1; }
+  fi
+
+  if should_install "better"; then
+    local better_tag
+    if ! better_tag="$(resolve_tag BETTER_LADDER)"; then
+      echo "FATAL: no BETTER_LADDER rung resolved a usable model tag" >&2
+      exit 1
+    fi
+    write_resolved_tag OLLAMA_MODEL_BETTER "${better_tag}"
+    installed_any=1
+    [ "${chosen_default}" = "better" ] && default_tag="${better_tag}"
+    ollama_exec list | grep -F "${better_tag}" \
+      || { echo "FATAL: pinned tag ${better_tag} not in container 'ollama list'" >&2; exit 1; }
+  fi
+
+  [ "${installed_any}" -eq 1 ] || { echo "FATAL: INSTALL_MODELS selected no valid ladders" >&2; exit 1; }
+  [ -n "${default_tag}" ] || { echo "FATAL: chosen default ${chosen_default} was not installed" >&2; exit 1; }
+
+  # Back-compat alias: point OLLAMA_MODEL at the chosen default's tag (NOT always Fast).
+  write_resolved_tag OLLAMA_MODEL "${default_tag}"
+  echo "pinned installed set=${INSTALL_MODELS}; OLLAMA_MODEL=${default_tag} (${chosen_default} alias) in ${ENV_FILE}"
 }
 
 main "$@"
