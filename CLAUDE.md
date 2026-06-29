@@ -1,7 +1,7 @@
 # Adept (voice-trainer) — Claude Code Guidelines
 
 Near-real-time, local-first voice persona trainer: LiveKit Agents pipeline (STT→LLM→TTS)
-on a single 16GB-VRAM GPU. Headline metric: voice-to-voice **P50 < 1.0s**.
+on a single 16GB-VRAM GPU. Headline metric: voice-to-voice **P50 < 1.0s** (the *streaming* STT mode; `buffered`/`hybrid` are accuracy modes at a measured EOU cost — see README "Pick your STT by hardware").
 See `.planning/PROJECT.md` for full scope and `README.md` for run/deploy instructions.
 
 @CODE_PRINCIPLES.md

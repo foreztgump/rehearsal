@@ -6,7 +6,7 @@ Adept is a voice-first, local-first web app where a single user holds a spoken, 
 
 ## Core Value
 
-The user can hold a natural spoken conversation with a credible expert persona at voice-to-voice latency that feels live (P50 < 1.0s) — practicing speaking a domain out loud, not reading about it.
+The user can hold a natural spoken conversation with a credible expert persona at voice-to-voice latency that feels live (P50 < 1.0s in streaming STT mode) — practicing speaking a domain out loud, not reading about it.
 
 ## Business Context
 
@@ -14,7 +14,7 @@ The user can hold a natural spoken conversation with a credible expert persona a
 
 - **Customer**: Tee (owner) and similar self-hosting professionals prepping for interviews / upskilling
 - **Revenue model**: None — local, free-to-run, private by design
-- **Success metric**: Voice-to-voice P50 < 1.0s with a conversation that subjectively "feels live"
+- **Success metric**: Voice-to-voice P50 < 1.0s with a conversation that subjectively "feels live" (streaming STT mode; the `buffered`/`hybrid` accuracy modes trade a measured EOU latency for cut-off-free transcripts — D15/R3).
 - **Strategy notes**: Local execution is a hard requirement — sensitive material (study notes, employer-specific prep) and per-token API cost would discourage the long repetitive practice that builds fluency
 
 ## Requirements
@@ -113,7 +113,7 @@ The user can hold a natural spoken conversation with a credible expert persona a
 ## Constraints
 
 - **Tech stack (v1.1)**: LiveKit Agents + NVIDIA Nemotron streaming ASR (NeMo / 4-bit ONNX CPU port) + two user-selectable Ollama LLMs (E2B/E4B) + Kokoro — all locally hosted, models pluggable behind LiveKit. Optional frontend: Three.js + met4citizen/TalkingHead + HeadAudio (client-side only).
-- **Performance**: Voice-to-voice P50 < 1.0s, P95 < 1.5s — drives every architecture decision (stream every stage, keep models resident, lean context). v1.1: must hold for BOTH LLM choices; STT leg target drops toward sub-100ms finalize; avatar mode adds NO latency regression.
+- **Performance**: Voice-to-voice P50 < 1.0s, P95 < 1.5s — drives every architecture decision (stream every stage, keep models resident, lean context). v1.1: must hold for BOTH LLM choices; STT leg target drops toward sub-100ms finalize; avatar mode adds NO latency regression. v1.2 R3: P50<1.0s is the **streaming**-mode guarantee; `hybrid`/`buffered` are accuracy modes off the hot path by design.
 - **Hardware**: 16GB VRAM floor, 24GB recommended. v1.1: `docker compose up` on the user's own machine is the only supported deployment, with consumer-GPU detection/passthrough via the NVIDIA Container Toolkit (no VM/PCIe-passthrough path). Avatar rendering is client-side WebGL — zero server GPU cost.
 - **Content guardrail (v1.1)**: the new LLMs are uncensored/abliterated — the persona prompt's ethical boundary (security at interview-appropriate level, not step-by-step attack instructions) is the ONLY content guardrail and must stay intact.
 - **Pipeline isolation (v1.1)**: the avatar (Part D) is frontend-only and MUST NOT change the server pipeline (Parts A/B/C) in any way.

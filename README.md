@@ -118,6 +118,28 @@ On a sub-spec (<16 GB) or non-NVIDIA host, the doctor recommends staying on
 `ollama` and `kokoro` always need a working NVIDIA GPU — a fully non-NVIDIA host can
 run STT on CPU but not the LLM/TTS (a v1.1 limitation).
 
+### Pick your STT by hardware
+
+`STT_ENGINE` selects the speech-recognition mode; `./scripts/gpu-doctor.sh` recommends one for your
+GPU (advise-only — it never edits `.env`). All three run fully local.
+
+| Mode | Best for | Live partials | Latency | Set in `.env` |
+|---|---|---|---|---|
+| `streaming` (default) | lowest latency; the **P50 < 1.0s** path | yes | ~100 ms finalize | `STT_ENGINE=streaming` |
+| `hybrid` | GPU hosts wanting accuracy + a live feel | yes (cosmetic) | accuracy-mode (measured EOU cost) | `STT_ENGINE=hybrid` |
+| `buffered` | CPU-only / small-VRAM; max accuracy, no cut-off | no | accuracy-mode | `STT_ENGINE=buffered` |
+
+| Detected VRAM | gpu-doctor recommends |
+|---|---|
+| ≥ 16 GB | `STT_ENGINE=hybrid`, `STT_BUFFERED_DEVICE=gpu` |
+| 12–16 GB | `STT_ENGINE=hybrid`, `STT_BUFFERED_DEVICE=cpu` |
+| < 12 GB / CPU-only | `STT_ENGINE=buffered`, `STT_BUFFERED_DEVICE=cpu` |
+
+`buffered`/`hybrid` use NVIDIA `parakeet-tdt-0.6b-v2` (int8 ONNX) as the authoritative `final` engine;
+it eliminates the streaming model's end-of-speech word-drop (no lookahead = no held tail) and emits
+nothing on silence. They are **accuracy modes**, off the P50 < 1.0s hot path by design.
+(A `TTS_ENGINE` seam mirroring this is the v1.3 path; today TTS is Kokoro-only.)
+
 ### Diagnosing the two common failure modes
 
 | Symptom | Cause | Fix |

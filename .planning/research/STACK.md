@@ -183,6 +183,17 @@ Full NeMo model on GPU is ~600M params (~1.2–1.5GB fp16 + CUDA buffers). Co-re
 - Fast/E2B (3.4GB) + NeMo-GPU (~1.5GB) + Kokoro (~1–2GB **measured**) ≈ **6–7GB** → fits 16GB comfortably → **GPU STT**. (15a `nvidia-smi`: Kokoro = 954 MiB warmed with `expandable_segments`, 1832 MiB aged without — far below both the old ~2.5GB guess AND the design's ~4–5GB over-estimate; CUDA-context overhead is real but modest on this box. See PITFALLS C1.)
 - Better/E4B (5.3GB) + NeMo-GPU (~1.5GB) + Kokoro (~1–2GB **measured**) ≈ **8–9GB** → fits 16GB → **GPU STT viable**; Part C (CPU-ONNX) remains the de-risk for tighter / 6GB budgets.
 
+### v1.2 R3 — buffered/hybrid STT engine pins (additive; the v1.1 body above is unchanged)
+
+- **Buffered/hybrid `final` engine:** `nvidia/parakeet-tdt-0.6b-v2` — int8 ONNX (sherpa-onnx-style
+  encoder + TDT greedy decode), English-only, offline. **Pin v2, NOT v3** (v3 is multilingual and
+  *regresses* English). License **CC-BY-4.0** (attribution required). WER 6.91% independent
+  (≈ Nemotron streaming); the durable win is **cut-off elimination + silence-robustness**, not WER (D18).
+- **Runtime:** `nemo-toolkit` 2.7.3-class for any NeMo export; `onnxruntime` / `onnxruntime-gpu` for the
+  Parakeet ONNX path. Pin exact tags; never `:latest`.
+- **TTS:** still **Kokoro-only** in v1.2. The `TTS_ENGINE` seam (mirrors `STT_ENGINE`) + Chatterbox-Turbo
+  (350M, MIT, streaming) is the **v1.3** target — designed, not built (D20).
+
 ---
 
 ## Part C — CPU-ONNX STT runtime (the VRAM fallback)
