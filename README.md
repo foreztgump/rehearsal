@@ -6,31 +6,84 @@ persona. Self-hosted on a single 16GB-VRAM GPU via Docker Compose. See
 
 ## Quick start
 
+**Linux** (Ubuntu/Debian, Fedora, Arch):
+
 ```bash
-./install.sh            # detect + scaffold .env (generated secret) + plan + build + pull
+./install.sh            # detect + scaffold .env + prompt for models + plan + build + pull
 # …confirm the plan when prompted; then it boots the stack and prints start/stop.
 ```
 
-`install.sh` detects Docker + GPU, scaffolds `.env` with a generated
-`LIVEKIT_API_SECRET`, shows a plan, then builds and pulls models. If Docker or the
-NVIDIA Container Toolkit is missing it prints the exact install commands and exits
-non-zero — it never installs system packages for you (see
-[GPU setup](#gpu-setup-nvidia-container-toolkit) for the toolkit apt commands). Use
-`./install.sh -y` (or `ASSUME_YES=1`) to accept the plan non-interactively.
+**Windows** (native PowerShell, not WSL-only):
+
+```powershell
+.\install.ps1           # detect + scaffold .env + prompt for models + plan + build + pull
+```
+
+The installer detects Docker + GPU, scaffolds `.env` with a generated
+`LIVEKIT_API_SECRET`, prompts for **which models to install** and their **aliases**
+(see [Model selection](#model-selection)), shows a plan, then builds and pulls the
+selected models. On Linux it offers to install missing Docker/Compose/Ollama via
+your package manager (apt/dnf/pacman) behind a confirmation gate; on Windows it
+offers `winget install Docker.DockerDesktop` / `Ollama.Ollama`. If you decline or
+the NVIDIA Container Toolkit is missing, it prints the exact install commands and
+exits non-zero. Use `./install.sh -y` (or `ASSUME_YES=1` / `.\install.ps1 -Yes`)
+to accept the plan non-interactively.
 
 Already set up? Start and stop with:
 
 ```bash
-./up.sh -d              # preflight (gpu-doctor) + docker compose up -d
-./down.sh               # clean stop (docker compose down)
+./up.sh -d              # Linux:  preflight (gpu-doctor) + docker compose up -d
+./down.sh               # Linux:  clean stop (docker compose down)
+```
+```powershell
+.\up.ps1 -d             # Windows: preflight (gpu-doctor) + docker compose up -d
+.\down.ps1              # Windows: clean stop (docker compose down)
 ```
 
-`./down.sh` removes the containers + network but keeps named volumes (pulled models,
-caches); pass `-v` to also drop volumes (models re-pull next boot).
+`./down.sh` (or `.\down.ps1`) removes the containers + network but keeps named
+volumes (pulled models, caches); pass `-v` to also drop volumes (models re-pull
+next boot).
 
 Prefer to do it by hand? `cp .env.example .env`, set a `LIVEKIT_API_SECRET`, then
 `./up.sh` (it runs the GPU doctor then `docker compose up` — see
 [GPU setup](#gpu-setup-nvidia-container-toolkit); plain `docker compose up` works too).
+
+## Model selection
+
+At install time the installer asks which response models to pull and what to call
+them. The web picker then shows **only the installed models** — if you install one
+model, the picker shows a single read-only option instead of a dropdown. The
+installer recommends a default based on your hardware (Fast on most GPUs, Floor on
+weak/CPU-only hosts, Better when you want higher quality and have the VRAM).
+
+The installed set and labels are baked into `.env`:
+
+| `.env` key | Purpose |
+|---|---|
+| `ADEPT_MODEL_CHOICES` | Comma list of installed choice keys (e.g. `fast,better` or just `floor`) |
+| `NEXT_PUBLIC_ADEPT_MODEL_LABELS` | Comma list of picker labels, same order (baked into the web build) |
+| `ADEPT_DEFAULT_MODEL` | Which installed model the host boots on |
+
+To **add or remove a model later**: edit `ADEPT_MODEL_CHOICES` +
+`NEXT_PUBLIC_ADEPT_MODEL_LABELS` in `.env`, then `docker compose build web` (the
+labels are bake-time build args, so a web rebuild is required) and re-pull the model
+with `./ollama/pull-and-pin.sh`. Raw Ollama tags stay in `.env`
+(`OLLAMA_MODEL_FAST` / `_BETTER` / `_FLOOR`); the picker surfaces plain labels only.
+
+## Supported host profiles
+
+| Host | Profile |
+|---|---|
+| Linux NVIDIA | Docker full stack; CPU STT default, GPU STT opt-in (`--profile stt-gpu`) |
+| Linux AMD | Docker AMD ROCm (Ollama + Kokoro on GPU via `docker-compose.amd.yml`); CPU STT |
+| Windows NVIDIA | Docker Desktop (WSL2 backend) + NVIDIA GPU containers |
+| Windows AMD | Native Windows Ollama (CPU build, best-effort) + Docker CPU services (CPU STT, CPU Kokoro). AMD GPU inference on Windows needs a custom HIP SDK build — guide-only, not turnkey. |
+| No supported GPU | CPU/floor guidance; best-effort startup (the LLM/TTS won't hit real-time latency without a GPU) |
+
+The installer can install Docker Desktop + Ollama (winget on Windows) or
+Docker/Compose/Ollama (apt/dnf/pacman on Linux) behind a confirmation gate. GPU
+drivers, the NVIDIA Container Toolkit, and the AMD HIP SDK are **guide-only** —
+the installer diagnoses and explains them but never installs them.
 
 Then open **http://localhost:3000** in **Chromium/Chrome** and click *Start
 talking*. That's it — no certs, no TLS, no browser config.
