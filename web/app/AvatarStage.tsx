@@ -4,19 +4,23 @@ import { useDataChannel, useVoiceAssistant } from "@livekit/components-react";
 import type { TrackReference } from "@livekit/components-core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  applySpeakingGazeLock,
   avatarForPersona,
   CAMERA_VIEW,
   DRACO_DECODER_PATH,
   LIPSYNC_TOPIC,
   TALKINGHEAD_SPECIFIER,
+  TALKINGHEAD_SPEAKING_BEHAVIOR,
 } from "./avatarConfig";
 import {
+  acceptScheduleSequence,
   activeVisemeAt,
   advancePathB,
   queueSchedule,
   type ActiveSchedule,
   type LipsyncSchedule,
   type QueuedSchedule,
+  type SequenceGate,
 } from "./avatarPathB";
 
 // Surface of the TalkingHead 1.7 instance we touch. Path-A streaming API confirmed
@@ -48,6 +52,8 @@ type MorphTier = { realtime: number | null; needsUpdate: boolean };
 type TalkingHeadInstance = {
   showAvatar: (avatar: Record<string, unknown>) => Promise<void>;
   setMood: (mood: string) => void;
+  speakWithHands: (delay?: number, prob?: number) => void;
+  setFixedValue: (mt: string, val: number | null) => void;
   setValue: (mt: string, val: number, ms?: number | null) => void;
   makeEyeContact: (ms: number) => void;
   lookAtCamera: (ms: number) => void;
@@ -97,6 +103,15 @@ const VISEME_MORPHS = [
   "viseme_nn",
   "viseme_RR",
 ];
+
+const SPEAKING_GESTURE_INTERVAL_MS = 2600;
+const SPEAKING_GESTURE_PROBABILITY = 0.35;
+
+function moodForConversationState(state: string, restingMood: string): string {
+  if (state === "speaking") return "happy";
+  if (state === "listening" || state === "thinking") return "neutral";
+  return restingMood;
+}
 
 type TalkingHeadModule = {
   TalkingHead: new (
@@ -151,18 +166,20 @@ export default function AvatarStage({
   } | null>(null);
   // barge-in flag: when the user is speaking we hold the mouth shut regardless of
   // any residual inbound audio energy.
-  const mutedRef = useRef(false);
+  const mutedRef = useRef(true);
+  const activeMoodRef = useRef<string | null>(null);
 
   // --- Path-B captioned lip-sync state ---
   // FIFO of word schedules received over LIPSYNC_TOPIC but not yet started. Each is
-  // popped and anchored by advancePathB, so data-channel/audio ordering slack never
+  // popped by advancePathB and anchored either on first audible audio or chained
+  // from the prior schedule end, so data-channel/audio ordering slack never
   // desyncs the mouth.
   const scheduleQueueRef = useRef<QueuedSchedule[]>([]);
   // The schedule currently driving the mouth: its viseme timeline + the audioCtx
   // time (seconds) we anchored word s=0 to. null => fall back to Path-A formants.
   const activeRef = useRef<ActiveSchedule | null>(null);
-  // Drop schedules whose seq we've already enqueued (publish_data can redeliver).
-  const lastSeqRef = useRef(-1);
+  // Drop duplicate schedules per request_id; a new request_id may restart seq at 1.
+  const sequenceGateRef = useRef<SequenceGate>({ requestId: null, lastSeq: -1 });
 
   // Receive word schedules from the agent's CaptionedTTS and queue them. Anchoring
   // happens in the rAF tick: first schedule on audible audio, later schedules can
@@ -175,8 +192,13 @@ export default function AvatarStage({
       if (!obj || !Array.isArray(obj.words) || obj.words.length === 0) return;
       const queued = queueSchedule(obj);
       if (!queued) return;
-      if (queued.seq <= lastSeqRef.current) return; // dup/out-of-order replay
-      lastSeqRef.current = queued.seq;
+      const nextGate = acceptScheduleSequence(
+        sequenceGateRef.current,
+        queued,
+        !mutedRef.current,
+      );
+      if (!nextGate) return;
+      sequenceGateRef.current = nextGate;
       scheduleQueueRef.current.push(queued);
     } catch {
       // Malformed payload: ignore, lip-sync simply falls back to Path-A this turn.
@@ -216,6 +238,7 @@ export default function AvatarStage({
           jwtGet: null,
           dracoEnabled: true,
           dracoDecoderPath: DRACO_DECODER_PATH,
+          ...TALKINGHEAD_SPEAKING_BEHAVIOR,
         });
 
         if (cancelled) {
@@ -230,6 +253,7 @@ export default function AvatarStage({
           body: avatar.body,
           avatarMood: avatar.mood,
           lipsyncLang: "en",
+          ...TALKINGHEAD_SPEAKING_BEHAVIOR,
         });
         if (cancelled) {
           head.dispose();
@@ -238,6 +262,7 @@ export default function AvatarStage({
         }
 
         head.setMood(avatar.mood);
+        activeMoodRef.current = avatar.mood;
 
         // Framing is USER-controlled (the Full-body toggle), not width-derived:
         // full body reads unnatural without body motion/emotion, so default to the
@@ -288,18 +313,44 @@ export default function AvatarStage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // --- Persona change: re-apply mood without reloading the head (AVTR-04). ---
-  // (GLB swap on persona change is a future refinement — see 12-AVATAR-VERIFY.md.)
+  // --- Conversation-state mood (R5): deterministic presenter expression. ---
   useEffect(() => {
     const head = headRef.current;
-    if (head && status === "ready") {
+    if (!head || status !== "ready") return;
+
+    const mood = moodForConversationState(state, avatar.mood);
+    if (activeMoodRef.current === mood) return;
+
+    try {
+      head.setMood(mood);
+      activeMoodRef.current = mood;
+    } catch {
+      /* non-fatal */
+    }
+  }, [avatar.mood, state, status]);
+
+  // --- Speaking gestures (R5): light presenter hand motion, no custom scheduler. ---
+  useEffect(() => {
+    const head = headRef.current;
+    if (!head || status !== "ready" || state !== "speaking") return;
+
+    let disposed = false;
+    const gesture = () => {
+      if (disposed) return;
       try {
-        head.setMood(avatar.mood);
+        head.speakWithHands(0, SPEAKING_GESTURE_PROBABILITY);
       } catch {
         /* non-fatal */
       }
-    }
-  }, [avatar.mood, status]);
+    };
+
+    gesture();
+    const interval = window.setInterval(gesture, SPEAKING_GESTURE_INTERVAL_MS);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+    };
+  }, [state, status]);
 
   // --- Path-A lip-sync tap on the INBOUND Kokoro track (AVTR-02). ---
   // Build the read-only Web Audio tap once the head is ready and the agent audio
@@ -560,6 +611,11 @@ export default function AvatarStage({
     // (AVTR-03): the instant the user speaks, the agent leaves 'speaking' and the
     // mouth snaps closed mid-utterance. Reuses the existing signal; no new VAD.
     const speaking = state === "speaking";
+    try {
+      applySpeakingGazeLock(head, speaking);
+    } catch {
+      /* non-fatal */
+    }
     mutedRef.current = !speaking;
     if (!speaking) {
       // Barge-in / turn end: drop the active word schedule (a stale timeline must not

@@ -69,7 +69,7 @@ AMD, installer). Sequenced so each foundation lands before what depends on it:
 | R2 | Model lifecycle & **~6GB** budget — lazy/on-demand load, single resident LLM, UI-driven backend swap | req #2 | **foundational**; supersedes the 16GB / two-resident-LLM / `keep_alive=-1` assumption |
 | R3 | Hardware-aware engines + models (STT/LLM/TTS) | req #10, **15b**, 15a accuracy-escalation | designs the install/selection pattern once |
 | R4 | UI/UX polish from `design-mockups/v4` + flow (landing-sets-settings, in-session drawer, disconnect) | req #3/#8 | builds on Phase 13 |
-| R5 | Avatar polish — responsive fill, natural idle, lip-sync upgrade | req #4/#7, backlog #3/#4 | builds on Phase 12/14 |
+| R5 | Expressive avatar + word-accurate lip-sync hardening | req #36, **15b** | closed 2026-06-29; live avatar smoke accepted (`.planning/v1.2-R5-VERIFY.md`) |
 | R6 | AMD GPU support (ROCm) for STT/TTS/LLM | req #5 | cross-cutting; today the whole stack is CUDA |
 | R7 | Idiot-proof installer — one-line curl-to-shell, spec detection, confirm, start/stop docs | req #9 | **last** — installs what R2/R3/R6 define |
 

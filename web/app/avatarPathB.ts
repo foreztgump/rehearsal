@@ -1,5 +1,9 @@
 export type ScheduleWord = { w: string; s: number; e: number };
-export type LipsyncSchedule = { seq: number; words: ScheduleWord[] };
+export type LipsyncSchedule = {
+  seq: number;
+  request_id?: string;
+  words: ScheduleWord[];
+};
 export type VisemeSpan = { m: string; s: number; e: number };
 export type QueuedSchedule = LipsyncSchedule & { timeline: VisemeSpan[] };
 export type ActiveSchedule = {
@@ -13,6 +17,7 @@ export type PathBInput = {
 };
 export type PathBStep = { now: number; audible: boolean };
 export type PathBResult = PathBInput & { anchoredSeq: number | null };
+export type SequenceGate = { requestId: string | null; lastSeq: number };
 
 export const PATH_B_END_GRACE_SECONDS = 0.15;
 
@@ -80,17 +85,21 @@ export function wordToVisemes(word: string): string[] {
   return out.length === 0 ? ["viseme_aa"] : out;
 }
 
+function isScheduleWord(
+  word: Partial<ScheduleWord> | null | undefined,
+): word is ScheduleWord {
+  return (
+    !!word &&
+    typeof word.w === "string" &&
+    Number.isFinite(word.s) &&
+    Number.isFinite(word.e)
+  );
+}
+
 export function scheduleToTimeline(words: ScheduleWord[]): VisemeSpan[] {
   const spans: VisemeSpan[] = [];
   for (const word of words) {
-    if (
-      !word ||
-      typeof word.w !== "string" ||
-      !Number.isFinite(word.s) ||
-      !Number.isFinite(word.e)
-    ) {
-      continue;
-    }
+    if (!isScheduleWord(word)) continue;
     const dur = Math.max(0, word.e - word.s);
     if (dur <= 0 || !word.w) continue;
     const visemes = wordToVisemes(word.w);
@@ -106,12 +115,36 @@ export function scheduleToTimeline(words: ScheduleWord[]): VisemeSpan[] {
   return spans;
 }
 
-export function queueSchedule(schedule: LipsyncSchedule): QueuedSchedule | null {
-  if (!Number.isFinite(schedule.seq) || !Array.isArray(schedule.words)) {
+export function queueSchedule(
+  schedule: Partial<LipsyncSchedule> | null | undefined,
+): QueuedSchedule | null {
+  const seq = schedule?.seq;
+  if (
+    typeof seq !== "number" ||
+    !Number.isFinite(seq) ||
+    !Array.isArray(schedule?.words)
+  ) {
     return null;
   }
-  const timeline = scheduleToTimeline(schedule.words);
-  return timeline.length === 0 ? null : { ...schedule, timeline };
+  const words = schedule.words.filter(isScheduleWord);
+  const timeline = scheduleToTimeline(words);
+  if (timeline.length === 0) return null;
+  const request_id =
+    typeof schedule.request_id === "string" ? schedule.request_id : undefined;
+  return { seq, request_id, words, timeline };
+}
+
+export function acceptScheduleSequence(
+  gate: SequenceGate,
+  schedule: QueuedSchedule,
+  accepting: boolean,
+): SequenceGate | null {
+  if (!accepting) return null;
+  const requestId = schedule.request_id ?? null;
+  if (requestId === gate.requestId && schedule.seq <= gate.lastSeq) {
+    return null;
+  }
+  return { requestId, lastSeq: schedule.seq };
 }
 
 export function advancePathB(

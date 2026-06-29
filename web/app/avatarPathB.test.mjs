@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  acceptScheduleSequence,
   activeVisemeAt,
   advancePathB,
   queueSchedule,
   scheduleToTimeline,
 } from "./avatarPathB.ts";
+import {
+  applySpeakingGazeLock,
+  TALKINGHEAD_SPEAKING_BEHAVIOR,
+  TALKINGHEAD_SPEAKING_GAZE_LOCKS,
+} from "./avatarConfig.ts";
 
 test("scheduleToTimeline splits real word timing into viseme spans", () => {
   const timeline = scheduleToTimeline([{ w: "cat", s: 0.2, e: 0.8 }]);
@@ -29,6 +35,64 @@ test("queueSchedule rejects malformed boundary fields", () => {
   );
   assert.equal(
     queueSchedule({ seq: 1, words: [{ w: 123, s: 0, e: 0.4 }] }),
+    null,
+  );
+});
+
+test("queueSchedule drops malformed word timing from queued schedules", () => {
+  const queued = queueSchedule({
+    seq: 1,
+    words: [
+      { w: "bad", s: NaN, e: 0.2 },
+      { w: "ok", s: 0, e: 0.3 },
+      { w: "bad", s: 0.3, e: Infinity },
+    ],
+  });
+
+  assert.ok(queued);
+  assert.deepEqual(queued.words, [{ w: "ok", s: 0, e: 0.3 }]);
+  assert.equal(queued.timeline.at(-1).e, 0.3);
+});
+
+test("acceptScheduleSequence allows seq reset on a new request_id", () => {
+  const first = queueSchedule({
+    seq: 4,
+    request_id: "old",
+    words: [{ w: "old", s: 0, e: 0.2 }],
+  });
+  const restarted = queueSchedule({
+    seq: 1,
+    request_id: "new",
+    words: [{ w: "new", s: 0, e: 0.2 }],
+  });
+
+  assert.ok(first);
+  assert.ok(restarted);
+
+  const afterFirst = acceptScheduleSequence(
+    { requestId: null, lastSeq: -1 },
+    first,
+    true,
+  );
+
+  assert.deepEqual(afterFirst, { requestId: "old", lastSeq: 4 });
+  assert.equal(acceptScheduleSequence(afterFirst, first, true), null);
+  assert.deepEqual(acceptScheduleSequence(afterFirst, restarted, true), {
+    requestId: "new",
+    lastSeq: 1,
+  });
+});
+
+test("acceptScheduleSequence rejects late schedules while not speaking", () => {
+  const late = queueSchedule({
+    seq: 5,
+    request_id: "interrupted",
+    words: [{ w: "late", s: 0, e: 0.2 }],
+  });
+
+  assert.ok(late);
+  assert.equal(
+    acceptScheduleSequence({ requestId: null, lastSeq: -1 }, late, false),
     null,
   );
 });
@@ -95,4 +159,41 @@ test("activeVisemeAt returns the scheduled viseme for the current audio time", (
 
   assert.equal(activeVisemeAt(active, 5.05), "viseme_kk");
   assert.equal(activeVisemeAt(active, 6), null);
+});
+
+test("speaking avatar behavior holds eye contact without head scanning", () => {
+  assert.equal(TALKINGHEAD_SPEAKING_BEHAVIOR.avatarSpeakingEyeContact, 1);
+  assert.equal(TALKINGHEAD_SPEAKING_BEHAVIOR.avatarSpeakingHeadMove, 0);
+  assert.deepEqual(TALKINGHEAD_SPEAKING_GAZE_LOCKS, [
+    ["eyesRotateX", 0],
+    ["eyesRotateY", 0],
+    ["headRotateX", 0],
+    ["headRotateY", 0],
+    ["headRotateZ", 0],
+  ]);
+});
+
+test("applySpeakingGazeLock fixes and releases speaking eye/head targets", () => {
+  const calls = [];
+  const head = {
+    setFixedValue(mt, val) {
+      calls.push([mt, val]);
+    },
+  };
+
+  applySpeakingGazeLock(head, true);
+  applySpeakingGazeLock(head, false);
+
+  assert.deepEqual(calls, [
+    ["eyesRotateX", 0],
+    ["eyesRotateY", 0],
+    ["headRotateX", 0],
+    ["headRotateY", 0],
+    ["headRotateZ", 0],
+    ["eyesRotateX", null],
+    ["eyesRotateY", null],
+    ["headRotateX", null],
+    ["headRotateY", null],
+    ["headRotateZ", null],
+  ]);
 });
