@@ -33,6 +33,10 @@ set -euo pipefail
 readonly VRAM_FLOOR_MB="${VRAM_FLOOR_MB:-16384}"
 readonly CUDA_FLOOR="${CUDA_FLOOR:-12.8}"
 readonly TOOLKIT_PROBE_IMAGE="${TOOLKIT_PROBE_IMAGE:-nvidia/cuda:12.4.0-base-ubuntu22.04}"
+readonly AMD_DEVICE_ROOT="${AMD_DEVICE_ROOT:-/dev}"
+readonly AMD_COMPOSE_FILE="docker-compose.yml:docker-compose.amd.yml"
+readonly OLLAMA_ROCM_IMAGE="ollama/ollama:0.30.10-rocm"
+readonly KOKORO_ROCM_IMAGE="ghcr.io/remsky/kokoro-fastapi-rocm:v0.5.0"
 
 # R3 Plan B (advise-only): the hybrid VRAM floor. >= VRAM_FLOOR_MB → Parakeet on GPU;
 # VRAM_HYBRID_MB..VRAM_FLOOR_MB → hybrid with Parakeet on CPU (frees GPU); below → buffered.
@@ -47,10 +51,21 @@ readonly FAST_LLM_TAG="evalengine/unbound-e2b:latest"
 DEGRADED=0
 NVIDIA_OK=0   # set when step 1 passes (gates steps 3 & 4, which query the GPU)
 DETECTED_VRAM_MB=""   # set by check_vram_floor; drives the R3 STT engine recommendation
+GPU_VENDOR="none"
 
 ok()     { printf 'OK: %s\n' "$*"; }
 advise() { printf 'ADVISE: %s\n' "$*"; DEGRADED=1; }
 hr()     { printf -- '----------------------------------------------------------------------\n'; }
+
+detect_gpu_vendor() {
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+    GPU_VENDOR="nvidia"
+  elif [ -e "${AMD_DEVICE_ROOT}/kfd" ] && [ -d "${AMD_DEVICE_ROOT}/dri" ]; then
+    GPU_VENDOR="amd"
+  else
+    GPU_VENDOR="none"
+  fi
+}
 
 # --- Step 1: nvidia-smi present + driver responds --------------------------------
 check_nvidia_smi() {
@@ -213,6 +228,23 @@ print_advice() {
   printf '      It is NOT hung.\n'
 }
 
+print_amd_advice() {
+  hr
+  ok "AMD ROCm device nodes present: ${AMD_DEVICE_ROOT}/kfd and ${AMD_DEVICE_ROOT}/dri"
+  printf 'R6 AMD ROCm profile (best-effort): Ollama ROCm + Kokoro ROCm + CPU STT.\n\n'
+  printf '  COMPOSE_FILE=%s docker compose up -d\n\n' "${AMD_COMPOSE_FILE}"
+  printf 'Expected ROCm images:\n'
+  printf '  %s\n' "${OLLAMA_ROCM_IMAGE}"
+  printf '  %s\n\n' "${KOKORO_ROCM_IMAGE}"
+  printf 'Recommended .env settings:\n'
+  printf '  STT_ENGINE=buffered\n'
+  printf '  STT_BUFFERED_DEVICE=cpu\n'
+  printf '  STT_FORCE_CPU=1\n\n'
+  printf 'Caution: first ROCm boot may spend time in MIOpen warmup/compilation.\n'
+  printf 'Verify with docs/r6-amd-rocm-verify.md.\n'
+  hr
+}
+
 advise_summary() {
   printf 'One or more checks need attention. The stack still runs VRAM-safe on CPU-ONNX\n'
   printf 'STT + the Fast model. Copy these into .env (this script does NOT edit .env):\n\n'
@@ -220,18 +252,27 @@ advise_summary() {
   printf '  STT_FORCE_CPU=1\n'
   printf '  OLLAMA_MODEL=%s   # the Fast tag\n' "${FAST_LLM_TAG}"
   printf '  # then: docker compose up   (do NOT add --profile stt-gpu)\n\n'
-  printf 'Limitation: ollama + kokoro still require a working NVIDIA GPU. A fully\n'
-  printf 'non-NVIDIA host can run STT on CPU but not the LLM/TTS (v1.1 limitation).\n'
+  printf 'Limitation: ollama + kokoro require a supported GPU profile. Without NVIDIA\n'
+  printf 'or AMD ROCm device nodes, use the CPU STT profile only.\n'
 }
 
 main() {
   printf 'gpu-doctor: preflight checks for `docker compose up` (advise-only, never blocks)\n'
   hr
-  check_nvidia_smi
-  check_toolkit
-  check_cuda_floor
-  check_vram_floor
-  print_advice
+  detect_gpu_vendor
+  case "${GPU_VENDOR}" in
+    nvidia)
+      check_nvidia_smi
+      check_toolkit
+      check_cuda_floor
+      check_vram_floor
+      print_advice ;;
+    amd)
+      print_amd_advice ;;
+    *)
+      advise "No \`nvidia-smi\` on PATH or working NVIDIA driver, and no AMD ROCm device nodes were found."
+      print_advice ;;
+  esac
   exit 0
 }
 

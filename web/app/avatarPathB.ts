@@ -83,6 +83,14 @@ export function wordToVisemes(word: string): string[] {
 export function scheduleToTimeline(words: ScheduleWord[]): VisemeSpan[] {
   const spans: VisemeSpan[] = [];
   for (const word of words) {
+    if (
+      !word ||
+      typeof word.w !== "string" ||
+      !Number.isFinite(word.s) ||
+      !Number.isFinite(word.e)
+    ) {
+      continue;
+    }
     const dur = Math.max(0, word.e - word.s);
     if (dur <= 0 || !word.w) continue;
     const visemes = wordToVisemes(word.w);
@@ -99,6 +107,9 @@ export function scheduleToTimeline(words: ScheduleWord[]): VisemeSpan[] {
 }
 
 export function queueSchedule(schedule: LipsyncSchedule): QueuedSchedule | null {
+  if (!Number.isFinite(schedule.seq) || !Array.isArray(schedule.words)) {
+    return null;
+  }
   const timeline = scheduleToTimeline(schedule.words);
   return timeline.length === 0 ? null : { ...schedule, timeline };
 }

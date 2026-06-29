@@ -15,7 +15,8 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly DOCTOR="${SCRIPT_DIR}/gpu-doctor.sh"
 readonly BASH="$(command -v bash)"
 readonly SHIM_DIR="$(mktemp -d)"
-trap 'rm -rf "${SHIM_DIR}"' EXIT
+readonly AMD_DEVICE_ROOT="$(mktemp -d)"
+trap 'rm -rf "${SHIM_DIR}" "${AMD_DEVICE_ROOT}"' EXIT
 
 # --- fake nvidia-smi -------------------------------------------------------------
 # FAKE_SMI=missing  -> not created (command -v fails)
@@ -51,6 +52,16 @@ chmod +x "${SHIM_DIR}/docker"
 PASS=0
 FAIL=0
 
+reset_fake_amd_devices() {
+  rm -f "${AMD_DEVICE_ROOT}/kfd"
+  rm -rf "${AMD_DEVICE_ROOT}/dri"
+}
+
+enable_fake_amd_devices() {
+  mkdir -p "${AMD_DEVICE_ROOT}/dri"
+  : > "${AMD_DEVICE_ROOT}/kfd"
+}
+
 # Coreutils the doctor invokes by bare name. We symlink ONLY these into an isolated
 # PATH so the host's REAL nvidia-smi/docker can never leak in when we drop a shim.
 # Includes env + bash because the fake shims use a `#!/usr/bin/env bash` shebang,
@@ -72,7 +83,7 @@ run_doctor() {
   done
   DOCTOR_OUT="$(env -i PATH="${tmpdir}" \
     FAKE_SMI_CUDA="${FAKE_SMI_CUDA:-}" FAKE_SMI_VRAM="${FAKE_SMI_VRAM:-}" \
-    FAKE_DOCKER="${FAKE_DOCKER:-}" \
+    FAKE_DOCKER="${FAKE_DOCKER:-}" AMD_DEVICE_ROOT="${AMD_DEVICE_ROOT}" \
     "${BASH}" "${DOCTOR}" 2>&1)"
   DOCTOR_RC=$?
   rm -rf "${tmpdir}"
@@ -105,27 +116,6 @@ assert_scenario() {
   fi
 }
 
-# 1. nvidia-smi missing -> non-NVIDIA, degraded snippet.
-FAKE_SMI_CUDA="" FAKE_SMI_VRAM="" FAKE_DOCKER="" run_doctor "no-nvidia-smi"
-assert_scenario "nvidia-smi-missing" "No \`nvidia-smi\` on PATH" "degraded"
-
-# 2. toolkit missing (docker run --gpus prints the classic string) -> degraded.
-FAKE_SMI_CUDA="12.8" FAKE_SMI_VRAM="32607" FAKE_DOCKER="no-driver" run_doctor ""
-assert_scenario "toolkit-no-driver" "NVIDIA Container Toolkit missing" "degraded"
-
-# 3. CUDA too old -> degraded.
-FAKE_SMI_CUDA="12.4" FAKE_SMI_VRAM="32607" FAKE_DOCKER="ok" run_doctor ""
-assert_scenario "cuda-too-old" "needs CUDA >= 12.8" "degraded"
-
-# 4. VRAM sub-spec -> degraded.
-FAKE_SMI_CUDA="12.8" FAKE_SMI_VRAM="8188" FAKE_DOCKER="ok" run_doctor ""
-assert_scenario "vram-sub-spec" "will not co-reside" "degraded"
-
-# 5. all OK -> GPU-ready snippet.
-FAKE_SMI_CUDA="12.8" FAKE_SMI_VRAM="32607" FAKE_DOCKER="ok" run_doctor ""
-assert_scenario "all-ok" "OK: GPU ready." "gpu"
-
-# --- R3: STT engine recommendation per detected VRAM (advise-only) ---------------
 assert_contains() {
   local name="$1" substr="$2"
   if printf '%s' "${DOCTOR_OUT}" | grep -qF -- "${substr}"; then
@@ -136,17 +126,66 @@ assert_contains() {
   fi
 }
 
+assert_not_contains() {
+  local name="$1" substr="$2"
+  if printf '%s' "${DOCTOR_OUT}" | grep -qF -- "${substr}"; then
+    FAIL=$((FAIL+1)); printf 'FAIL  %s [unexpected: %s]\n' "${name}" "${substr}"
+    printf -- '------ doctor output ------\n%s\n---------------------------\n' "${DOCTOR_OUT}"
+  else
+    PASS=$((PASS+1)); printf 'PASS  %s\n' "${name}"
+  fi
+}
+
+# 1. nvidia-smi missing -> non-NVIDIA, degraded snippet.
+reset_fake_amd_devices
+FAKE_SMI_CUDA="" FAKE_SMI_VRAM="" FAKE_DOCKER="" run_doctor "no-nvidia-smi"
+assert_scenario "nvidia-smi-missing" "No \`nvidia-smi\` on PATH" "degraded"
+
+# 1b. nvidia-smi missing + AMD device nodes -> AMD ROCm advice, no NVIDIA degraded copy.
+enable_fake_amd_devices
+FAKE_SMI_CUDA="" FAKE_SMI_VRAM="" FAKE_DOCKER="" run_doctor "no-nvidia-smi"
+assert_contains "amd-compose-file" "COMPOSE_FILE=docker-compose.yml:docker-compose.amd.yml"
+assert_contains "amd-ollama-image" "ollama/ollama:0.30.10-rocm"
+assert_contains "amd-kokoro-image" "kokoro-fastapi-rocm:v0.5.0"
+assert_not_contains "amd-no-nvidia-degraded" "Sub-spec / non-NVIDIA host"
+reset_fake_amd_devices
+
+# 2. toolkit missing (docker run --gpus prints the classic string) -> degraded.
+reset_fake_amd_devices
+FAKE_SMI_CUDA="12.8" FAKE_SMI_VRAM="32607" FAKE_DOCKER="no-driver" run_doctor ""
+assert_scenario "toolkit-no-driver" "NVIDIA Container Toolkit missing" "degraded"
+
+# 3. CUDA too old -> degraded.
+reset_fake_amd_devices
+FAKE_SMI_CUDA="12.4" FAKE_SMI_VRAM="32607" FAKE_DOCKER="ok" run_doctor ""
+assert_scenario "cuda-too-old" "needs CUDA >= 12.8" "degraded"
+
+# 4. VRAM sub-spec -> degraded.
+reset_fake_amd_devices
+FAKE_SMI_CUDA="12.8" FAKE_SMI_VRAM="8188" FAKE_DOCKER="ok" run_doctor ""
+assert_scenario "vram-sub-spec" "will not co-reside" "degraded"
+
+# 5. all OK -> GPU-ready snippet.
+reset_fake_amd_devices
+FAKE_SMI_CUDA="12.8" FAKE_SMI_VRAM="32607" FAKE_DOCKER="ok" run_doctor ""
+assert_scenario "all-ok" "OK: GPU ready." "gpu"
+
+# --- R3: STT engine recommendation per detected VRAM (advise-only) ---------------
+reset_fake_amd_devices
 FAKE_SMI_CUDA="12.8" FAKE_SMI_VRAM="32607" FAKE_DOCKER="ok" run_doctor ""
 assert_contains "engine-16gb-hybrid"    "STT_ENGINE=hybrid"
 assert_contains "engine-16gb-gpu-dev"   "STT_BUFFERED_DEVICE=gpu"
 
+reset_fake_amd_devices
 FAKE_SMI_CUDA="12.8" FAKE_SMI_VRAM="12288" FAKE_DOCKER="ok" run_doctor ""
 assert_contains "engine-12gb-hybrid"    "STT_ENGINE=hybrid"
 assert_contains "engine-12gb-cpu-dev"   "STT_BUFFERED_DEVICE=cpu"
 
+reset_fake_amd_devices
 FAKE_SMI_CUDA="12.8" FAKE_SMI_VRAM="8188" FAKE_DOCKER="ok" run_doctor ""
 assert_contains "engine-8gb-buffered"   "STT_ENGINE=buffered"
 
+reset_fake_amd_devices
 run_doctor "no-nvidia-smi"
 assert_contains "engine-nogpu-buffered" "STT_ENGINE=buffered"
 
