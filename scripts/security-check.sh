@@ -105,8 +105,15 @@ PY
 evaluate_json_report() {
   local kind="$1" label="$2" file="$3" rc="$4"
   local total blocking
-  total="$(json_metric "$kind" total "$file")"
-  blocking="$(json_metric "$kind" blocking "$file")"
+  if ! total="$(json_metric "$kind" total "$file" 2>/dev/null)" \
+     || ! blocking="$(json_metric "$kind" blocking "$file" 2>/dev/null)"; then
+    if [ "$rc" -ne 0 ]; then
+      block "${label}: command failed without parseable vulnerabilities. See ${file}"
+    else
+      block "${label}: could not parse vulnerability report. See ${file}"
+    fi
+    return 0
+  fi
 
   if [ "$blocking" -gt 0 ]; then
     block "${label}: ${blocking} blocking vulnerabilities (${total} total). See ${file}"
@@ -240,6 +247,7 @@ run_pattern_scan() {
     -g '*.sh' -g '*.py' -g '*.ts' -g '*.tsx' \
     -g '!web/node_modules/**' -g '!web/.next/**' \
     -g '!security/reports/**' -g '!docs/**' \
+    -g '!scripts/security-check.sh' \
     'curl .*\|.*(sh|bash)|wget .*\|.*(sh|bash)|eval \$|base64 -d|nc -e|/dev/tcp|chmod 777' \
     . >"$report"
   local rc=$?

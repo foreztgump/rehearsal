@@ -13,7 +13,7 @@ bad() { FAIL=$((FAIL + 1)); printf 'FAIL: %s\n' "$1"; }
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-readonly -a NEEDED_TOOLS=(bash cat dirname env find grep mkdir sed tr python3)
+readonly -a NEEDED_TOOLS=(bash cat dirname env find grep mkdir rm sed tr python3 rg)
 
 build_path() {
   local dir="$1" tool path
@@ -70,6 +70,22 @@ else
   fi
 fi
 
+BIN_BAD_JSON="$WORK/bin-bad-json"
+build_path "$BIN_BAD_JSON"
+install_success_shims "$BIN_BAD_JSON"
+make_shim "$BIN_BAD_JSON" osv-scanner 'printf "%s\n" "not json"; exit 2'
+if env -i PATH="$BIN_BAD_JSON" SECURITY_REPORT_DIR="$WORK/reports-bad-json" bash scripts/security-check.sh >"$WORK/bad-json.out" 2>&1; then
+  bad "malformed scanner JSON must fail"
+else
+  if grep -q "OSV-Scanner recursive scan: command failed without parseable vulnerabilities" "$WORK/bad-json.out" \
+     && grep -q "security-check summary:" "$WORK/bad-json.out"; then
+    ok "malformed scanner JSON gives clear summary"
+  else
+    bad "malformed scanner JSON output not clear"
+    cat "$WORK/bad-json.out"
+  fi
+fi
+
 BIN_OK="$WORK/bin-ok"
 build_path "$BIN_OK"
 install_success_shims "$BIN_OK"
@@ -88,6 +104,15 @@ if env -i PATH="$BIN_OK" SECURITY_REPORT_DIR="$WORK/reports-ok" bash scripts/sec
   grep -q "WARN: shellcheck not installed" "$WORK/ok.out" \
     && ok "missing optional shellcheck warns only" \
     || bad "missing optional shellcheck warning absent"
+  if type -P rg >/dev/null 2>&1; then
+    grep -q "PASS: suspicious-pattern scan" "$WORK/ok.out" \
+      && ok "pattern scan ignores its own regex definition" \
+      || bad "pattern scan self-match was not ignored"
+  else
+    grep -q "WARN: rg not installed" "$WORK/ok.out" \
+      && ok "missing optional rg warns only" \
+      || bad "missing optional rg warning absent"
+  fi
 else
   bad "all-shim success path failed"
   cat "$WORK/ok.out"
