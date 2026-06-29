@@ -80,9 +80,21 @@ export function wordToVisemes(word: string): string[] {
   return out.length === 0 ? ["viseme_aa"] : out;
 }
 
+function isScheduleWord(
+  word: Partial<ScheduleWord> | null | undefined,
+): word is ScheduleWord {
+  return (
+    !!word &&
+    typeof word.w === "string" &&
+    Number.isFinite(word.s) &&
+    Number.isFinite(word.e)
+  );
+}
+
 export function scheduleToTimeline(words: ScheduleWord[]): VisemeSpan[] {
   const spans: VisemeSpan[] = [];
   for (const word of words) {
+    if (!isScheduleWord(word)) continue;
     const dur = Math.max(0, word.e - word.s);
     if (dur <= 0 || !word.w) continue;
     const visemes = wordToVisemes(word.w);
@@ -98,9 +110,20 @@ export function scheduleToTimeline(words: ScheduleWord[]): VisemeSpan[] {
   return spans;
 }
 
-export function queueSchedule(schedule: LipsyncSchedule): QueuedSchedule | null {
-  const timeline = scheduleToTimeline(schedule.words);
-  return timeline.length === 0 ? null : { ...schedule, timeline };
+export function queueSchedule(
+  schedule: Partial<LipsyncSchedule> | null | undefined,
+): QueuedSchedule | null {
+  const seq = schedule?.seq;
+  if (
+    typeof seq !== "number" ||
+    !Number.isFinite(seq) ||
+    !Array.isArray(schedule?.words)
+  ) {
+    return null;
+  }
+  const words = schedule.words.filter(isScheduleWord);
+  const timeline = scheduleToTimeline(words);
+  return timeline.length === 0 ? null : { seq, words, timeline };
 }
 
 export function advancePathB(

@@ -18,6 +18,36 @@ test("scheduleToTimeline splits real word timing into viseme spans", () => {
   assert.equal(timeline.at(-1).e, 0.8);
 });
 
+test("queueSchedule rejects malformed boundary fields", () => {
+  assert.equal(
+    queueSchedule({ seq: NaN, words: [{ w: "cat", s: 0, e: 0.4 }] }),
+    null,
+  );
+  assert.equal(
+    queueSchedule({ seq: 1, words: [{ w: "cat", s: NaN, e: 0.4 }] }),
+    null,
+  );
+  assert.equal(
+    queueSchedule({ seq: 1, words: [{ w: 123, s: 0, e: 0.4 }] }),
+    null,
+  );
+});
+
+test("queueSchedule drops malformed word timing from queued schedules", () => {
+  const queued = queueSchedule({
+    seq: 1,
+    words: [
+      { w: "bad", s: NaN, e: 0.2 },
+      { w: "ok", s: 0, e: 0.3 },
+      { w: "bad", s: 0.3, e: Infinity },
+    ],
+  });
+
+  assert.ok(queued);
+  assert.deepEqual(queued.words, [{ w: "ok", s: 0, e: 0.3 }]);
+  assert.equal(queued.timeline.at(-1).e, 0.3);
+});
+
 test("advancePathB anchors the first schedule on audible audio", () => {
   const first = queueSchedule({ seq: 1, words: [{ w: "hello", s: 0, e: 0.4 }] });
 

@@ -155,8 +155,9 @@ export default function AvatarStage({
 
   // --- Path-B captioned lip-sync state ---
   // FIFO of word schedules received over LIPSYNC_TOPIC but not yet started. Each is
-  // popped and anchored to the next measured audio onset (the docstring contract in
-  // agent/captioned_tts.py), so data-channel/audio ordering slack never desyncs.
+  // popped by advancePathB and anchored either on first audible audio or chained
+  // from the prior schedule end, so data-channel/audio ordering slack never
+  // desyncs the mouth.
   const scheduleQueueRef = useRef<QueuedSchedule[]>([]);
   // The schedule currently driving the mouth: its viseme timeline + the audioCtx
   // time (seconds) we anchored word s=0 to. null => fall back to Path-A formants.
@@ -164,20 +165,19 @@ export default function AvatarStage({
   // Drop schedules whose seq we've already enqueued (publish_data can redeliver).
   const lastSeqRef = useRef(-1);
 
-  // Receive word schedules from the agent's CaptionedTTS and queue them. We do NOT
-  // anchor here — anchoring waits for the measured audio onset in the rAF tick.
+  // Receive word schedules from the agent's CaptionedTTS and queue them. Anchoring
+  // happens in the rAF tick: first schedule on audible audio, later schedules can
+  // chain from the prior schedule end while audio remains continuous.
   const onLipsync = useCallback((msg: { payload: Uint8Array }) => {
     try {
       const obj = JSON.parse(new TextDecoder().decode(msg.payload)) as
         | LipsyncSchedule
         | undefined;
       if (!obj || !Array.isArray(obj.words) || obj.words.length === 0) return;
-      if (typeof obj.seq === "number") {
-        if (obj.seq <= lastSeqRef.current) return; // dup/out-of-order replay
-        lastSeqRef.current = obj.seq;
-      }
       const queued = queueSchedule(obj);
       if (!queued) return;
+      if (queued.seq <= lastSeqRef.current) return; // dup/out-of-order replay
+      lastSeqRef.current = queued.seq;
       scheduleQueueRef.current.push(queued);
     } catch {
       // Malformed payload: ignore, lip-sync simply falls back to Path-A this turn.
@@ -376,10 +376,8 @@ export default function AvatarStage({
       const vw: Record<string, number> = {};
       for (const k of VISEME_MORPHS) vw[k] = 0;
       let smooth = 0;
-      // Onset detector hysteresis: rms must cross above HI to mark audible, and drop
-      // below LO to mark silent — prevents anchor thrash on syllable dips.
+      // Audible threshold for Path-B anchoring/chaining.
       const RMS_HI = 0.04;
-      const RMS_LO = 0.015;
       // --- Mouth-feel tuning (natural, not exaggerated). The jaw opens GENTLY and
       // the viseme shapes sit BELOW the jaw envelope so the mouth never gapes or
       // snaps. These are perception knobs — nudge up if too subtle, down if overdone. ---
@@ -439,10 +437,10 @@ export default function AvatarStage({
         const k = open > smooth ? MOUTH_ATTACK : MOUTH_RELEASE;
         smooth += (open - smooth) * k;
 
-        // --- 2) Audio-onset anchoring (Path-B): when a queued schedule exists and
-        // we just crossed silence->sound, lock its t=0 to NOW (ctx.currentTime). The
-        // sentence-relative word times then map to wall-clock by adding this anchor,
-        // so buffer/network jitter on the data channel never desyncs the mouth. ---
+        // --- 2) Path-B anchoring: start the first queued schedule on audible audio,
+        // and chain the next one from the prior schedule end if audio stays audible.
+        // Sentence-relative word times map to wall-clock by adding this anchor, so
+        // buffer/network jitter on the data channel never desyncs the mouth. ---
         const audible = !mutedRef.current && rms > RMS_HI;
         const pathB = advancePathB(
           { active: activeRef.current, queue: scheduleQueueRef.current },
