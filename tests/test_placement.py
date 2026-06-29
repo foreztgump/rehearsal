@@ -53,7 +53,7 @@ def test_default_cpu_when_unmeasured() -> None:
 def test_measured_fits_gpu() -> None:
     """STT_HEADROOM_MEASURED=1, no force → with the placeholder table → GPU for both."""
     env = {"STT_HEADROOM_MEASURED": "1"}
-    assert placement._gpu_fits() is True, "placeholder table must fit GPU"
+    assert placement._gpu_fits({}) is True, "placeholder table must fit GPU"
     assert resolve_stt_placement("fast", env) == "gpu", "measured + fits → gpu"
     assert resolve_stt_placement("better", env) == "gpu", "measured + fits → gpu"
 
@@ -76,13 +76,25 @@ def test_tightened_table_pins_cpu_for_both() -> None:
     try:
         # Push Kokoro huge so worst_llm + KOKORO + STT_GPU > ceiling.
         placement.KOKORO_MB = 9000
-        assert placement._gpu_fits() is False, "tightened table must NOT fit GPU"
+        assert placement._gpu_fits({}) is False, "tightened table must NOT fit GPU"
         assert resolve_stt_placement("fast", env) == "cpu", "tightened → cpu"
         assert resolve_stt_placement("better", env) == "cpu", "tightened → cpu"
         assert resolve_stt_placement("fast", env) == resolve_stt_placement("better", env), \
             "tightened decision still identical for fast/better"
     finally:
         placement.KOKORO_MB = original
+
+
+def test_vram_total_env_derived() -> None:
+    """R3 Plan B: a measured 12GB VRAM_TOTAL_MB cannot co-fit GPU-STT; a non-numeric
+    value falls back to the 16384 default (fits). Never raises."""
+    measured = {"STT_HEADROOM_MEASURED": "1"}
+    assert resolve_stt_placement("better", {**measured, "VRAM_TOTAL_MB": "12288"}) == "cpu", \
+        "measured 12GB total must not fit GPU-STT"
+    assert placement._gpu_fits({"VRAM_TOTAL_MB": "16384"}) is True, "16GB total fits"
+    assert placement._gpu_fits({"VRAM_TOTAL_MB": "12288"}) is False, "12GB total does not fit"
+    assert placement._gpu_fits({"VRAM_TOTAL_MB": "not-a-number"}) is True, "bad total → default"
+    assert placement._gpu_fits({"VRAM_TOTAL_MB": "²"}) is True, "non-ASCII digit → default (never raises)"
 
 
 def test_unknown_choice_cpu_safe_never_raises() -> None:
@@ -133,6 +145,7 @@ def _run_all() -> None:
     test_measured_fits_gpu()
     test_worst_case_llm_lock_identical_fast_better()
     test_tightened_table_pins_cpu_for_both()
+    test_vram_total_env_derived()
     test_unknown_choice_cpu_safe_never_raises()
     test_truthy_normalization()
     test_no_exception_return_membership_invariant()
