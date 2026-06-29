@@ -24,6 +24,31 @@ export const LIPSYNC_TOPIC = "lk.avatar.lipsync";
 // Trailing slash: three's DRACOLoader appends draco_decoder.js / draco_wasm_wrapper.js.
 export const DRACO_DECODER_PATH = "/vendor/three/addons/libs/draco/";
 
+// During speech the trainer should keep direct eye contact. Ambient scanning is
+// fine outside speech, but looking away mid-answer reads unnatural in live UAT.
+export const TALKINGHEAD_SPEAKING_BEHAVIOR = {
+  avatarSpeakingEyeContact: 1,
+  avatarSpeakingHeadMove: 0,
+} as const;
+
+export const TALKINGHEAD_SPEAKING_GAZE_LOCKS = [
+  ["eyesRotateX", 0],
+  ["eyesRotateY", 0],
+  ["headRotateX", 0],
+  ["headRotateY", 0],
+  ["headRotateZ", 0],
+] as const;
+
+type FixedMorphTarget = {
+  setFixedValue: (mt: string, val: number | null) => void;
+};
+
+export function applySpeakingGazeLock(head: FixedMorphTarget, speaking: boolean) {
+  for (const [mt, val] of TALKINGHEAD_SPEAKING_GAZE_LOCKS) {
+    head.setFixedValue(mt, speaking ? val : null);
+  }
+}
+
 // What AvatarStage needs to render a persona's avatar. `body` ("F"|"M") only sets
 // TalkingHead's idle-pose/gesture set; `mood` is the persona's resting expression
 // applied via setMood on load (AVTR-04). `glb` is a same-origin vendored asset.

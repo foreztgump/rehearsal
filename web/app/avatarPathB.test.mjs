@@ -7,6 +7,11 @@ import {
   queueSchedule,
   scheduleToTimeline,
 } from "./avatarPathB.ts";
+import {
+  applySpeakingGazeLock,
+  TALKINGHEAD_SPEAKING_BEHAVIOR,
+  TALKINGHEAD_SPEAKING_GAZE_LOCKS,
+} from "./avatarConfig.ts";
 
 test("scheduleToTimeline splits real word timing into viseme spans", () => {
   const timeline = scheduleToTimeline([{ w: "cat", s: 0.2, e: 0.8 }]);
@@ -154,4 +159,41 @@ test("activeVisemeAt returns the scheduled viseme for the current audio time", (
 
   assert.equal(activeVisemeAt(active, 5.05), "viseme_kk");
   assert.equal(activeVisemeAt(active, 6), null);
+});
+
+test("speaking avatar behavior holds eye contact without head scanning", () => {
+  assert.equal(TALKINGHEAD_SPEAKING_BEHAVIOR.avatarSpeakingEyeContact, 1);
+  assert.equal(TALKINGHEAD_SPEAKING_BEHAVIOR.avatarSpeakingHeadMove, 0);
+  assert.deepEqual(TALKINGHEAD_SPEAKING_GAZE_LOCKS, [
+    ["eyesRotateX", 0],
+    ["eyesRotateY", 0],
+    ["headRotateX", 0],
+    ["headRotateY", 0],
+    ["headRotateZ", 0],
+  ]);
+});
+
+test("applySpeakingGazeLock fixes and releases speaking eye/head targets", () => {
+  const calls = [];
+  const head = {
+    setFixedValue(mt, val) {
+      calls.push([mt, val]);
+    },
+  };
+
+  applySpeakingGazeLock(head, true);
+  applySpeakingGazeLock(head, false);
+
+  assert.deepEqual(calls, [
+    ["eyesRotateX", 0],
+    ["eyesRotateY", 0],
+    ["headRotateX", 0],
+    ["headRotateY", 0],
+    ["headRotateZ", 0],
+    ["eyesRotateX", null],
+    ["eyesRotateY", null],
+    ["headRotateX", null],
+    ["headRotateY", null],
+    ["headRotateZ", null],
+  ]);
 });

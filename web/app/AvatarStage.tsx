@@ -4,11 +4,13 @@ import { useDataChannel, useVoiceAssistant } from "@livekit/components-react";
 import type { TrackReference } from "@livekit/components-core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  applySpeakingGazeLock,
   avatarForPersona,
   CAMERA_VIEW,
   DRACO_DECODER_PATH,
   LIPSYNC_TOPIC,
   TALKINGHEAD_SPECIFIER,
+  TALKINGHEAD_SPEAKING_BEHAVIOR,
 } from "./avatarConfig";
 import {
   acceptScheduleSequence,
@@ -51,6 +53,7 @@ type TalkingHeadInstance = {
   showAvatar: (avatar: Record<string, unknown>) => Promise<void>;
   setMood: (mood: string) => void;
   speakWithHands: (delay?: number, prob?: number) => void;
+  setFixedValue: (mt: string, val: number | null) => void;
   setValue: (mt: string, val: number, ms?: number | null) => void;
   makeEyeContact: (ms: number) => void;
   lookAtCamera: (ms: number) => void;
@@ -235,6 +238,7 @@ export default function AvatarStage({
           jwtGet: null,
           dracoEnabled: true,
           dracoDecoderPath: DRACO_DECODER_PATH,
+          ...TALKINGHEAD_SPEAKING_BEHAVIOR,
         });
 
         if (cancelled) {
@@ -249,6 +253,7 @@ export default function AvatarStage({
           body: avatar.body,
           avatarMood: avatar.mood,
           lipsyncLang: "en",
+          ...TALKINGHEAD_SPEAKING_BEHAVIOR,
         });
         if (cancelled) {
           head.dispose();
@@ -606,6 +611,11 @@ export default function AvatarStage({
     // (AVTR-03): the instant the user speaks, the agent leaves 'speaking' and the
     // mouth snaps closed mid-utterance. Reuses the existing signal; no new VAD.
     const speaking = state === "speaking";
+    try {
+      applySpeakingGazeLock(head, speaking);
+    } catch {
+      /* non-fatal */
+    }
     mutedRef.current = !speaking;
     if (!speaking) {
       // Barge-in / turn end: drop the active word schedule (a stale timeline must not
