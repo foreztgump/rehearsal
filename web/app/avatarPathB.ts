@@ -1,5 +1,9 @@
 export type ScheduleWord = { w: string; s: number; e: number };
-export type LipsyncSchedule = { seq: number; words: ScheduleWord[] };
+export type LipsyncSchedule = {
+  seq: number;
+  request_id?: string;
+  words: ScheduleWord[];
+};
 export type VisemeSpan = { m: string; s: number; e: number };
 export type QueuedSchedule = LipsyncSchedule & { timeline: VisemeSpan[] };
 export type ActiveSchedule = {
@@ -13,6 +17,7 @@ export type PathBInput = {
 };
 export type PathBStep = { now: number; audible: boolean };
 export type PathBResult = PathBInput & { anchoredSeq: number | null };
+export type SequenceGate = { requestId: string | null; lastSeq: number };
 
 export const PATH_B_END_GRACE_SECONDS = 0.15;
 
@@ -123,7 +128,21 @@ export function queueSchedule(
   }
   const words = schedule.words.filter(isScheduleWord);
   const timeline = scheduleToTimeline(words);
-  return timeline.length === 0 ? null : { seq, words, timeline };
+  if (timeline.length === 0) return null;
+  const request_id =
+    typeof schedule.request_id === "string" ? schedule.request_id : undefined;
+  return { seq, request_id, words, timeline };
+}
+
+export function acceptScheduleSequence(
+  gate: SequenceGate,
+  schedule: QueuedSchedule,
+): SequenceGate | null {
+  const requestId = schedule.request_id ?? null;
+  if (requestId === gate.requestId && schedule.seq <= gate.lastSeq) {
+    return null;
+  }
+  return { requestId, lastSeq: schedule.seq };
 }
 
 export function advancePathB(

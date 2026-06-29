@@ -11,12 +11,14 @@ import {
   TALKINGHEAD_SPECIFIER,
 } from "./avatarConfig";
 import {
+  acceptScheduleSequence,
   activeVisemeAt,
   advancePathB,
   queueSchedule,
   type ActiveSchedule,
   type LipsyncSchedule,
   type QueuedSchedule,
+  type SequenceGate,
 } from "./avatarPathB";
 
 // Surface of the TalkingHead 1.7 instance we touch. Path-A streaming API confirmed
@@ -173,8 +175,8 @@ export default function AvatarStage({
   // The schedule currently driving the mouth: its viseme timeline + the audioCtx
   // time (seconds) we anchored word s=0 to. null => fall back to Path-A formants.
   const activeRef = useRef<ActiveSchedule | null>(null);
-  // Drop schedules whose seq we've already enqueued (publish_data can redeliver).
-  const lastSeqRef = useRef(-1);
+  // Drop duplicate schedules per request_id; a new request_id may restart seq at 1.
+  const sequenceGateRef = useRef<SequenceGate>({ requestId: null, lastSeq: -1 });
 
   // Receive word schedules from the agent's CaptionedTTS and queue them. Anchoring
   // happens in the rAF tick: first schedule on audible audio, later schedules can
@@ -187,8 +189,9 @@ export default function AvatarStage({
       if (!obj || !Array.isArray(obj.words) || obj.words.length === 0) return;
       const queued = queueSchedule(obj);
       if (!queued) return;
-      if (queued.seq <= lastSeqRef.current) return; // dup/out-of-order replay
-      lastSeqRef.current = queued.seq;
+      const nextGate = acceptScheduleSequence(sequenceGateRef.current, queued);
+      if (!nextGate) return;
+      sequenceGateRef.current = nextGate;
       scheduleQueueRef.current.push(queued);
     } catch {
       // Malformed payload: ignore, lip-sync simply falls back to Path-A this turn.

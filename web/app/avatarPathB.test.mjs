@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  acceptScheduleSequence,
   activeVisemeAt,
   advancePathB,
   queueSchedule,
@@ -46,6 +47,34 @@ test("queueSchedule drops malformed word timing from queued schedules", () => {
   assert.ok(queued);
   assert.deepEqual(queued.words, [{ w: "ok", s: 0, e: 0.3 }]);
   assert.equal(queued.timeline.at(-1).e, 0.3);
+});
+
+test("acceptScheduleSequence allows seq reset on a new request_id", () => {
+  const first = queueSchedule({
+    seq: 4,
+    request_id: "old",
+    words: [{ w: "old", s: 0, e: 0.2 }],
+  });
+  const restarted = queueSchedule({
+    seq: 1,
+    request_id: "new",
+    words: [{ w: "new", s: 0, e: 0.2 }],
+  });
+
+  assert.ok(first);
+  assert.ok(restarted);
+
+  const afterFirst = acceptScheduleSequence(
+    { requestId: null, lastSeq: -1 },
+    first,
+  );
+
+  assert.deepEqual(afterFirst, { requestId: "old", lastSeq: 4 });
+  assert.equal(acceptScheduleSequence(afterFirst, first), null);
+  assert.deepEqual(acceptScheduleSequence(afterFirst, restarted), {
+    requestId: "new",
+    lastSeq: 1,
+  });
 });
 
 test("advancePathB anchors the first schedule on audible audio", () => {
