@@ -94,6 +94,7 @@ def test_vram_total_env_derived() -> None:
     assert placement._gpu_fits({"VRAM_TOTAL_MB": "16384"}) is True, "16GB total fits"
     assert placement._gpu_fits({"VRAM_TOTAL_MB": "12288"}) is False, "12GB total does not fit"
     assert placement._gpu_fits({"VRAM_TOTAL_MB": "not-a-number"}) is True, "bad total → default"
+    assert placement._gpu_fits({"VRAM_TOTAL_MB": "²"}) is True, "non-ASCII digit → default (never raises)"
 
 
 def test_unknown_choice_cpu_safe_never_raises() -> None:

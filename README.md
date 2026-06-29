@@ -132,7 +132,7 @@ GPU (advise-only — it never edits `.env`). All three run fully local.
 | Detected VRAM | gpu-doctor recommends |
 |---|---|
 | ≥ 16 GB | `STT_ENGINE=hybrid`, `STT_BUFFERED_DEVICE=gpu` |
-| 12–16 GB | `STT_ENGINE=hybrid`, `STT_BUFFERED_DEVICE=cpu` |
+| 12 GB to < 16 GB | `STT_ENGINE=hybrid`, `STT_BUFFERED_DEVICE=cpu` |
 | < 12 GB / CPU-only | `STT_ENGINE=buffered`, `STT_BUFFERED_DEVICE=cpu` |
 
 `buffered`/`hybrid` use NVIDIA `parakeet-tdt-0.6b-v2` (int8 ONNX) as the authoritative `final` engine;

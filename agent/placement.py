@@ -68,7 +68,7 @@ def _truthy(env: Mapping[str, str], key: str) -> bool:
 def _vram_total_mb(env: Mapping[str, str]) -> int:
     """Env-derived total VRAM (MB). Non-numeric/missing → the 16384 default. Never raises."""
     raw = env.get("VRAM_TOTAL_MB", "").strip()
-    if not raw.isdigit():
+    if not (raw.isascii() and raw.isdigit()):
         return VRAM_TOTAL_MB
     return int(raw)
 
@@ -136,6 +136,7 @@ def _self_check() -> None:
     assert _gpu_fits({"VRAM_TOTAL_MB": "12288"}) is False, "12GB total does not fit"
     # A garbage total must NOT raise and must fall back to the 16384 default (fits).
     assert _gpu_fits({"VRAM_TOTAL_MB": "not-a-number"}) is True, "bad total falls back to default"
+    assert _gpu_fits({"VRAM_TOTAL_MB": "²"}) is True, "non-ASCII digit must fall back to default (never raise)"
 
     # Worst-case-LLM lock: identical decision for fast and better under the same env.
     assert resolve_stt_placement("fast", measured) == resolve_stt_placement("better", measured), \
