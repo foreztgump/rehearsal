@@ -281,6 +281,11 @@ services:
         # Bake the browser-facing LiveKit WS URL into the client bundle. Defaults
         # to ws://localhost:7880 (direct to livekit-server) for the local install.
         NEXT_PUBLIC_LIVEKIT_URL: ${NEXT_PUBLIC_LIVEKIT_URL:-ws://localhost:7880}
+        # R7: bake the installed model choices + labels so the web picker shows only
+        # installed models (one-model install → read-only field). Defaults to the
+        # pre-R7 fast/better set for back-compat. Changing these requires a web rebuild.
+        NEXT_PUBLIC_ADEPT_MODEL_CHOICES: ${NEXT_PUBLIC_ADEPT_MODEL_CHOICES:-fast,better}
+        NEXT_PUBLIC_ADEPT_MODEL_LABELS: ${NEXT_PUBLIC_ADEPT_MODEL_LABELS:-Fast,Better}
     env_file: .env
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:3000:3000"

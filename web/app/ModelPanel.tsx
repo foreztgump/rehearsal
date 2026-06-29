@@ -5,25 +5,30 @@ import { useState } from "react";
 
 import { ApplyState, STATUS_COLOR, STATUS_LABEL } from "./ui/apply";
 
-// Duplication seam (08-PATTERNS.md File 2): these choice keys MUST mirror
-// agent/main.py MODEL_CHOICES ("fast", "better"). There is no model.get RPC in the
-// MVP, so drift here is silent — keep in sync by hand. NEVER surface the raw Ollama
-// tag here: the agent maps the plain key → tag (LLM-01).
-const CHOICES = ["fast", "better"] as const;
+// R7: choices + labels are baked at build time from the installer's .env (not a
+// hardcoded array). One-model install → one option (rendered read-only below).
+// Back-compat: unset env → ["fast","better"] (the pre-R7 default). NEVER surface
+// the raw Ollama tag here: the agent maps the plain key → tag (LLM-01).
+const RAW_CHOICES = (process.env.NEXT_PUBLIC_ADEPT_MODEL_CHOICES ?? "fast,better")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+export const CHOICES = RAW_CHOICES as readonly string[];
+
+const RAW_LABELS = (process.env.NEXT_PUBLIC_ADEPT_MODEL_LABELS ?? "Fast,Better")
+  .split(",")
+  .map((s) => s.trim());
+const CHOICE_LABEL: Record<string, string> = Object.fromEntries(
+  CHOICES.map((c, i) => [c, RAW_LABELS[i] ?? c])
+);
 
 // Shared model-choice type — imported by SetupScreen + ApplySetupOnConnect so the
-// pre-connect held config and the post-connect apply use the same type.
-export type ModelChoice = (typeof CHOICES)[number];
+// pre-connect held config and the post-connect apply use the same type. Widened to
+// string in R7 so the baked install set (any keys) typechecks.
+export type ModelChoice = string;
 
-// Default mirrors LLM-02 (Fast). Held by the setup screen on load.
-export const DEFAULT_MODEL: ModelChoice = "fast";
-
-// OUTCOME labels ONLY (LLM-01, REQUIREMENTS:98) — no raw tag, no latency/token
-// numbers. The RPC carries the plain key; the label is UI-only.
-const CHOICE_LABEL: Record<ModelChoice, string> = {
-  fast: "Fast (snappier)",
-  better: "Better (more thoughtful)",
-};
+// Default = the first baked choice (the installer's chosen default).
+export const DEFAULT_MODEL: ModelChoice = CHOICES[0] ?? "fast";
 
 /**
  * Presentational, fully-controlled model picker. Renders a single labeled field
@@ -45,16 +50,26 @@ export function ModelFields({
       <label className="field-label" htmlFor="model-select">
         Response model
       </label>
-      <select
-        id="model-select"
-        className="control"
-        value={value}
-        onChange={(e) => onChange(e.target.value as ModelChoice)}
-      >
-        {CHOICES.map((c) => (
-          <option key={c} value={c}>{CHOICE_LABEL[c]}</option>
-        ))}
-      </select>
+      {CHOICES.length <= 1 ? (
+        <input
+          id="model-select"
+          className="control"
+          value={CHOICE_LABEL[CHOICES[0]] ?? CHOICES[0] ?? ""}
+          readOnly
+          aria-readonly="true"
+        />
+      ) : (
+        <select
+          id="model-select"
+          className="control"
+          value={value}
+          onChange={(e) => onChange(e.target.value as ModelChoice)}
+        >
+          {CHOICES.map((c) => (
+            <option key={c} value={c}>{CHOICE_LABEL[c] ?? c}</option>
+          ))}
+        </select>
+      )}
     </div>
   );
 }
