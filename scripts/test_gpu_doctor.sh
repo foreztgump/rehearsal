@@ -125,5 +125,30 @@ assert_scenario "vram-sub-spec" "will not co-reside" "degraded"
 FAKE_SMI_CUDA="12.8" FAKE_SMI_VRAM="32607" FAKE_DOCKER="ok" run_doctor ""
 assert_scenario "all-ok" "OK: GPU ready." "gpu"
 
+# --- R3: STT engine recommendation per detected VRAM (advise-only) ---------------
+assert_contains() {
+  local name="$1" substr="$2"
+  if printf '%s' "${DOCTOR_OUT}" | grep -qF -- "${substr}"; then
+    PASS=$((PASS+1)); printf 'PASS  %s\n' "${name}"
+  else
+    FAIL=$((FAIL+1)); printf 'FAIL  %s [missing: %s]\n' "${name}" "${substr}"
+    printf -- '------ doctor output ------\n%s\n---------------------------\n' "${DOCTOR_OUT}"
+  fi
+}
+
+FAKE_SMI_CUDA="12.8" FAKE_SMI_VRAM="32607" FAKE_DOCKER="ok" run_doctor ""
+assert_contains "engine-16gb-hybrid"    "STT_ENGINE=hybrid"
+assert_contains "engine-16gb-gpu-dev"   "STT_BUFFERED_DEVICE=gpu"
+
+FAKE_SMI_CUDA="12.8" FAKE_SMI_VRAM="12288" FAKE_DOCKER="ok" run_doctor ""
+assert_contains "engine-12gb-hybrid"    "STT_ENGINE=hybrid"
+assert_contains "engine-12gb-cpu-dev"   "STT_BUFFERED_DEVICE=cpu"
+
+FAKE_SMI_CUDA="12.8" FAKE_SMI_VRAM="8188" FAKE_DOCKER="ok" run_doctor ""
+assert_contains "engine-8gb-buffered"   "STT_ENGINE=buffered"
+
+run_doctor "no-nvidia-smi"
+assert_contains "engine-nogpu-buffered" "STT_ENGINE=buffered"
+
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]

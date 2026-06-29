@@ -34,6 +34,10 @@ readonly VRAM_FLOOR_MB="${VRAM_FLOOR_MB:-16384}"
 readonly CUDA_FLOOR="${CUDA_FLOOR:-12.8}"
 readonly TOOLKIT_PROBE_IMAGE="${TOOLKIT_PROBE_IMAGE:-nvidia/cuda:12.4.0-base-ubuntu22.04}"
 
+# R3 Plan B (advise-only): the hybrid VRAM floor. >= VRAM_FLOOR_MB → Parakeet on GPU;
+# VRAM_HYBRID_MB..VRAM_FLOOR_MB → hybrid with Parakeet on CPU (frees GPU); below → buffered.
+readonly VRAM_HYBRID_MB="${VRAM_HYBRID_MB:-12288}"
+
 # The documented degraded defaults (consistent with .env.example): CPU-ONNX STT +
 # the Fast LLM tag. Referenced in the degraded snippet — not new literals.
 readonly FAST_LLM_TAG="evalengine/unbound-e2b:latest"
@@ -42,6 +46,7 @@ readonly FAST_LLM_TAG="evalengine/unbound-e2b:latest"
 # block branches on it. We never exit non-zero (ADVISE posture).
 DEGRADED=0
 NVIDIA_OK=0   # set when step 1 passes (gates steps 3 & 4, which query the GPU)
+DETECTED_VRAM_MB=""   # set by check_vram_floor; drives the R3 STT engine recommendation
 
 ok()     { printf 'OK: %s\n' "$*"; }
 advise() { printf 'ADVISE: %s\n' "$*"; DEGRADED=1; }
@@ -149,6 +154,7 @@ check_vram_floor() {
   # Only accept an all-digit value; a driver that rejects the query field prints an
   # error string, which would crash the numeric [ -ge ] test under set -e.
   case "${vram}" in ''|*[!0-9]*) vram="" ;; esac
+  DETECTED_VRAM_MB="${vram}"   # global for print_advice's STT recommendation (may be "")
   if [ -z "${vram}" ]; then
     advise "Could not read total VRAM (need >= ${VRAM_FLOOR_MB} MB)."
     return
@@ -160,6 +166,30 @@ check_vram_floor() {
     printf '  Fix: run CPU-degraded STT + the Fast model (snippet below); the stack\n'
     printf '       still comes up usable.\n'
   fi
+}
+
+# recommend_stt_profile <vram_mb> — echo the advised STT_ENGINE/device/total env lines
+# for the detected VRAM. Pure: a number in, lines out; empty/non-numeric → conservative
+# buffered/CPU. Advise-only — the operator copies these into .env; we never write it.
+recommend_stt_profile() {
+  local vram="$1"
+  case "${vram}" in
+    ''|*[!0-9]*)
+      printf '  STT_ENGINE=buffered          # no/unknown VRAM -> accuracy-mode, CPU Parakeet\n'
+      printf '  STT_BUFFERED_DEVICE=cpu\n'
+      return ;;
+  esac
+  if [ "${vram}" -ge "${VRAM_FLOOR_MB}" ]; then
+    printf '  STT_ENGINE=hybrid            # >=16GB -> Nemotron partials + Parakeet final\n'
+    printf '  STT_BUFFERED_DEVICE=gpu\n'
+  elif [ "${vram}" -ge "${VRAM_HYBRID_MB}" ]; then
+    printf '  STT_ENGINE=hybrid            # 12-16GB -> hybrid, Parakeet on CPU (frees VRAM)\n'
+    printf '  STT_BUFFERED_DEVICE=cpu\n'
+  else
+    printf '  STT_ENGINE=buffered          # <12GB -> accuracy-mode, CPU Parakeet\n'
+    printf '  STT_BUFFERED_DEVICE=cpu\n'
+  fi
+  printf '  VRAM_TOTAL_MB=%s\n' "${vram}"
 }
 
 # --- Final advice block (always printed) -----------------------------------------
@@ -175,6 +205,8 @@ print_advice() {
   else
     advise_summary
   fi
+  printf '\nRecommended STT engine for this host (advise-only — copy into .env if you want):\n'
+  recommend_stt_profile "${DETECTED_VRAM_MB}"
   hr
   printf 'Note: the first `up` builds/pulls multi-GB GPU images and bakes the STT\n'
   printf '      model — watch `docker compose ps` for health: starting -> healthy.\n'
