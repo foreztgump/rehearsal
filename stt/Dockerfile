@@ -1,4 +1,4 @@
-# nemo-stt — Nemotron cache-aware streaming ASR server image (Plan 09-01).
+# nemo-stt — GPU STT server image.
 #
 # Base on a CUDA-12.8+ Blackwell-capable NeMo image. This matters: the Kokoro
 # precedent (docker-compose.yml:122-124) documents that stock PyTorch builds ship
@@ -16,7 +16,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends bash bzip2 ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Single-sourced model tag (no hardcoded literal in this Dockerfile body — the
+# Single-sourced model tag (default: non-streaming Parakeet; no hardcoded literal in this Dockerfile body — the
 # Compose build.args supplies it from the single-sourced STT_MODEL env, AGENTS.md).
 ARG STT_MODEL
 # Revision pin (15a Item 2a). No default literal here (mirrors ARG STT_MODEL) — the
@@ -31,9 +31,9 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # server.py imports the selected backend by STT_ENGINE/STT_RUNTIME.
-COPY server.py backend_common.py backend_nemo.py backend_parakeet.py ./
+COPY server.py backend_common.py backend_nemo.py backend_parakeet.py backend_parakeet_nemo.py ./
 
-# Bake the ~2.4 GB .nemo into the image at build (the NeMo equivalent of
+# Bake the GPU STT .nemo into the image at build (the NeMo equivalent of
 # agent/Dockerfile's `download-files`) so the container starts offline-capable
 # with no first-run download (local-first). References ARG STT_MODEL → no
 # hardcoded tag.
@@ -52,9 +52,8 @@ ENV STT_MODEL=${STT_MODEL}
 # Runtime loads ONLY from the baked, pinned cache — never re-resolves a newer main.
 ENV HF_HUB_OFFLINE=1
 
-# Buffered Parakeet (R3 D22): sherpa-onnx int8 bundle baked offline; loaded only
-# for STT_ENGINE=buffered|hybrid. CUDA provider support is operator-gated (G2);
-# STT_BUFFERED_DEVICE=cpu is the fallback.
+# Sherpa-onnx int8 bundle baked offline for CPU Parakeet and legacy hybrid correction;
+# GPU buffered uses backend_parakeet_nemo.py with the baked STT_MODEL instead.
 ENV STT_PARAKEET_MODEL=/models/parakeet-tdt-0.6b-v2-onnx-int8
 COPY fetch_parakeet_onnx.sh ./fetch_parakeet_onnx.sh
 RUN bash ./fetch_parakeet_onnx.sh "${STT_PARAKEET_MODEL}"

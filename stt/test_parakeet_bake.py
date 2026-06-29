@@ -21,6 +21,10 @@ def test_no_gate_placeholder_and_bake_wired() -> None:
         assert "scripts/export_parakeet_onnx.py" not in text, f"{dockerfile}: stale export-script gate"
         assert "fetch_parakeet_onnx.sh" in text, f"{dockerfile}: must COPY+RUN fetch script"
         assert "backend_parakeet.py" in text, f"{dockerfile}: must COPY backend_parakeet.py"
+        if dockerfile == "Dockerfile":
+            assert "backend_parakeet_nemo.py" in text, (
+                "GPU image must COPY backend_parakeet_nemo.py"
+            )
         assert "STT_PARAKEET_MODEL" in text, f"{dockerfile}: must set STT_PARAKEET_MODEL"
         install_cmd = _apt_install_command(text)
         for tool in REQUIRED_FETCH_TOOLS:

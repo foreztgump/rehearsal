@@ -12,7 +12,7 @@ import interview
 
 # Snappy Converse floor: reply ~0.3s after the user stops (Whisper-era feel).
 CONVERSE_MIN_DELAY: float = 0.3
-CONVERSE_MAX_DELAY: float = 3.0
+CONVERSE_MAX_DELAY: float = 1.0
 
 # Deliberate Interview floor: leave room for a considered, multi-sentence answer.
 INTERVIEW_MIN_DELAY: float = 0.7

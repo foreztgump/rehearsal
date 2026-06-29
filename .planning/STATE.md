@@ -126,6 +126,12 @@ Last activity: 2026-06-26 — Phase 9 executed (commits 7efb550..3a6d849). Next:
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [v1.2 R3 / 2026-06-29]: STT final path is **buffered non-streaming Parakeet**, not
+  Nemotron streaming or hybrid. Good NVIDIA hardware uses the GPU `nemo-stt` service
+  with `STT_ENGINE=buffered`, `STT_MODEL=nvidia/parakeet-tdt-0.6b-v2`,
+  `STT_STREAM_CHUNK_MS=320`, `STT_ENDPOINT_SILENCE_MS=640`, `STT_FORCE_CPU=0`, and
+  `STT_HEADROOM_MEASURED=1`; CPU STT remains the safe fallback. Nemotron
+  `streaming`/`hybrid` modes are legacy/manual comparison paths only.
 - [Phase 1]: Pin `gemma4:e4b-it-q4_K_M` (smaller quant for the tight 16GB floor) with thinking/reasoning mode OFF
 - [Phase 1 / 01-02]: Model-pin RESOLVED — fallback ladder rung 1 wins. `gemma4:e4b-it-q4_K_M` is a real published Ollama tag: `ollama pull` advanced past `pulling manifest` into the 9.6GB blob on the RTX 5090 host (a non-existent tag errors instantly at the manifest step). PERF-02's literal tag is CONFIRMED VERBATIM — not superseded. Pinned to `.env` OLLAMA_MODEL; `ollama/pull-and-pin.sh` encodes the ladder for the operator's container-side full pull.
 - [Phase 1]: Self-host LiveKit from day one including the local `MultilingualModel` turn detector (deprecated cloud path avoided)

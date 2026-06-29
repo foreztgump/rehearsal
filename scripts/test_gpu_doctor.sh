@@ -181,12 +181,12 @@ assert_scenario "all-ok" "OK: GPU ready." "gpu"
 # --- R3: STT engine recommendation per detected VRAM (advise-only) ---------------
 reset_fake_amd_devices
 FAKE_SMI_CUDA="12.8" FAKE_SMI_VRAM="32607" FAKE_DOCKER="ok" run_doctor ""
-assert_contains "engine-16gb-hybrid"    "STT_ENGINE=hybrid"
+assert_contains "engine-16gb-buffered"  "STT_ENGINE=buffered"
 assert_contains "engine-16gb-gpu-dev"   "STT_BUFFERED_DEVICE=gpu"
 
 reset_fake_amd_devices
 FAKE_SMI_CUDA="12.8" FAKE_SMI_VRAM="12288" FAKE_DOCKER="ok" run_doctor ""
-assert_contains "engine-12gb-hybrid"    "STT_ENGINE=hybrid"
+assert_contains "engine-12gb-buffered"  "STT_ENGINE=buffered"
 assert_contains "engine-12gb-cpu-dev"   "STT_BUFFERED_DEVICE=cpu"
 
 reset_fake_amd_devices

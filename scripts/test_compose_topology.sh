@@ -77,15 +77,16 @@ for svc in ollama kokoro; do
   check "stt-gpu: ${svc} has GPU reservation" "$(has_gpu_reservation "${GPU_JSON}" "${svc}")"
 done
 
-# 4. R3 default-streaming guard: STT_ENGINE must resolve to "streaming" for every
-#    present STT service in the default + stt-gpu renders. Verifies no buffered/hybrid
-#    engine leaks into the default boot without an explicit operator opt-in.
-check "default: nemo-stt-cpu STT_ENGINE=streaming" \
-  "$([ "$(env_var_value "${DEFAULT_JSON}" nemo-stt-cpu STT_ENGINE)" = "streaming" ] && echo true || echo false)"
-check "stt-gpu: nemo-stt STT_ENGINE=streaming" \
-  "$([ "$(env_var_value "${GPU_JSON}" nemo-stt STT_ENGINE)" = "streaming" ] && echo true || echo false)"
-check "stt-gpu: nemo-stt-cpu STT_ENGINE=streaming" \
-  "$([ "$(env_var_value "${GPU_JSON}" nemo-stt-cpu STT_ENGINE)" = "streaming" ] && echo true || echo false)"
+# 4. R3 final guard: STT_ENGINE resolves to buffered, and the CPU service never
+#    receives a CUDA provider request even when the GPU service does.
+check "default: nemo-stt-cpu STT_ENGINE=buffered" \
+  "$([ "$(env_var_value "${DEFAULT_JSON}" nemo-stt-cpu STT_ENGINE)" = "buffered" ] && echo true || echo false)"
+check "stt-gpu: nemo-stt STT_ENGINE=buffered" \
+  "$([ "$(env_var_value "${GPU_JSON}" nemo-stt STT_ENGINE)" = "buffered" ] && echo true || echo false)"
+check "stt-gpu: nemo-stt-cpu STT_ENGINE=buffered" \
+  "$([ "$(env_var_value "${GPU_JSON}" nemo-stt-cpu STT_ENGINE)" = "buffered" ] && echo true || echo false)"
+check "stt-gpu: nemo-stt-cpu STT_BUFFERED_DEVICE=cpu" \
+  "$([ "$(env_var_value "${GPU_JSON}" nemo-stt-cpu STT_BUFFERED_DEVICE)" = "cpu" ] && echo true || echo false)"
 
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]

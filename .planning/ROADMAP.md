@@ -67,8 +67,8 @@ AMD, installer). Sequenced so each foundation lands before what depends on it:
 |---|--------|----------|-------|
 | R1 | Conversation feel — barge-in reliability, EOU/VAD, perceived latency | req #1/#6, backlog #8 | tuning on shipped Phase-14 turn-taking; distinct from 15a's cut-off bug |
 | R2 | Model lifecycle & **~6GB** budget — lazy/on-demand load, single resident LLM, UI-driven backend swap | req #2 | **foundational**; supersedes the 16GB / two-resident-LLM / `keep_alive=-1` assumption |
-| R3 | Hardware-aware engines + models (STT/LLM/TTS) | req #10, **15b**, 15a accuracy-escalation | designs the install/selection pattern once |
-| R4 | UI/UX polish from `design-mockups/v4` + flow (landing-sets-settings, in-session drawer, disconnect) | req #3/#8 | builds on Phase 13 |
+| R3 | Hardware-aware engines + models (STT/LLM/TTS) | req #10, **15b**, 15a accuracy-escalation | **closed 2026-06-29** by GPU buffered non-streaming Parakeet smoke; Nemotron streaming is legacy/manual only; exact gate metrics not captured |
+| R4 | UI/UX polish from `design-mockups/v4` + flow (landing-sets-settings, in-session drawer, disconnect) | req #3/#8 | **closed 2026-06-29**; already delivered by Phase 13 + Phase 14 UI/session polish |
 | R5 | Expressive avatar + word-accurate lip-sync hardening | req #36, **15b** | closed 2026-06-29; live avatar smoke accepted (`.planning/v1.2-R5-VERIFY.md`) |
 | R6 | AMD GPU support (ROCm) for STT/TTS/LLM | req #5 | cross-cutting; today the whole stack is CUDA |
 | R7 | Idiot-proof installer — one-line curl-to-shell, spec detection, confirm, start/stop docs | req #9 | **last** — installs what R2/R3/R6 define |

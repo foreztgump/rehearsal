@@ -13,7 +13,7 @@ def test_learn_mode_uses_snappy_converse_floor():
     result = endpointing.endpointing_for_mode(interview.MODE_LEARN)
     # Assert
     assert result["min_delay"] == endpointing.CONVERSE_MIN_DELAY == 0.3
-    assert result["max_delay"] == endpointing.CONVERSE_MAX_DELAY == 3.0
+    assert result["max_delay"] == endpointing.CONVERSE_MAX_DELAY == 1.0
     assert result["mode"] == "dynamic"
 
 

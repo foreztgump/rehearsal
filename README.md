@@ -71,17 +71,17 @@ R3 STT gate helpers also use that file for `scripts/stt-wer.py` (`jiwer` +
 
 `docker compose up` on your own machine is the only supported deployment. The three
 model containers — `ollama`, `kokoro`, and the GPU STT `nemo-stt` (opt-in, see below)
-— need an NVIDIA GPU on that machine. STT also has an off-GPU CPU-ONNX path, so the
+— need an NVIDIA GPU on that machine. STT also has an off-GPU CPU path, so the
 **default boots VRAM-safe without the GPU STT** and the only host step is installing
 the NVIDIA Container Toolkit.
 
-> **Speech-to-text:** STT runs Nemotron streaming ASR
-> (`nvidia/nemotron-speech-streaming-en-0.6b`) behind a local websocket — a growing
-> interim transcript while you speak, ~100 ms finalize after end-of-speech, with
-> native punctuation/capitalization surfaced as-is. The model is **baked into the
-> image at build time** (offline-capable, no first-run download) and stays resident
-> for the life of the container. By default this runs **off-GPU** on CPU
-> (`nemo-stt-cpu`); the GPU `nemo-stt` (port 8000) is opt-in.
+> **Speech-to-text:** STT now uses buffered non-streaming Parakeet as the primary
+> path. On good NVIDIA hardware, the GPU `nemo-stt` service runs
+> `nvidia/parakeet-tdt-0.6b-v2` through NeMo for fast, accurate finals. The model is
+> **baked into the image at build time** (offline-capable, no first-run download)
+> and stays resident for the life of the container. The default `docker compose up`
+> still boots the VRAM-safe CPU STT service (`nemo-stt-cpu`); opt into the GPU
+> service with the `stt-gpu` profile.
 
 ### Install the toolkit (the only host step)
 
@@ -117,13 +117,12 @@ an exact remedy plus a copy-paste env snippet, then runs `docker compose up`. It
 ./up.sh -d         # detached
 ```
 
-### Default (CPU STT) vs opt-in GPU STT
+### Default CPU STT vs opt-in GPU STT
 
-`docker compose up` (or `./up.sh`) brings up **CPU-ONNX STT** — the VRAM-safe default
-(`STT_FORCE_CPU=1`). To run STT on the GPU, opt into the `stt-gpu` profile **and** flip
-the placement flags — but only after the co-residency matrix in
-[`10-PLACEMENT-VERIFY.md`](.planning/phases/10-vram-aware-stt-placement-part-c/10-PLACEMENT-VERIFY.md)
-passes (set `STT_FORCE_CPU=0` + `STT_HEADROOM_MEASURED=1` in `.env`):
+`docker compose up` (or `./up.sh`) brings up **CPU STT** — the VRAM-safe default
+(`STT_FORCE_CPU=1`). On 16GB+ NVIDIA hardware, run buffered Parakeet on the GPU for
+speed by setting `STT_FORCE_CPU=0` + `STT_HEADROOM_MEASURED=1` in `.env` and opting
+into the `stt-gpu` profile:
 
 ```bash
 docker compose --profile stt-gpu up
@@ -141,21 +140,21 @@ GPU (advise-only — it never edits `.env`). All three run fully local.
 
 | Mode | Best for | Live partials | Latency | Set in `.env` |
 |---|---|---|---|---|
-| `streaming` (default) | lowest latency; the **P50 < 1.0s** path | yes | ~100 ms finalize | `STT_ENGINE=streaming` |
-| `hybrid` | GPU hosts wanting accuracy + a live feel | yes (cosmetic) | accuracy-mode (measured EOU cost) | `STT_ENGINE=hybrid` |
-| `buffered` | CPU-only / small-VRAM; max accuracy, no cut-off | no | accuracy-mode | `STT_ENGINE=buffered` |
+| `buffered` (default) | accurate English STT; no early tail drop | no | ~640ms endpoint wait + fast final pass | `STT_ENGINE=buffered` |
+| `streaming` | legacy comparison only | yes | lowest STT-only latency | `STT_ENGINE=streaming` |
+| `hybrid` | legacy experiment only | yes (cosmetic) | accuracy-mode | `STT_ENGINE=hybrid` |
 
 | Detected VRAM | gpu-doctor recommends |
 |---|---|
-| ≥ 16 GB | `STT_ENGINE=hybrid`, `STT_BUFFERED_DEVICE=gpu` |
-| 12 GB to < 16 GB | `STT_ENGINE=hybrid`, `STT_BUFFERED_DEVICE=cpu` |
+| ≥ 16 GB | `STT_ENGINE=buffered`, `STT_FORCE_CPU=0`, `STT_HEADROOM_MEASURED=1`, run `--profile stt-gpu` |
+| 12 GB to < 16 GB | `STT_ENGINE=buffered`, `STT_FORCE_CPU=1` |
 | < 12 GB / CPU-only | `STT_ENGINE=buffered`, `STT_BUFFERED_DEVICE=cpu` |
 
-`buffered`/`hybrid` use NVIDIA `parakeet-tdt-0.6b-v2` (int8 ONNX) as the authoritative `final` engine;
-it eliminates the streaming model's end-of-speech word-drop (no lookahead = no held tail) and emits
-nothing on silence. They are **accuracy modes**, off the P50 < 1.0s hot path by design.
-Live smoke test note: `buffered` was much more accurate than `streaming` with acceptable latency; barge-in at
-`INTERRUPT_MIN_DURATION_S=0.25` felt sensitive but usable, so keep it for now and polish later only if it false-interrupts.
+GPU `buffered` uses NVIDIA `parakeet-tdt-0.6b-v2` through NeMo
+`ASRModel.transcribe()`. CPU `buffered` uses the baked sherpa-onnx Parakeet bundle.
+This replaces the Nemotron streaming model as the supported path because live smoke
+testing showed better accuracy and natural enough latency at `STT_STREAM_CHUNK_MS=320`
++ `STT_ENDPOINT_SILENCE_MS=640`.
 (A `TTS_ENGINE` seam mirroring this is the v1.3 path; today TTS is Kokoro-only.)
 
 ### Diagnosing the two common failure modes

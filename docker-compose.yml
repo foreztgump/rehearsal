@@ -40,7 +40,7 @@ services:
     # STT_ENGINE already reaches the agent via env_file; this label exposes the active
     # engine config to `docker inspect` without grepping the container environment.
     labels:
-      - "com.adept.stt_engine=${STT_ENGINE:-streaming}"
+      - "com.adept.stt_engine=${STT_ENGINE:-buffered}"
     networks:
       - adept
     # depends_on gates the agent on the other services STARTING (Phase 10 change):
@@ -52,7 +52,7 @@ services:
     # M5: depends_on points at nemo-stt-cpu (the DEFAULT, always-on CPU STT) — NOT the
     # GPU nemo-stt, which is now behind the `stt-gpu` profile (opt-in). Referencing the
     # profiled GPU service here would drag it into the default `up` and re-resident its
-    # ~2.4 GB on the GPU, defeating the headroom the placement table banks on. When the
+    # ~3.2 GB on the GPU, defeating the headroom the placement table banks on. When the
     # operator runs the GPU cell (`--profile stt-gpu`), the GPU STT comes up alongside.
     depends_on:
       livekit-server:
@@ -121,8 +121,10 @@ services:
     restart: unless-stopped
 
   nemo-stt:
-    # Locally-built Nemotron cache-aware streaming ASR server (./stt) — the Phase 9
-    # STT service. The model is loaded RESIDENT at server startup and never
+    # Locally-built GPU STT server (./stt). The default model is non-streaming
+    # Parakeet (`nvidia/parakeet-tdt-0.6b-v2`) for buffered, accurate finals. The
+    # legacy Nemotron streaming path remains available only with explicit env.
+    # The model is loaded RESIDENT at server startup and never
     # offloaded (mirrors the prior STT keep-resident fix that stopped the first-
     # turn-drop cold-reload bug, commit 06920c5). Single-sourced model tag: the default
     # literal lives ONLY here (build.args + environment) — server.py + the
@@ -130,13 +132,13 @@ services:
     build:
       context: ./stt
       args:
-        STT_MODEL: ${STT_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b}
+        STT_MODEL: ${STT_MODEL:-nvidia/parakeet-tdt-0.6b-v2}
         STT_MODEL_REVISION: ${STT_MODEL_REVISION:-main}
-    # M5: opt-in profile so the GPU STT (which loads ~2.4 GB RESIDENT on the GPU,
+    # M5: opt-in profile so the GPU STT (which loads ~3.2 GB RESIDENT on the GPU,
     # keep-forever) is NOT brought up by the DEFAULT `docker compose up`. The shipped
     # default (STT_FORCE_CPU=1) routes every session to the always-on nemo-stt-cpu, so
     # an always-on GPU STT would silently consume the exact VRAM the placement math
-    # assumes CPU-STT frees (STT_GPU_MB=2400). The operator opts into the GPU cell with
+    # assumes CPU-STT frees (STT_GPU_MB=3200). The operator opts into the GPU cell with
     # `docker compose --profile stt-gpu up` (paired with STT_FORCE_CPU=0 +
     # STT_HEADROOM_MEASURED=1 after the co-residency matrix passes — see .env.example).
     profiles: ["stt-gpu"]
@@ -144,10 +146,9 @@ services:
     # it needs none of .env — and must not carry the LiveKit secret.
     environment:
       # STT_RUNTIME=gpu is the server default, but set it explicitly here for
-      # symmetry with nemo-stt-cpu (STT_RUNTIME=cpu) — this service is the GPU NeMo
-      # backend (backend_nemo).
+      # symmetry with nemo-stt-cpu (STT_RUNTIME=cpu).
       - STT_RUNTIME=gpu
-      - STT_MODEL=${STT_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b}
+      - STT_MODEL=${STT_MODEL:-nvidia/parakeet-tdt-0.6b-v2}
       # STT_MODEL_REVISION is a BUILD-only arg (snapshot-download pin baked into the
       # image); it is intentionally NOT a runtime env — backend_nemo loads the baked
       # offline cache and never reads it, so a runtime entry would be dead/misleading.
@@ -159,11 +160,14 @@ services:
       # for 4.4s audio). Right-context is the speed/accuracy dial: 13=most lookahead
       # (~1040ms), 6=~480ms, 1=~80ms fastest/least accurate.
       - STT_ATT_CONTEXT_SIZE=${STT_ATT_CONTEXT_SIZE:-[70,6]}
-      # R3 engine selector + Parakeet ONNX knobs. Default streaming = byte-identical to
-      # pre-R3; opt in via .env (buffered|hybrid) after the operator G1 gate passes.
-      - STT_ENGINE=${STT_ENGINE:-streaming}
-      - STT_BUFFERED_DEVICE=${STT_BUFFERED_DEVICE:-cpu}
+      - STT_STREAM_CHUNK_MS=${STT_STREAM_CHUNK_MS:-320}
+      - STT_ENDPOINT_SILENCE_MS=${STT_ENDPOINT_SILENCE_MS:-640}
+      # R3 engine selector + Parakeet knobs. Default is buffered Parakeet; streaming
+      # and hybrid are retained as legacy/manual modes only.
+      - STT_ENGINE=${STT_ENGINE:-buffered}
+      - STT_BUFFERED_DEVICE=${STT_BUFFERED_DEVICE:-gpu}
       - STT_PARAKEET_MODEL=${STT_PARAKEET_MODEL:-/models/parakeet-tdt-0.6b-v2-onnx-int8}
+      - STT_DEBUG_HYBRID=${STT_DEBUG_HYBRID:-0}
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:8000:8000"
     networks:
@@ -188,26 +192,27 @@ services:
     restart: unless-stopped
 
   nemo-stt-cpu:
-    # Off-GPU CPU-ONNX STT (Phase 10, STT-05) — the same ./stt codebase as nemo-stt
-    # but built from Dockerfile.cpu (python:3.11-slim, onnxruntime CPU EP, no CUDA/
-    # NeMo/torch) and routed to backend_onnx via STT_RUNTIME=cpu. ~0.88 GB int8-dynamic
-    # default / ~0.67 GB int4-kquant operator stretch (RESEARCH §1.1). Both STT services
+    # Off-GPU CPU STT — the same ./stt codebase as nemo-stt but built from
+    # Dockerfile.cpu (python:3.11-slim, sherpa-onnx/onnxruntime CPU, no CUDA/NeMo/torch).
+    # Default buffered mode uses the baked Parakeet bundle; backend_onnx remains for
+    # legacy streaming. Both STT services
     # are defined; only the placement-resolved one (Wave 2) need be healthy per session.
     # M5: this CPU service is ALWAYS-ON (no profile) — it is the shipped default
     # (STT_FORCE_CPU=1) and uses NO VRAM, so the default `docker compose up` brings up
     # ONLY the CPU STT. The GPU nemo-stt is opt-in behind the `stt-gpu` profile.
-    # Single-sourced ONNX tag: the default literal lives ONLY here (build.args +
-    # environment) — Dockerfile.cpu body + server.py + backend_onnx carry it via
-    # STT_ONNX_MODEL env/ARG (no hardcoded tag, AGENTS.md).
+    # Single-sourced legacy ONNX tag: the default literal lives ONLY here (build.args +
+    # environment) — Dockerfile.cpu body + backend_onnx carry it via STT_ONNX_MODEL
+    # env/ARG (no hardcoded tag, AGENTS.md).
     build:
       context: ./stt
       dockerfile: Dockerfile.cpu
       args:
-        # STT_MODEL is the SOURCE .nemo the export-builder stage loads via
+        # STT_ONNX_SOURCE_MODEL is the SOURCE .nemo the legacy streaming export-builder stage loads via
         # from_pretrained to produce the ONNX bundle (export_onnx.py). It was missing
         # here, so the build's export step ran from_pretrained("") and failed with
-        # "Model  was not found". Mirrors the GPU nemo-stt build arg (same default).
-        STT_MODEL: ${STT_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b}
+        # "Model  was not found". Decoupled from STT_MODEL because GPU buffered now
+        # uses non-streaming Parakeet as STT_MODEL.
+        STT_MODEL: ${STT_ONNX_SOURCE_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b}
         STT_MODEL_REVISION: ${STT_MODEL_REVISION:-main}
         STT_ONNX_MODEL: ${STT_ONNX_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b-onnx}
         STT_QUANT: ${STT_QUANT:-int8-dynamic}
@@ -218,9 +223,13 @@ services:
       - STT_ONNX_MODEL=${STT_ONNX_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b-onnx}
       - STT_QUANT=${STT_QUANT:-int8-dynamic}
       # R3 engine selector + Parakeet ONNX knobs (mirrors nemo-stt above).
-      - STT_ENGINE=${STT_ENGINE:-streaming}
-      - STT_BUFFERED_DEVICE=${STT_BUFFERED_DEVICE:-cpu}
+      - STT_STREAM_CHUNK_MS=${STT_STREAM_CHUNK_MS:-320}
+      - STT_ENDPOINT_SILENCE_MS=${STT_ENDPOINT_SILENCE_MS:-640}
+      - STT_ENGINE=${STT_ENGINE:-buffered}
+      # Force CPU provider in the CPU service even when .env asks the GPU service to use GPU.
+      - STT_BUFFERED_DEVICE=cpu
       - STT_PARAKEET_MODEL=${STT_PARAKEET_MODEL:-/models/parakeet-tdt-0.6b-v2-onnx-int8}
+      - STT_DEBUG_HYBRID=${STT_DEBUG_HYBRID:-0}
     # Distinct HOST port 8001 for host probing (internal stays 8000; the agent reaches
     # it by service DNS ws://nemo-stt-cpu:8000/...). No collision with nemo-stt's 8000.
     ports:

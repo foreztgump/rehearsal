@@ -718,8 +718,15 @@ textarea.control {
   margin-bottom: 4px;
 }
 .bubble.interim {
-  opacity: 0.6;
+  opacity: 0.48;
   font-style: italic;
+}
+.bubble .final-mark {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 900;
+  opacity: 0.7;
 }
 
 /* ======================================================================== */

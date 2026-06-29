@@ -4,9 +4,13 @@ Run: python3 stt/test_engine.py
 """
 from __future__ import annotations
 
+import base64
+import io
 import os
+import struct
 import subprocess
 import sys
+import wave
 
 
 def _assert_parakeet_imports_without_ort() -> None:
@@ -74,6 +78,105 @@ def _assert_parakeet_real_body() -> None:
         capture_output=True, text=True,
     )
     assert proc.returncode == 0, f"parakeet real body failed: {proc.stderr.strip()}"
+
+
+def _assert_parakeet_nemo_imports_without_nemo() -> None:
+    """GPU buffered backend must byte-import without NeMo until load_model()."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    code = (
+        "import backend_parakeet_nemo as b; "
+        "assert b.STREAMS is False; "
+        "assert all(hasattr(b, n) for n in "
+        "('load_model','new_stream_state','decode_chunk','finalize','reset_turn_state')); "
+        "st = b.new_stream_state(None); "
+        "before = bytes(st['_turn_pcm']); "
+        "assert b.decode_chunk(None, st, b'\\x01\\x02') == ''; "
+        "assert bytes(st['_turn_pcm']) == before; "
+        "st['_turn_pcm'] = bytearray(b'abc'); b.reset_turn_state(st); "
+        "assert bytes(st['_turn_pcm']) == b''"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code], cwd=here,
+        env={k: v for k, v in os.environ.items() if k != "STT_PARAKEET_MODEL"}
+        | {"STT_MODEL": "nvidia/parakeet-tdt-0.6b-v2"},
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, f"backend_parakeet_nemo seam import failed: {proc.stderr.strip()}"
+
+
+def _assert_parakeet_nemo_real_body() -> None:
+    """NeMo Parakeet finalize passes one float32 waveform to model.transcribe()."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    code = (
+        "import backend_parakeet_nemo as backend\n"
+        "calls = {}\n"
+        "class Model:\n"
+        "    def transcribe(self, audio):\n"
+        "        calls['count'] = len(audio)\n"
+        "        calls['dtype'] = str(audio[0].dtype)\n"
+        "        calls['samples'] = audio[0].tolist()\n"
+        "        return [type('R', (), {'text': 'parakeet text'})()]\n"
+        "state = backend.new_stream_state(Model())\n"
+        "state['_turn_pcm'] = bytearray(b'\\x01\\x00\\xff\\xff')\n"
+        "assert backend.finalize(Model(), state) == 'parakeet text'\n"
+        "assert calls == {'count': 1, 'dtype': 'float32', 'samples': [1.0, -1.0]}, calls\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code], cwd=here,
+        env={k: v for k, v in os.environ.items() if k != "STT_PARAKEET_MODEL"}
+        | {"STT_MODEL": "nvidia/parakeet-tdt-0.6b-v2"},
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, f"backend_parakeet_nemo real body failed: {proc.stderr.strip()}"
+
+
+def _assert_gpu_buffered_uses_nemo_parakeet() -> None:
+    """GPU buffered means NeMo Parakeet; CPU buffered keeps sherpa ONNX."""
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub
+
+    gpu = types.ModuleType("backend_parakeet_nemo"); gpu.STREAMS = False
+    gpu.load_model = lambda: {}
+    gpu.new_stream_state = lambda m: {"_turn_pcm": bytearray()}
+    gpu.decode_chunk = lambda m, s, pcm: ""
+    gpu.finalize = lambda m, s: "gpu"
+    gpu.reset_turn_state = lambda s: s.update(_turn_pcm=bytearray())
+    cpu = types.ModuleType("backend_parakeet"); cpu.STREAMS = False
+    cpu.load_model = lambda: {}
+    cpu.new_stream_state = lambda m: {"_turn_pcm": bytearray()}
+    cpu.decode_chunk = lambda m, s, pcm: ""
+    cpu.finalize = lambda m, s: "cpu"
+    cpu.reset_turn_state = lambda s: s.update(_turn_pcm=bytearray())
+    sys.modules["backend_parakeet_nemo"] = gpu
+    sys.modules["backend_parakeet"] = cpu
+    _install_fastapi_stub()
+    os.environ["STT_ENGINE"] = "buffered"; os.environ["STT_RUNTIME"] = "gpu"
+    os.environ["STT_MODEL"] = "nvidia/parakeet-tdt-0.6b-v2"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    assert server._primary is gpu and server._final is gpu, "GPU buffered must use NeMo Parakeet"
+
+
+def _assert_default_engine_is_buffered() -> None:
+    """Unset STT_ENGINE must default to GPU buffered Parakeet, not legacy streaming."""
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub
+
+    gpu = types.ModuleType("backend_parakeet_nemo"); gpu.STREAMS = False
+    gpu.load_model = lambda: {}
+    gpu.new_stream_state = lambda m: {"_turn_pcm": bytearray()}
+    gpu.decode_chunk = lambda m, s, pcm: ""
+    gpu.finalize = lambda m, s: "gpu"
+    gpu.reset_turn_state = lambda s: s.update(_turn_pcm=bytearray())
+    sys.modules["backend_parakeet_nemo"] = gpu
+    _install_fastapi_stub()
+    os.environ.pop("STT_ENGINE", None)
+    os.environ["STT_RUNTIME"] = "gpu"
+    os.environ["STT_MODEL"] = "nvidia/parakeet-tdt-0.6b-v2"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    assert server.ENGINE == "buffered", f"default engine must be buffered, got {server.ENGINE!r}"
+    assert server._primary is gpu and server._final is gpu, "default GPU backend must be NeMo Parakeet"
 
 
 def _run_buffered_exchange():
@@ -167,10 +270,169 @@ def _assert_hybrid() -> None:
     assert "delta" in kinds, f"hybrid must emit Nemotron deltas, got {kinds}"
     final = next((m for m in sent if m.get("type") == "final"), None)
     assert final is not None, "hybrid must emit a final"
-    assert final["text"].startswith("PARAKEET:"), f"hybrid final must be Parakeet, got {final!r}"
-    assert int(final["text"].split(":")[1]) > 0, "hybrid final must see accumulated _turn_pcm"
-    assert "dur_ms" in final and isinstance(final["dur_ms"], int) and final["dur_ms"] >= 0, (
+    assert final["text"].startswith("word"), f"hybrid final must be streaming text, got {final!r}"
+    assert final.get("dur_ms") == 0, f"hybrid streaming final must not wait for Parakeet, got {final!r}"
+    correction = next((m for m in sent if m.get("type") == "correction"), None)
+    assert correction is not None, f"hybrid must emit Parakeet correction, got {sent!r}"
+    assert correction["text"].startswith("PARAKEET:"), (
+        f"hybrid correction must be Parakeet, got {correction!r}")
+    assert int(correction["text"].split(":")[1]) > 0, (
+        "hybrid correction must see accumulated _turn_pcm")
+    assert "dur_ms" in correction and isinstance(correction["dur_ms"], int) and correction["dur_ms"] >= 0, (
         f"hybrid final must carry dur_ms int >= 0, got {final!r}")
+
+
+def _assert_hybrid_stall_waits_for_silence() -> None:
+    """Voiced audio with stalled NeMo text must not cut the turn before silence."""
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub, _FakeWebSocket, _run_async
+
+    chunk = b"\x40\x10" * 8960
+    silence = b"\x00\x00" * 8960
+    prim = types.ModuleType("backend_nemo"); prim.STREAMS = True
+    prim.load_model = lambda: {}
+    prim.new_stream_state = lambda m: {"text": ""}
+    def _dec(m, s, pcm):
+        s["text"] = s.get("text") or "stuck"
+        return s["text"]
+    prim.decode_chunk = _dec
+    prim.finalize = lambda m, s: ""
+    prim.reset_turn_state = lambda s: s.update(text="")
+    fin = types.ModuleType("backend_parakeet"); fin.STREAMS = False
+    fin.load_model = lambda: {}
+    fin.new_stream_state = lambda m: {"_turn_pcm": bytearray()}
+    fin.decode_chunk = lambda m, s, pcm: ""
+    fin.finalize = lambda m, s: f"P:{len(s['_turn_pcm'])}"
+    fin.reset_turn_state = lambda s: s.update(_turn_pcm=bytearray())
+    sys.modules["backend_nemo"] = prim; sys.modules["backend_parakeet"] = fin
+    _install_fastapi_stub()
+    os.environ["STT_ENGINE"] = "hybrid"; os.environ["STT_RUNTIME"] = "gpu"
+    os.environ["STT_MODEL"] = "x"; os.environ["STT_PARAKEET_MODEL"] = "x"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    frames = [{"bytes": chunk}] + \
+             [{"bytes": chunk} for _ in range(server._ENDPOINT_SILENCE_CHUNKS + 1)] + \
+             [{"bytes": silence} for _ in range(server._ENDPOINT_SILENCE_CHUNKS + 1)] + \
+             [{"type": "websocket.disconnect"}]
+    ws = _FakeWebSocket(frames)
+    _run_async(server.ws_stream(ws))
+    final = next((m for m in ws.sent if m.get("type") == "final"), None)
+    assert final is not None, f"silence after voiced stall must emit final, got {ws.sent!r}"
+    correction = next((m for m in ws.sent if m.get("type") == "correction"), None)
+    assert correction is not None, f"silence after voiced stall must emit correction, got {ws.sent!r}"
+    final_bytes = int(correction["text"].split(":")[1])
+    min_voiced_bytes = (server._ENDPOINT_SILENCE_CHUNKS + 2) * len(chunk)
+    assert final_bytes >= min_voiced_bytes, (
+        f"hybrid must wait for silence before correcting, got {correction!r}")
+
+
+def _assert_hybrid_skips_leading_silence_for_final_pcm() -> None:
+    """Hybrid Parakeet audio must start with the voiced turn, not connection idle."""
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub, _FakeWebSocket, _run_async
+
+    chunk = b"\x40\x10" * 8960
+    silence = b"\x00\x00" * 8960
+    prim = types.ModuleType("backend_nemo"); prim.STREAMS = True
+    prim.load_model = lambda: {}
+    prim.new_stream_state = lambda m: {"text": ""}
+    def _dec(m, s, pcm):
+        if pcm.strip(b"\x00"):
+            s["text"] = "voice"
+        return s["text"]
+    prim.decode_chunk = _dec
+    prim.finalize = lambda m, s: ""
+    prim.reset_turn_state = lambda s: s.update(text="")
+    fin = types.ModuleType("backend_parakeet"); fin.STREAMS = False
+    fin.load_model = lambda: {}
+    fin.new_stream_state = lambda m: {"_turn_pcm": bytearray()}
+    fin.decode_chunk = lambda m, s, pcm: ""
+    fin.finalize = lambda m, s: f"P:{len(s['_turn_pcm'])}"
+    fin.reset_turn_state = lambda s: s.update(_turn_pcm=bytearray())
+    sys.modules["backend_nemo"] = prim; sys.modules["backend_parakeet"] = fin
+    _install_fastapi_stub()
+    os.environ["STT_ENGINE"] = "hybrid"; os.environ["STT_RUNTIME"] = "gpu"
+    os.environ["STT_MODEL"] = "x"; os.environ["STT_PARAKEET_MODEL"] = "x"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    frames = [{"bytes": silence}, {"bytes": silence}, {"bytes": silence}, {"bytes": chunk}] + \
+             [{"bytes": silence} for _ in range(server._ENDPOINT_SILENCE_CHUNKS + 1)] + \
+             [{"type": "websocket.disconnect"}]
+    ws = _FakeWebSocket(frames)
+    _run_async(server.ws_stream(ws))
+    final = next((m for m in ws.sent if m.get("type") == "final"), None)
+    assert final is not None, f"silence after voice must emit final, got {ws.sent!r}"
+    correction = next((m for m in ws.sent if m.get("type") == "correction"), None)
+    assert correction is not None, f"silence after voice must emit correction, got {ws.sent!r}"
+    final_bytes = int(correction["text"].split(":")[1])
+    assert final_bytes >= server._STREAM_CHUNK_BYTES, (
+        f"hybrid correction PCM must include voiced audio, got {correction!r}")
+    assert final_bytes < 3 * len(silence) + len(chunk), (
+        f"hybrid correction PCM must omit leading silence, got {correction!r}")
+
+
+def _assert_debug_sample_wav() -> None:
+    """Hybrid debug payload must preserve stream text, final text, and playable WAV."""
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub
+
+    prim = types.ModuleType("backend_nemo"); prim.STREAMS = True
+    prim.load_model = lambda: {}
+    prim.new_stream_state = lambda m: {}
+    prim.decode_chunk = lambda m, s, pcm: ""
+    prim.finalize = lambda m, s: ""
+    prim.reset_turn_state = lambda s: None
+    fin = types.ModuleType("backend_parakeet"); fin.STREAMS = False
+    fin.load_model = lambda: {}
+    fin.new_stream_state = lambda m: {"_turn_pcm": bytearray()}
+    fin.decode_chunk = lambda m, s, pcm: ""
+    fin.finalize = lambda m, s: "parakeet words"
+    fin.reset_turn_state = lambda s: s.update(_turn_pcm=bytearray())
+    sys.modules["backend_nemo"] = prim; sys.modules["backend_parakeet"] = fin
+    _install_fastapi_stub()
+    os.environ["STT_ENGINE"] = "hybrid"; os.environ["STT_RUNTIME"] = "gpu"
+    os.environ["STT_MODEL"] = "x"; os.environ["STT_PARAKEET_MODEL"] = "x"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    silence = b"\x00\x00" * 160
+    voice = struct.pack("<h", 1000) * 320 + struct.pack("<h", -1000) * 320
+    pcm = silence + voice + silence
+    sample = server._debug_sample({"_turn_pcm": bytearray(pcm), "_last_delta_text": "stream words"},
+                                  "parakeet words", 42)
+    assert sample["stream_transcript"] == "stream words"
+    assert sample["parakeet_transcript"] == "parakeet words"
+    assert sample["dur_ms"] == 42 and sample["pcm_bytes"] == len(pcm)
+    assert sample["audio_peak"] == 1000
+    assert sample["audio_rms"] == 816
+    assert sample["audio_clip_pct"] == 0.0
+    assert sample["leading_silence_ms"] == 10
+    assert sample["trailing_silence_ms"] == 10
+    with wave.open(io.BytesIO(base64.b64decode(sample["audio_wav_b64"])), "rb") as wav:
+        assert wav.getframerate() == server.SAMPLE_RATE
+        assert wav.getnchannels() == 1 and wav.getsampwidth() == 2
+        assert wav.readframes(wav.getnframes()) == pcm
+
+
+def _assert_buffered_debug_sample_is_retained() -> None:
+    """Buffered Parakeet is now the selected path, so debug capture must work there."""
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub
+
+    stub = types.ModuleType("backend_parakeet_nemo")
+    stub.STREAMS = False
+    stub.load_model = lambda: {}
+    stub.new_stream_state = lambda m: {"_turn_pcm": bytearray()}
+    stub.decode_chunk = lambda m, s, pcm: ""
+    stub.finalize = lambda m, s: "buffered words"
+    stub.reset_turn_state = lambda s: s.update(_turn_pcm=bytearray())
+    sys.modules["backend_parakeet_nemo"] = stub
+    _install_fastapi_stub()
+    os.environ["STT_ENGINE"] = "buffered"; os.environ["STT_RUNTIME"] = "gpu"
+    os.environ["STT_MODEL"] = "x"; os.environ["STT_DEBUG_HYBRID"] = "1"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    server._remember_debug_sample_from_pcm("", "buffered words", 11, b"\x00\x00" * 160)
+    assert server._debug_samples[-1]["parakeet_transcript"] == "buffered words"
 
 
 def _run_finalize_error_exchange():
@@ -300,16 +562,57 @@ def _assert_streaming_eou_dur_ms() -> None:
         f"streaming autonomous final must carry dur_ms==0 (pre-R3 compat), got {final!r}")
 
 
+def _assert_raw_silence_endpoint_is_not_chunk_quantized() -> None:
+    """700 ms of raw silence must end a turn without waiting for two 560 ms decodes."""
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub, _FakeWebSocket, _run_async
+
+    chunk = b"\x40\x10" * 8960
+    raw_silence = b"\x00\x00" * 320  # 20 ms at 16 kHz mono int16
+    prim = types.ModuleType("backend_nemo"); prim.STREAMS = True
+    prim.load_model = lambda: {}
+    prim.new_stream_state = lambda m: {"text": ""}
+    def _dec(m, s, pcm):
+        if pcm.strip(b"\x00"):
+            s["text"] = "voice"
+        return s["text"]
+    prim.decode_chunk = _dec
+    prim.finalize = lambda m, s: s.get("text", "")
+    prim.reset_turn_state = lambda s: s.update(text="")
+    sys.modules["backend_nemo"] = prim
+    _install_fastapi_stub()
+    os.environ["STT_ENGINE"] = "streaming"; os.environ["STT_RUNTIME"] = "gpu"
+    os.environ["STT_MODEL"] = "x"; os.environ["STT_STREAM_CHUNK_MS"] = "560"
+    os.environ["STT_ENDPOINT_SILENCE_MS"] = "700"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    frames = [{"bytes": chunk}] + [{"bytes": raw_silence} for _ in range(35)] + \
+             [{"type": "websocket.disconnect"}]
+    ws = _FakeWebSocket(frames)
+    _run_async(server.ws_stream(ws))
+    final = next((m for m in ws.sent if m.get("type") == "final"), None)
+    assert final is not None, f"raw 700 ms silence must emit final, got {ws.sent!r}"
+
+
 def _self_check() -> None:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     _assert_parakeet_imports_without_ort()
     _assert_parakeet_real_body()
+    _assert_parakeet_nemo_imports_without_nemo()
+    _assert_parakeet_nemo_real_body()
+    _assert_default_engine_is_buffered()
+    _assert_gpu_buffered_uses_nemo_parakeet()
     _assert_buffered_eou()
     _assert_hybrid()
+    _assert_hybrid_stall_waits_for_silence()
+    _assert_hybrid_skips_leading_silence_for_final_pcm()
+    _assert_debug_sample_wav()
+    _assert_buffered_debug_sample_is_retained()
     _assert_finalize_error_boundary()
     _assert_reset_turn_pcm_safe()
     _assert_streaming_eou_dur_ms()
-    print("engine _self_check OK — seam, hybrid, I1 finalize-boundary, M2 reset-pcm, F2 streaming-dur-ms",
+    _assert_raw_silence_endpoint_is_not_chunk_quantized()
+    print("engine _self_check OK — seam, GPU buffered Parakeet, hybrid, voiced-stall EOU, trimmed PCM, debug WAV, I1 finalize-boundary, M2 reset-pcm, F2 streaming-dur-ms, raw-silence EOU",
           file=sys.stderr)
 
 

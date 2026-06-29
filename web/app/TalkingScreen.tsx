@@ -5,6 +5,7 @@ import { ReactNode, useState } from "react";
 import AgentStatePill from "./AgentStatePill";
 import SegmentedToggle from "./SegmentedToggle";
 import SettingsDrawer from "./SettingsDrawer";
+import SttDebugWindow from "./SttDebugWindow";
 import Transcript from "./Transcript";
 import Visualizer from "./Visualizer";
 import WhoName from "./WhoName";
@@ -176,6 +177,7 @@ export default function TalkingScreen({
         onReset={onReset}
         resetMarker={resetMarker}
       />
+      <SttDebugWindow />
     </div>
   );
 }

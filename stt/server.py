@@ -1,9 +1,8 @@
-"""nemo-stt — FastAPI websocket server for cache-aware streaming ASR (gpu|cpu).
+"""nemo-stt — FastAPI websocket server for local STT (gpu|cpu).
 
-Serves streaming ASR behind a websocket that takes 16 kHz mono int16 PCM frames in
-and streams growing interim transcripts out, with a FINAL emitted ONLY on the
-agent's `flush` control frame. Native punctuation + capitalization come out of the
-model and are surfaced AS-IS (STT-03).
+Serves local ASR behind a websocket that takes 16 kHz mono int16 PCM frames in
+and emits FINAL transcripts. The default path is buffered non-streaming Parakeet;
+the old Nemotron streaming mode remains as an explicit legacy mode.
 
 Two runtimes behind the SAME frozen contract (Phase 10, RESEARCH §2). `STT_RUNTIME`
 selects a backend module that exposes the SAME four callables — the WS/HTTP layer
@@ -36,11 +35,14 @@ operator gate (10-PLACEMENT-VERIFY).
 from __future__ import annotations
 
 import asyncio
+import array
+import base64
 import contextlib
 import importlib
 import io
 import json
 import logging
+import math
 import os
 import time
 import wave
@@ -62,22 +64,25 @@ logger.setLevel(os.environ.get("STT_LOG_LEVEL", "INFO").upper())
 logger.propagate = False
 
 # --- Engine + backend dispatch (validate-or-SystemExit) ---------------------
-# STT_RUNTIME selects the DEVICE for the streaming Nemotron backend (gpu→backend_nemo,
-# cpu→backend_onnx). STT_ENGINE selects the MODE: streaming (Nemotron only), buffered
-# (Parakeet int8-ONNX only), hybrid (Nemotron partials + Parakeet authoritative final).
+# STT_RUNTIME selects the DEVICE for STT (gpu→NeMo Parakeet, cpu→sherpa Parakeet).
+# STT_ENGINE selects the MODE: buffered (default Parakeet final), streaming (legacy
+# Nemotron/ONNX streaming), hybrid (legacy Nemotron partials + Parakeet correction).
 # The server composes a `_primary` backend (deltas + EOU) and a `_final` backend
 # (authoritative transcript); they are the SAME module for streaming/buffered.
 RUNTIME = os.environ.get("STT_RUNTIME", "gpu")
 if RUNTIME not in ("gpu", "cpu"):
     raise SystemExit(f"STT_RUNTIME must be gpu|cpu, got {RUNTIME!r}")
-ENGINE = os.environ.get("STT_ENGINE", "streaming")
+ENGINE = os.environ.get("STT_ENGINE", "buffered")
 if ENGINE not in ("streaming", "buffered", "hybrid"):
     raise SystemExit(f"STT_ENGINE must be streaming|buffered|hybrid, got {ENGINE!r}")
 
 # ponytail: dispatch-derivation intermediates — runtime logic uses _primary/_final, not these.
 _STREAMING_BACKEND = "backend_nemo" if RUNTIME == "gpu" else "backend_onnx"
-_PRIMARY_BACKEND = "backend_parakeet" if ENGINE == "buffered" else _STREAMING_BACKEND
-_FINAL_BACKEND = "backend_parakeet" if ENGINE in ("buffered", "hybrid") else _STREAMING_BACKEND
+_BUFFERED_BACKEND = "backend_parakeet_nemo" if RUNTIME == "gpu" else "backend_parakeet"
+_PRIMARY_BACKEND = _BUFFERED_BACKEND if ENGINE == "buffered" else _STREAMING_BACKEND
+_FINAL_BACKEND = _BUFFERED_BACKEND if ENGINE == "buffered" else (
+    "backend_parakeet" if ENGINE == "hybrid" else _STREAMING_BACKEND
+)
 _primary = importlib.import_module(_PRIMARY_BACKEND)
 _final = _primary if _FINAL_BACKEND == _PRIMARY_BACKEND else importlib.import_module(_FINAL_BACKEND)
 
@@ -88,12 +93,14 @@ SAMPLE_RATE = 16000
 # step, so the VERIFY offline path exercises the same code path as live.
 OFFLINE_CHUNK_MS = int(os.environ.get("STT_OFFLINE_CHUNK_MS", "560"))
 _BYTES_PER_SAMPLE = 2  # int16 mono
+_AUDIO_STATS_FRAME_MS = 10
+_CLIP_INT16 = 32700
 # Live cache-aware streaming step. LiveKit forwards tiny (~10-20 ms) audio frames;
 # the FastConformer encoder subsamples 8x, so a sub-chunk PCM frame yields ZERO
 # post-subsampling frames and the quantized ConvInteger node errors with
 # "Invalid input shape: {0}". Buffer incoming PCM to this fixed step (the same size
 # the offline path uses) before invoking the encoder.
-STREAM_CHUNK_MS = int(os.environ.get("STT_STREAM_CHUNK_MS", "560"))
+STREAM_CHUNK_MS = int(os.environ.get("STT_STREAM_CHUNK_MS", "320"))
 _STREAM_CHUNK_BYTES = (SAMPLE_RATE * STREAM_CHUNK_MS // 1000) * _BYTES_PER_SAMPLE
 
 # Autonomous end-of-utterance window. The livekit-agents 1.6.4 turn pipeline does
@@ -108,12 +115,16 @@ _STREAM_CHUNK_BYTES = (SAMPLE_RATE * STREAM_CHUNK_MS // 1000) * _BYTES_PER_SAMPL
 # framework's MultilingualModel + endpointing.min_delay still own the SEMANTIC
 # decision to reply, and it concatenates successive finals (_audio_transcript +=),
 # so a mid-sentence pause that fires early is recombined, not lost.
-ENDPOINT_SILENCE_MS = int(os.environ.get("STT_ENDPOINT_SILENCE_MS", "700"))
+ENDPOINT_SILENCE_MS = int(os.environ.get("STT_ENDPOINT_SILENCE_MS", "640"))
 _ENDPOINT_SILENCE_CHUNKS = max(1, -(-ENDPOINT_SILENCE_MS // STREAM_CHUNK_MS))  # ceil
 # getattr defaults to True (streaming) for backends that pre-date the STREAMS flag.
 _ACCUMULATE_PCM = getattr(_final, "STREAMS", True) is False   # server owns _turn_pcm for buffered finals
 _PRIMARY_STREAMS = getattr(_primary, "STREAMS", True)
 _MAX_BUFFER_BYTES = SAMPLE_RATE * BUFFERED_MAX_S * _BYTES_PER_SAMPLE
+STT_DEBUG_HYBRID = os.environ.get("STT_DEBUG_HYBRID") == "1"
+_DEBUG_SAMPLE_LIMIT = max(1, int(os.environ.get("STT_DEBUG_SAMPLE_LIMIT", "5")))
+_debug_samples: list[dict[str, Any]] = []
+_debug_seq = 0
 
 # Module-level model handles + readiness gate + decode serialization lock. The
 # _gpu_lock name is kept for continuity but it serializes decode for BOTH runtimes.
@@ -147,10 +158,117 @@ async def health() -> Response:
                     media_type="application/json")
 
 
+@app.get("/debug/hybrid")
+async def debug_hybrid() -> Response:
+    """Temporary in-memory STT debug feed for comparing NeMo, Parakeet, and audio."""
+    payload = {
+        "enabled": STT_DEBUG_HYBRID,
+        "engine": ENGINE,
+        "runtime": RUNTIME,
+        "samples": _debug_samples if STT_DEBUG_HYBRID else [],
+    }
+    return Response(content=json.dumps(payload), media_type="application/json",
+                    headers={"Cache-Control": "no-store"})
+
+
 async def _decode_off_loop(state: dict, pcm: bytes) -> str:
     """Serialize decode access (asyncio.Lock) and run the blocking decode off-loop."""
     async with _gpu_lock:
         return await asyncio.to_thread(_primary.decode_chunk, _primary_model, state, pcm)
+
+
+def _debug_sample(state: dict, parakeet_text: str, dur_ms: int) -> dict[str, Any]:
+    """Build one playable debug sample from the exact turn PCM sent to Parakeet."""
+    pcm = bytes(state.get("_turn_pcm", b""))
+    return _debug_sample_from_pcm(state.get("_last_delta_text", ""), parakeet_text, dur_ms, pcm)
+
+
+def _debug_sample_from_pcm(
+    stream_text: str, parakeet_text: str, dur_ms: int, pcm: bytes
+) -> dict[str, Any]:
+    """Build one playable debug sample from copied turn PCM."""
+    wav_bytes = io.BytesIO()
+    with wave.open(wav_bytes, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(_BYTES_PER_SAMPLE)
+        wav.setframerate(SAMPLE_RATE)
+        wav.writeframes(pcm)
+    return {
+        "stream_transcript": stream_text,
+        "parakeet_transcript": parakeet_text,
+        "audio_wav_b64": base64.b64encode(wav_bytes.getvalue()).decode("ascii"),
+        **_audio_quality_stats(pcm),
+        "audio_ms": len(pcm) * 1000 // (SAMPLE_RATE * _BYTES_PER_SAMPLE),
+        "pcm_bytes": len(pcm),
+        "dur_ms": dur_ms,
+        "at_ms": int(time.time() * 1000),
+    }
+
+
+def _audio_quality_stats(pcm: bytes) -> dict[str, float | int]:
+    """Cheap debug-only PCM stats; enough to spot clipping, silence, and bad levels."""
+    samples = _int16_samples(pcm)
+    if not samples:
+        return {
+            "audio_peak": 0,
+            "audio_rms": 0,
+            "audio_clip_pct": 0.0,
+            "leading_silence_ms": 0,
+            "trailing_silence_ms": 0,
+        }
+    clips = sum(1 for sample in samples if abs(sample) >= _CLIP_INT16)
+    return {
+        "audio_peak": max(abs(sample) for sample in samples),
+        "audio_rms": round(math.sqrt(sum(sample * sample for sample in samples) / len(samples))),
+        "audio_clip_pct": round(clips * 100 / len(samples), 3),
+        "leading_silence_ms": _edge_silence_ms(samples, reverse=False),
+        "trailing_silence_ms": _edge_silence_ms(samples, reverse=True),
+    }
+
+
+def _int16_samples(pcm: bytes) -> array.array:
+    """PCM bytes to int16 samples, ignoring an odd trailing byte."""
+    samples = array.array("h")
+    samples.frombytes(pcm[: len(pcm) - (len(pcm) % _BYTES_PER_SAMPLE)])
+    return samples
+
+
+def _edge_silence_ms(samples: array.array, *, reverse: bool) -> int:
+    """Count silent 10 ms frames from the requested edge."""
+    frame = max(1, SAMPLE_RATE * _AUDIO_STATS_FRAME_MS // 1000)
+    starts = range(len(samples) - frame, -1, -frame) if reverse else range(0, len(samples), frame)
+    silent_frames = 0
+    for start in starts:
+        if _samples_rms(samples[start:start + frame]) >= ENERGY_SILENCE_RMS:
+            break
+        silent_frames += 1
+    return silent_frames * _AUDIO_STATS_FRAME_MS
+
+
+def _samples_rms(samples: array.array) -> float:
+    if not samples:
+        return 0.0
+    return math.sqrt(sum(sample * sample for sample in samples) / len(samples))
+
+
+def _remember_debug_sample(state: dict, parakeet_text: str, dur_ms: int) -> None:
+    """Keep the last few STT debug samples in memory only; never log or persist."""
+    _remember_debug_sample_from_pcm(
+        state.get("_last_delta_text", ""), parakeet_text, dur_ms, bytes(state.get("_turn_pcm", b""))
+    )
+
+
+def _remember_debug_sample_from_pcm(
+    stream_text: str, parakeet_text: str, dur_ms: int, pcm: bytes
+) -> None:
+    """Keep the last few STT debug samples in memory only; never log or persist."""
+    global _debug_seq
+    if not STT_DEBUG_HYBRID or ENGINE not in ("buffered", "hybrid") or not _ACCUMULATE_PCM:
+        return
+    _debug_seq += 1
+    sample = _debug_sample_from_pcm(stream_text, parakeet_text, dur_ms, pcm) | {"seq": _debug_seq}
+    _debug_samples.append(sample)
+    del _debug_samples[:-_DEBUG_SAMPLE_LIMIT]
 
 
 async def _send_final(ws: WebSocket, state: dict, text: str, dur_ms: int = 0) -> None:
@@ -166,6 +284,7 @@ async def _send_final(ws: WebSocket, state: dict, text: str, dur_ms: int = 0) ->
     state.pop("_last_delta_text", None)
     state["_silent_chunks"] = 0
     state["_final_pending"] = False
+    state["_raw_silence_ms"] = 0
     state.pop("_voiced", None)
     if _ACCUMULATE_PCM:
         state["_turn_pcm"] = bytearray()
@@ -180,16 +299,37 @@ async def _run_finalize(ws: WebSocket, state: dict, timed: bool = True) -> None:
     On exception: logs, sends {"type":"error"}, then sends empty {"type":"final"} so
     the agent turn unblocks.
     """
+    if ENGINE == "hybrid" and _ACCUMULATE_PCM:
+        await _run_hybrid_finalize(ws, state)
+        return
     started = time.perf_counter()
     try:
         async with _gpu_lock:
             text = await asyncio.to_thread(_final.finalize, _final_model, state)
         dur_ms = int((time.perf_counter() - started) * 1000) if timed else 0
+        _remember_debug_sample(state, text, dur_ms)
         await _send_final(ws, state, text, dur_ms)
     except Exception as exc:  # noqa: BLE001
         logger.exception("nemo-stt finalize error")
         await ws.send_json({"type": "error", "message": str(exc)})
         await _send_final(ws, state, "", 0)
+
+
+async def _run_hybrid_finalize(ws: WebSocket, state: dict) -> None:
+    """Commit on streaming text, then send Parakeet as a correction."""
+    stream_text = state.get("_last_delta_text", "")
+    pcm = bytes(state.get("_turn_pcm", b""))
+    await _send_final(ws, state, stream_text, 0)
+    started = time.perf_counter()
+    try:
+        async with _gpu_lock:
+            text = await asyncio.to_thread(_final.finalize, _final_model, {"_turn_pcm": bytearray(pcm)})
+        dur_ms = int((time.perf_counter() - started) * 1000)
+        _remember_debug_sample_from_pcm(stream_text, text, dur_ms, pcm)
+        if text and text != stream_text:
+            await ws.send_json({"type": "correction", "text": text, "dur_ms": dur_ms})
+    except Exception:  # noqa: BLE001
+        logger.exception("nemo-stt hybrid correction error")
 
 
 async def _handle_control(ws: WebSocket, state: dict, msg: dict) -> dict:
@@ -241,6 +381,31 @@ async def _stream_loop(websocket: WebSocket, state: dict) -> None:
         while len(buf) >= _STREAM_CHUNK_BYTES:
             await _emit_delta(websocket, state, bytes(buf[:_STREAM_CHUNK_BYTES]))
             del buf[:_STREAM_CHUNK_BYTES]
+        if _raw_endpoint_ready(state, pcm):
+            buf = await _finish_on_raw_silence(websocket, state, buf)
+
+
+def _raw_endpoint_ready(state: dict, pcm: bytes) -> bool:
+    """Track real incoming silence so endpointing is not quantized to decode chunks."""
+    if not _PRIMARY_STREAMS:
+        return False
+    if rms_int16(pcm) >= ENERGY_SILENCE_RMS:
+        state["_raw_silence_ms"] = 0
+        return False
+    state["_raw_silence_ms"] = state.get("_raw_silence_ms", 0) + _pcm_duration_ms(pcm)
+    return bool(state.get("_final_pending")) and state["_raw_silence_ms"] >= ENDPOINT_SILENCE_MS
+
+
+def _pcm_duration_ms(pcm: bytes) -> int:
+    return len(pcm) * 1000 // (SAMPLE_RATE * _BYTES_PER_SAMPLE)
+
+
+async def _finish_on_raw_silence(websocket: WebSocket, state: dict, buf: bytearray) -> bytearray:
+    """Drain a partial decode chunk, then finalize if the stream is still pending."""
+    buf = await _drain_buffer(websocket, state, buf)
+    if state.get("_final_pending"):
+        await _run_finalize(websocket, state, timed=_ACCUMULATE_PCM)
+    return buf
 
 
 async def _drain_buffer(websocket: WebSocket, state: dict, buf: bytearray) -> bytearray:
@@ -270,7 +435,7 @@ async def _handle_control_frame(websocket: WebSocket, state: dict, text: str) ->
 
 
 async def _emit_delta(websocket: WebSocket, state: dict, pcm: bytes) -> None:
-    """Streaming: decode→delta/text-stall-EOU. Buffered: accumulate→RMS energy-EOU."""
+    """Streaming: decode→delta/silent-stall-EOU. Buffered: accumulate→RMS energy-EOU."""
     if _PRIMARY_STREAMS:
         await _emit_streaming(websocket, state, pcm)
     else:
@@ -280,7 +445,7 @@ async def _emit_delta(websocket: WebSocket, state: dict, pcm: bytes) -> None:
 async def _emit_streaming(websocket: WebSocket, state: dict, pcm: bytes) -> None:
     """Decode one PCM frame; emit a delta on growth, an autonomous final on silence.
 
-    Two jobs, both driven by whether the cumulative transcript GREW this chunk:
+    Two jobs, driven by transcript growth plus acoustic silence:
 
     1. Interim dedup — only send {"type":"delta"} when the text actually CHANGES.
        The cache-aware loop decodes every STREAM_CHUNK_MS forever, re-emitting the
@@ -288,20 +453,25 @@ async def _emit_streaming(websocket: WebSocket, state: dict, pcm: bytes) -> None
        "still speaking", so identical interims would pin the turn open. Suppress
        unchanged interims.
 
-    2. Autonomous end-of-utterance — when the text has been non-empty and then
-       stops growing for _ENDPOINT_SILENCE_CHUNKS, emit {"type":"final"}. The
+    2. Autonomous end-of-utterance — when the text has been non-empty, stops
+       growing, and the audio is silent for _ENDPOINT_SILENCE_CHUNKS, emit {"type":"final"}. The
        livekit-agents turn pipeline does NOT send a flush frame on end-of-speech;
        it pushes silence and waits for the plugin's FINAL (see ENDPOINT_SILENCE_MS
        note above). Without this the turn never commits and the LLM never runs.
     """
-    if _ACCUMULATE_PCM:
-        state.setdefault("_turn_pcm", bytearray()).extend(pcm)
+    is_silent = rms_int16(pcm) < ENERGY_SILENCE_RMS
     try:
         cumulative = await _decode_off_loop(state, pcm)
     except Exception as exc:  # noqa: BLE001 - report any decode error to the client
         logger.exception("nemo-stt decode error")
         await websocket.send_json({"type": "error", "message": str(exc)})
         return
+    if _ACCUMULATE_PCM:
+        turn_pcm = state.setdefault("_turn_pcm", bytearray())
+        if cumulative or not is_silent or state.get("_final_pending"):
+            turn_pcm.extend(pcm)
+        else:
+            turn_pcm.clear()
     grew = cumulative != state.get("_last_delta_text")
     if grew:
         state["_last_delta_text"] = cumulative
@@ -312,6 +482,9 @@ async def _emit_streaming(websocket: WebSocket, state: dict, pcm: bytes) -> None
     # No growth this chunk: count toward end-of-utterance. Fire ONE final per
     # utterance (guarded by _final_pending so steady silence does not spam finals).
     if not state.get("_final_pending"):
+        return
+    if not is_silent:
+        state["_silent_chunks"] = 0
         return
     state["_silent_chunks"] = state.get("_silent_chunks", 0) + 1
     if state["_silent_chunks"] >= _ENDPOINT_SILENCE_CHUNKS:

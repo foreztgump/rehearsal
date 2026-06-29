@@ -1,15 +1,17 @@
 "use client";
 
-import { useRoomContext, useTranscriptions, useVoiceAssistant } from "@livekit/components-react";
-import { useEffect, useRef, useState } from "react";
+import { useRoomContext, useVoiceAssistant } from "@livekit/components-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import InterviewPanel from "./InterviewPanel";
 import KbPanel from "./KbPanel";
 import ModelPanel from "./ModelPanel";
 import PersonaPanel from "./PersonaPanel";
 import ThemeDots from "./ThemeDots";
+import { normalizeTranscriptSegments } from "./transcriptSegments";
 import { downloadTranscript, formatTranscript, TranscriptEntry } from "./transcriptExport";
 import { font, palette, radius, space } from "./ui/tokens";
+import { useTranscriptionSegments } from "./useTranscriptionSegments";
 
 // UI-SPEC Copywriting table — verbatim destructive-confirm copy (SESS-03 End is the
 // two-step inline confirm; SESS-01 New / SESS-02 Reset use a native confirm).
@@ -23,10 +25,6 @@ const RESET_FAILED_MESSAGE =
 // rejection (LiveKit resolves performRpc with the returned string, it does not throw).
 const RPC_APPLIED = "applied";
 
-// Mirrors Transcript.tsx: a finalized segment carries this attribute as "true", and
-// user (vs agent) identity is prefixed `user-`. Export includes only FINAL lines.
-const TRANSCRIPTION_FINAL_ATTRIBUTE = "lk.transcription_final";
-const USER_IDENTITY_PREFIX = "user-";
 const TRANSCRIPT_TXT_FILENAME = "adept-transcript.txt";
 const TRANSCRIPT_MD_FILENAME = "adept-transcript.md";
 
@@ -73,27 +71,26 @@ export default function SettingsDrawer({
   // the `if (!open)` early return so hook order stays stable across open/close.
   const room = useRoomContext();
   const { agent } = useVoiceAssistant();
-  const transcriptions = useTranscriptions();
+  const transcriptions = useTranscriptionSegments();
+  const transcriptLines = useMemo(() => normalizeTranscriptSegments(transcriptions), [transcriptions]);
   // First-finalize wall-clock per segment id — backs export timestamps reliably even
   // while the drawer is closed (this component stays mounted, only its tree hides).
   const firstFinalAtRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
-    for (const segment of transcriptions) {
-      const isFinal = segment.streamInfo.attributes?.[TRANSCRIPTION_FINAL_ATTRIBUTE] === "true";
-      if (isFinal && !firstFinalAtRef.current.has(segment.streamInfo.id)) {
-        firstFinalAtRef.current.set(segment.streamInfo.id, Date.now());
+    for (const line of transcriptLines) {
+      if (line.isFinal && !firstFinalAtRef.current.has(line.id)) {
+        firstFinalAtRef.current.set(line.id, Date.now());
       }
     }
-  }, [transcriptions]);
+  }, [transcriptLines]);
 
   function buildEntries(): TranscriptEntry[] {
     const entries: TranscriptEntry[] = [];
-    for (const segment of transcriptions) {
-      if (segment.streamInfo.attributes?.[TRANSCRIPTION_FINAL_ATTRIBUTE] !== "true") continue;
-      const at = firstFinalAtRef.current.get(segment.streamInfo.id) ?? Date.now();
+    for (const line of transcriptLines) {
+      if (!line.isFinal) continue;
+      const at = firstFinalAtRef.current.get(line.id) ?? Date.now();
       if (at < resetMarker) continue; // a turn the user cleared on Reset — never export it
-      const isUser = segment.participantInfo.identity.startsWith(USER_IDENTITY_PREFIX);
-      entries.push({ speaker: isUser ? "You" : "Agent", text: segment.text, at });
+      entries.push({ speaker: line.speaker, text: line.text, at });
     }
     return entries;
   }

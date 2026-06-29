@@ -1,7 +1,7 @@
 """Pure, livekit-free STT-PLACEMENT decision module for the Adept voice loop (Plan 10-02).
 
-This owns the placement DECISION only — *should STT run as full GPU NeMo
-(``nemo-stt``) or as the off-GPU CPU-ONNX port (``nemo-stt-cpu``)?* — as a pure
+This owns the placement DECISION only — *should STT run on GPU
+(``nemo-stt``) or as the off-GPU CPU port (``nemo-stt-cpu``)?* — as a pure
 function of the selected LLM choice + the process environment. The EFFECT (picking
 ``NEMO_STT_URL`` vs ``NEMO_STT_CPU_URL`` and constructing ``NemoSTT``) lives in
 ``build_session`` in ``agent/main.py``. This is the SAME DECISION-owns-here /
@@ -49,8 +49,8 @@ LLM_PEAK_MB: dict[str, int] = {
     #                             q4 + 8192 ctx resident, RTX 5090). Below `better`, so it
     #                             never changes the worst-case math (documentary for R3).
 }
-STT_GPU_MB: int = 2400          # GPU-NeMo .nemo + activations (~2.4 GB, Phase 9)
-STT_CPU_GPU_MB: int = 0         # CPU-ONNX uses NO VRAM (runs off-GPU; ~0.67–0.88 GB RAM)
+STT_GPU_MB: int = 3200          # GPU Parakeet resident footprint (~3.0 GB observed, rounded up)
+STT_CPU_GPU_MB: int = 0         # CPU STT uses NO VRAM (runs off-GPU; ~0.67–0.88 GB RAM)
 KOKORO_MB: int = 954            # MEASURED 2026-06-28 (warmed, expandable_segments, RTX 5090).
 #                                  GPU branch still gates on STT_HEADROOM_MEASURED until the full
 #                                  E4B+GPU-STT+Kokoro KB-prefill co-residency matrix is measured.
@@ -110,7 +110,7 @@ def _self_check() -> None:
     """Pure-stdlib check (``python3 agent/placement.py``). Mirrors history.py.
 
     Asserts: STT_FORCE_CPU wins even when measured + the math fits; unmeasured →
-    CPU for both choices; measured + gpu-fits → GPU for both; an unknown choice never
+    CPU for both choices; measured + gpu-fits -> GPU for both; an unknown choice never
     raises; the decision is identical for fast/better (the worst-case-LLM lock); and
     every result is in {"gpu","cpu"}. No livekit import — fully sandbox-verifiable.
     """
@@ -128,7 +128,7 @@ def _self_check() -> None:
     assert resolve_stt_placement("better", measured) == "gpu", "measured + fits → gpu"
 
     # R3 Plan B: VRAM_TOTAL_MB is env-derived. A measured 12GB card cannot co-fit
-    # GPU-STT (worst-LLM 8912 + Kokoro 954 + STT 2400 = 12266 > 12288-1024), so the
+    # GPU-STT (worst-LLM 8912 + Kokoro 954 + STT 3200 = 13066 > 12288-1024), so the
     # ceiling must drop it to CPU even though a 16GB total would say GPU.
     small = {"STT_HEADROOM_MEASURED": "1", "VRAM_TOTAL_MB": "12288"}
     assert resolve_stt_placement("better", small) == "cpu", "measured 12GB total must not fit GPU-STT"

@@ -38,11 +38,11 @@ readonly AMD_COMPOSE_FILE="docker-compose.yml:docker-compose.amd.yml"
 readonly OLLAMA_ROCM_IMAGE="ollama/ollama:0.30.10-rocm"
 readonly KOKORO_ROCM_IMAGE="ghcr.io/remsky/kokoro-fastapi-rocm:v0.5.0"
 
-# R3 Plan B (advise-only): the hybrid VRAM floor. >= VRAM_FLOOR_MB → Parakeet on GPU;
-# VRAM_HYBRID_MB..VRAM_FLOOR_MB → hybrid with Parakeet on CPU (frees GPU); below → buffered.
+# R3 final (advise-only): use buffered Parakeet everywhere; use GPU only on 16GB+
+# NVIDIA hosts, otherwise keep STT buffered on CPU.
 readonly VRAM_HYBRID_MB="${VRAM_HYBRID_MB:-12288}"
 
-# The documented degraded defaults (consistent with .env.example): CPU-ONNX STT +
+# The documented degraded defaults (consistent with .env.example): CPU STT +
 # the Fast LLM tag. Referenced in the degraded snippet — not new literals.
 readonly FAST_LLM_TAG="evalengine/unbound-e2b:latest"
 
@@ -195,10 +195,10 @@ recommend_stt_profile() {
       return ;;
   esac
   if [ "${vram}" -ge "${VRAM_FLOOR_MB}" ]; then
-    printf '  STT_ENGINE=hybrid            # >=16GB -> Nemotron partials + Parakeet final\n'
+    printf '  STT_ENGINE=buffered          # >=16GB -> Parakeet final on GPU\n'
     printf '  STT_BUFFERED_DEVICE=gpu\n'
   elif [ "${vram}" -ge "${VRAM_HYBRID_MB}" ]; then
-    printf '  STT_ENGINE=hybrid            # 12-16GB -> hybrid, Parakeet on CPU (frees VRAM)\n'
+    printf '  STT_ENGINE=buffered          # 12-16GB -> Parakeet final on CPU (frees VRAM)\n'
     printf '  STT_BUFFERED_DEVICE=cpu\n'
   else
     printf '  STT_ENGINE=buffered          # <12GB -> accuracy-mode, CPU Parakeet\n'
@@ -212,11 +212,11 @@ print_advice() {
   hr
   if [ "${DEGRADED}" -eq 0 ]; then
     ok "GPU ready."
-    printf 'You can opt into GPU STT (otherwise the default boots VRAM-safe CPU-ONNX STT):\n\n'
+    printf 'You can opt into GPU STT (otherwise the default boots VRAM-safe CPU STT):\n\n'
     printf '  # GPU ready — opt into GPU STT ONLY after 10-PLACEMENT-VERIFY.md passes:\n'
     printf '  #   set in .env:  STT_FORCE_CPU=0   STT_HEADROOM_MEASURED=1\n'
     printf '  docker compose --profile stt-gpu up\n\n'
-    printf 'Default (recommended): docker compose up   # CPU-ONNX STT, VRAM-safe\n'
+    printf 'Default (safe): docker compose up   # CPU STT, VRAM-safe\n'
   else
     advise_summary
   fi
@@ -246,9 +246,9 @@ print_amd_advice() {
 }
 
 advise_summary() {
-  printf 'One or more checks need attention. The stack still runs VRAM-safe on CPU-ONNX\n'
+  printf 'One or more checks need attention. The stack still runs VRAM-safe on CPU\n'
   printf 'STT + the Fast model. Copy these into .env (this script does NOT edit .env):\n\n'
-  printf '  # Sub-spec / non-NVIDIA host — CPU-ONNX STT + Fast model (the safe defaults):\n'
+  printf '  # Sub-spec / non-NVIDIA host — CPU STT + Fast model (the safe defaults):\n'
   printf '  STT_FORCE_CPU=1\n'
   printf '  OLLAMA_MODEL=%s   # the Fast tag\n' "${FAST_LLM_TAG}"
   printf '  # then: docker compose up   (do NOT add --profile stt-gpu)\n\n'

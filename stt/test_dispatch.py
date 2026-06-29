@@ -150,6 +150,7 @@ def _assert_cpu_import_needs_no_stt_model() -> None:
 
 def _self_check() -> None:
     os.environ["STT_RUNTIME"] = "cpu"
+    os.environ["STT_ENGINE"] = "streaming"
     os.environ.setdefault("STT_ONNX_MODEL", "stub-onnx-model")
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     _assert_cpu_import_needs_no_stt_model()
@@ -166,8 +167,8 @@ def _self_check() -> None:
     server = sys.modules["server"]
     assert delta["text"] == f"len={server._STREAM_CHUNK_BYTES}", (
         f"delta must echo padded chunk size, got {delta!r}")
-    # R3: default engine is streaming and keeps primary==final (byte-compat).
-    assert server.ENGINE == "streaming", f"default engine must be streaming, got {server.ENGINE!r}"
+    # Legacy streaming mode keeps primary==final (byte-compat).
+    assert server.ENGINE == "streaming", f"engine must be streaming, got {server.ENGINE!r}"
     assert server._primary is server._final, "streaming engine must share one backend"
     assert server._primary is sys.modules["backend_onnx"], "streaming+cpu must dispatch backend_onnx"
     print(f"dispatch _self_check OK — frames: {kinds}", file=sys.stderr)

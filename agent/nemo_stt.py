@@ -35,6 +35,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Awaitable, Callable
 
 import aiohttp
 from livekit.agents import (
@@ -59,18 +60,24 @@ class NemoSTT(stt.STT):
     sourced server-side via ``STT_MODEL``; this string is a label only).
     """
 
-    def __init__(self, *, ws_url: str, language: str = "en") -> None:
+    def __init__(
+        self,
+        *,
+        ws_url: str,
+        language: str = "en",
+        correction_cb: Callable[[str], Awaitable[None]] | None = None,
+    ) -> None:
         super().__init__(
             capabilities=stt.STTCapabilities(streaming=True, interim_results=True)
         )
         self._ws_url = ws_url
         self._language = language
+        self._correction_cb = correction_cb
 
     @property
     def model(self) -> str:
-        # STT_ENGINE=streaming (or unset) keeps the pre-R3 label "nemotron-streaming"
-        # for byte-identical metrics. Buffered/hybrid return their engine name.
-        engine = os.environ.get("STT_ENGINE", "streaming")
+        # STT_ENGINE unset follows the server default: buffered Parakeet.
+        engine = os.environ.get("STT_ENGINE", "buffered")
         return "nemotron-streaming" if engine == "streaming" else engine
 
     @property
@@ -91,6 +98,7 @@ class NemoSTT(stt.STT):
             ws_url=self._ws_url,
             language=self._language,
             conn_options=conn_options,
+            correction_cb=self._correction_cb,
         )
 
 
@@ -104,10 +112,11 @@ class NemoSpeechStream(stt.RecognizeStream):
     nesting), with an early-``continue`` on the flush sentinel to cap nesting.
     """
 
-    def __init__(self, *, stt, ws_url, language, conn_options) -> None:
+    def __init__(self, *, stt, ws_url, language, conn_options, correction_cb) -> None:
         super().__init__(stt=stt, conn_options=conn_options, sample_rate=16000)
         self._ws_url = ws_url
         self._language = language
+        self._correction_cb = correction_cb
         # Wall-clock start of the flush→final finalize span (set on the flush
         # sentinel). None until the first flush so _emit_final guards it.
         self._flush_started: float | None = None
@@ -160,6 +169,10 @@ class NemoSpeechStream(stt.RecognizeStream):
                 # Autonomous finals carry server-measured dur_ms; flush finals
                 # carry dur_ms=0 (agent's _flush_started span is used instead).
                 self._emit_final(evt["text"], evt.get("dur_ms"))
+            elif kind == "correction" and self._correction_cb:
+                text = evt.get("text", "")
+                if text:
+                    await self._correction_cb(text)
             elif kind == "error":
                 # Log only; do NOT synthesize a transcript event on error.
                 logger.error("nemo-stt error: %s", evt.get("message", ""))

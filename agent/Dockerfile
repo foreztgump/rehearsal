@@ -27,7 +27,7 @@ RUN python -m livekit.agents download-files
 # persona.update RPC handler. history.py + interview.py are flat local modules
 # imported by main.py (sliding-window history + Interview mode) — without them the
 # container ImportErrors at startup.
-COPY metrics.py persona.py history.py interview.py main.py ./
+COPY metrics.py persona.py history.py interview.py models.py main.py ./
 # Wave-2 STT placement + websocket client, and the Phase-12 captioned TTS plugin
 # (Kokoro /dev/captioned_speech -> audio + word timestamps for avatar lip-sync).
 # main.py imports all three at module load; without them the worker ImportErrors.
@@ -36,7 +36,7 @@ COPY nemo_stt.py placement.py captioned_tts.py ./
 # the captioned-TTS avatar gate (captioned_gate.py), and the garbled-finalize
 # predicate (transcript_gate.py). main.py + captioned_tts.py import them at module
 # load — without them the worker ImportErrors at startup.
-COPY endpointing.py captioned_gate.py transcript_gate.py ./
+COPY endpointing.py captioned_gate.py transcript_gate.py transcript_debug.py ./
 # The KB parser package (Plan 04-01) — pure, livekit-free; copied as a directory.
 COPY kb/ ./kb/
 

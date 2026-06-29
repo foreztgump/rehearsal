@@ -1,10 +1,9 @@
-# nemo-stt-cpu — lean off-GPU CPU-ONNX streaming ASR server image (Plan 10-01).
+# nemo-stt-cpu — lean off-GPU CPU STT server image.
 #
 # The whole point of this image is to run STT OFF the GPU: NO CUDA, NO NeMo, NO torch
-# in the runtime stage. NeMo + torch are needed ONLY at EXPORT time (the builder stage
-# below), never at serve time — the server runs the exported ONNX graphs under the
-# onnxruntime CPU EP. The same server.py is used; STT_RUNTIME=cpu routes it to
-# backend_onnx (RESEARCH §1.4 / §5 Phase B).
+# in the runtime stage. Default buffered mode uses the baked Parakeet sherpa-onnx
+# bundle. NeMo + torch are needed ONLY at EXPORT time for the legacy streaming ONNX
+# fallback, never at serve time.
 
 # --- Stage 1: export builder (heavy — NeMo + torch; OPERATOR-GATED, multi-GB) ------
 # Runs export_onnx.py to produce the four artifacts backend_onnx loads

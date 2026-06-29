@@ -1,4 +1,4 @@
-# nemo-stt-cpu — off-GPU CPU-ONNX runtime server deps (Plan 10-01).
+# nemo-stt-cpu — off-GPU CPU STT runtime server deps.
 # Mirrors stt/requirements.txt pinning posture: explicit ~= pins, no :latest, no
 # unbounded float. torch + CUDA + NeMo are ABSENT BY DESIGN — the whole point of
 # the off-GPU port is to drop the GPU stack: this image runs the exported ONNX

@@ -15,13 +15,13 @@
 #
 # Run from the host against the running stack:  ./scripts/vram-validate.sh
 #
-# Phase-10 (10-02) 4-cell co-residency matrix {E2B,E4B}×{GPU-NeMo,CPU-ONNX}: STT can
+# Phase-10/R3 co-residency matrix {E2B,E4B}×{GPU-STT,CPU-STT}: STT can
 # run GPU (nemo-stt, STT_RUNTIME=gpu) or off-GPU (nemo-stt-cpu, STT_RUNTIME=cpu). The
 # operator runs ONE cell per invocation, sweeping OLLAMA_MODEL over the Fast (E2B) and
 # Better (E4B) tags × --stt-runtime gpu|cpu, restarting ollama between tags to clear
 # keep_alive=-1 (Gate D). EXPECTED_GPU_PROCS is 3 for GPU-STT (ollama, nemo-stt,
 # kokoro) or 2 for CPU-STT (ollama, kokoro — nemo-stt-cpu runs OFF-GPU and is NOT a GPU
-# process). The CPU-STT cells show a LOWER peak (no +2.4 GB STT on GPU) — that is the
+# process). The CPU-STT cells show a LOWER peak (no ~3.2 GB STT on GPU) — that is the
 # headroom the placement table banks on. The GPU-STT × E4B cell is LOAD-BEARING: if its
 # peak >= ceiling, the safe default stays STT_FORCE_CPU=1 and the resolver returns CPU
 # for E4B. The per-cell peak < total − 1 GB assertion is unchanged.

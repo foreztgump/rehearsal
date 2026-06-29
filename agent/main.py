@@ -40,6 +40,7 @@ import history
 import interview
 import metrics
 import transcript_gate
+from transcript_debug import transcript_debug_values
 from captioned_tts import CaptionedTTS
 from nemo_stt import NemoSTT
 from models import MODEL_CHOICES, default_model_choice, resolved_model_tag
@@ -67,7 +68,7 @@ OLLAMA_GENERATE_URL = os.environ.get("OLLAMA_GENERATE_URL", "http://ollama:11434
 # Wave-1 (09-01) server route on the `nemo-stt` service. The STT model itself is
 # single-sourced server-side via STT_MODEL (no model tag in agent code).
 NEMO_STT_URL = os.environ.get("NEMO_STT_URL", "ws://nemo-stt:8000/v1/audio/stream")
-# The CPU-ONNX STT route on the `nemo-stt-cpu` service (Wave-1 10-01, STT_RUNTIME=cpu).
+# The CPU STT route on the `nemo-stt-cpu` service (STT_RUNTIME=cpu).
 # Same internal port 8000 as the GPU service — reached by a different service-DNS host
 # (the host-side 8001:8000 mapping is for debugging only). placement.resolve_stt_placement
 # picks between this and NEMO_STT_URL ONCE at session start (build_session).
@@ -81,15 +82,15 @@ THINKING_ENABLED = False  # protect TTFT (see ollama/Modelfile)
 _MS_PER_SECOND = 1000.0
 
 # ============================ CONVERSATION-FEEL KNOBS ============================
-# Retuned for the NeMo era (14-01). Starting values below; FINAL values are
+# Retuned for buffered Parakeet. Starting values below; FINAL values are
 # operator-empirical on the RTX 5090 (14-09) against the felt regression. Do not
 # silently change without re-reading agent/metrics rolling_summary.
 #   endpointing      : mode-aware (agent/endpointing.py) — Converse 0.3/3.0, Interview 0.7/5.0
 #   VAD threshold    : 0.6  (down from 0.65) — recover swallowed openings
 #   interrupt min_dur: 0.25 (down from 0.30) — interrupts cut TTS reliably
-#   STT chunk        : 560 ms (.env STT_STREAM_CHUNK_MS) — snappy partials, stays valid
-#   STT silence      : 700 ms (.env STT_ENDPOINT_SILENCE_MS) — vs turn-detector flush
-#   att_context_size : [70,1] (.env STT_ATT_CONTEXT_SIZE) — trained, 80 ms lookahead
+#   STT chunk        : 320 ms (.env STT_STREAM_CHUNK_MS) — endpointing granularity
+#   STT silence      : 640 ms (.env STT_ENDPOINT_SILENCE_MS) — accepted buffered baseline
+#   att_context_size : [70,6] (.env STT_ATT_CONTEXT_SIZE) — legacy streaming only
 # ================================================================================
 #
 # Endpointing is mode-aware (FEEL-01): the Converse/Interview floors live in
@@ -113,7 +114,12 @@ VAD_ACTIVATION_THRESHOLD: float = 0.6
 # ignore the agent's own echo tail + "mm-hmm" backchannels. resume_false_interruption
 # + a 2.0s timeout make a no-transcript noise blip resume the agent, not drop the turn.
 INTERRUPT_MIN_DURATION_S: float = 0.25
+RESUME_FALSE_INTERRUPTION: bool = True
 FALSE_INTERRUPT_TIMEOUT_S: float = 2.0
+# LiveKit's default 3s AEC warmup sends silence to STT while the agent speaks.
+# In a headphone-first local trainer, that drops the first words of real barge-in.
+AEC_WARMUP_DURATION_S: float = 0.0
+TRANSCRIPT_CORRECTION_TOPIC = "adept.transcript.correction"
 
 # Default persona (PERS-01) now lives in agent/persona.py as a structured config:
 # DEFAULT_PERSONA renders (via render_persona) to a byte-stable system prompt with
@@ -187,7 +193,7 @@ def _warmup_llm_ttft_ms(tag: str) -> float:
     return round(ttft_seconds * _MS_PER_SECOND, 1)
 
 
-def build_session(vad: silero.vad.VAD) -> AgentSession:
+def build_session(vad: silero.vad.VAD, transcript_correction_cb=None) -> AgentSession:
     """Construct the AgentSession against the three local endpoints + local turn
     detector. Used by the entrypoint; metrics are attached per-plugin after.
     """
@@ -200,8 +206,9 @@ def build_session(vad: silero.vad.VAD) -> AgentSession:
     placement = resolve_stt_placement(DEFAULT_MODEL_CHOICE, os.environ)
     stt_url = NEMO_STT_URL if placement == "gpu" else NEMO_STT_CPU_URL
     return AgentSession(
+        aec_warmup_duration=AEC_WARMUP_DURATION_S,
         vad=vad,
-        stt=NemoSTT(ws_url=stt_url, language="en"),
+        stt=NemoSTT(ws_url=stt_url, language="en", correction_cb=transcript_correction_cb),
         # Thinking-OFF on the hot path (a <think> preamble destroys TTFT and
         # breaks first-sentence TTS). with_ollama connects over Ollama's
         # OpenAI-compat /v1 endpoint, which IGNORES the native `think` field but
@@ -278,7 +285,7 @@ def build_session(vad: silero.vad.VAD) -> AgentSession:
             "endpointing": endpointing.endpointing_for_mode(interview.MODE_LEARN),
             "interruption": {
                 "min_duration": INTERRUPT_MIN_DURATION_S,
-                "resume_false_interruption": True,
+                "resume_false_interruption": RESUME_FALSE_INTERRUPTION,
                 "false_interruption_timeout": FALSE_INTERRUPT_TIMEOUT_S,
             },
         },
@@ -394,7 +401,15 @@ async def entrypoint(ctx: JobContext) -> None:
     automatically when the user finishes speaking.
     """
     await ctx.connect()
-    session = build_session(ctx.proc.userdata["vad"])
+
+    async def publish_transcript_correction(text: str) -> None:
+        await ctx.room.local_participant.publish_data(
+            json.dumps({"text": text}),
+            reliable=True,
+            topic=TRANSCRIPT_CORRECTION_TOPIC,
+        )
+
+    session = build_session(ctx.proc.userdata["vad"], publish_transcript_correction)
     # Give the captioned TTS the room handle so it can publish word schedules for the
     # avatar lip-sync (data channel). Done after connect; before this the agent never
     # speaks, so no schedule is ever dropped for lack of a room.
@@ -416,6 +431,14 @@ async def entrypoint(ctx: JobContext) -> None:
     # render_prompt(DEFAULT_PERSONA, "") is byte-identical to the old
     # render_persona(DEFAULT_PERSONA) golden (the empty-KB seam).
     agent = HistoryWindowAgent(instructions=render_prompt(DEFAULT_PERSONA, ""))
+
+    def log_user_input_transcribed(ev) -> None:
+        logger.info(
+            "transcript-debug user_input_transcribed final=%s chars=%d sha=%s",
+            *transcript_debug_values(ev),
+        )
+
+    session.on("user_input_transcribed", log_user_input_transcribed)
     await session.start(agent=agent, room=ctx.room)
 
     # Track the CURRENT persona so the KB inject and persona edits COMPOSE (Pattern

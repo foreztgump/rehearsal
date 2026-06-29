@@ -1,19 +1,10 @@
 "use client";
 
-import { useTranscriptions } from "@livekit/components-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { normalizeTranscriptSegments } from "./transcriptSegments";
+import { useTranscriptionSegments } from "./useTranscriptionSegments";
 import { font, palette, radius, space } from "./ui/tokens";
-
-// The token route mints user identities as `user-<ts>`; everything else in the
-// room (the agent worker) is the AGENT side.
-const USER_IDENTITY_PREFIX = "user-";
-
-// The agent SDK marks a finished transcription segment with this attribute on the
-// text stream (livekit-client ParticipantAgentAttributes.TranscriptionFinal). When
-// it is the string "true" the segment is a FINAL; otherwise it is an in-progress
-// interim and renders distinctly (UI-SPEC §Transcript auto-scroll contract).
-const TRANSCRIPTION_FINAL_ATTRIBUTE = "lk.transcription_final";
 
 // "At bottom" tolerance in px. Kept above a couple of px so a programmatic
 // scrollTop write to the exact bottom never falsely flips atBottom (RESEARCH §4
@@ -22,8 +13,8 @@ const THRESHOLD = 32;
 
 /**
  * Two-sided live transcript (VOICE-07) with smart stick-to-bottom auto-scroll
- * (success criterion D-04). useTranscriptions() returns TextStreamData[] tagged by
- * participant identity; segments are split into USER (right, #e6edf3) vs AGENT
+ * (success criterion D-04). Transcript segments are tagged by participant
+ * identity; segments are split into USER (right, #e6edf3) vs AGENT
  * (left, #58a6ff) sides. The view sticks to the newest line ONLY while the user is
  * already at the bottom; once they scroll up to read history it never yanks, and a
  * "Jump to latest ↓" pill returns them to the bottom + re-engages stick.
@@ -33,7 +24,8 @@ const THRESHOLD = 32;
  * Token streaming is rendered instantly (no animation) regardless of motion prefs.
  */
 export default function Transcript({ resetAfter = 0 }: { resetAfter?: number }) {
-  const segments = useTranscriptions();
+  const segments = useTranscriptionSegments();
+  const lines = useMemo(() => normalizeTranscriptSegments(segments), [segments]);
 
   // SESS-02 reset: record when each segment was first seen, then hide everything that
   // predates the latest Reset. The room keeps accumulating transcriptions across a
@@ -41,14 +33,14 @@ export default function Transcript({ resetAfter = 0 }: { resetAfter?: number }) 
   // (not-yet-recorded) segment falls back to "now" so it shows immediately.
   const firstSeenRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
-    for (const segment of segments) {
-      if (!firstSeenRef.current.has(segment.streamInfo.id)) {
-        firstSeenRef.current.set(segment.streamInfo.id, Date.now());
+    for (const line of lines) {
+      if (!firstSeenRef.current.has(line.id)) {
+        firstSeenRef.current.set(line.id, Date.now());
       }
     }
-  }, [segments]);
-  const visibleSegments = segments.filter(
-    (segment) => (firstSeenRef.current.get(segment.streamInfo.id) ?? Date.now()) >= resetAfter,
+  }, [lines]);
+  const visibleLines = lines.filter(
+    (line) => (firstSeenRef.current.get(line.id) ?? Date.now()) >= resetAfter,
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -62,7 +54,7 @@ export default function Transcript({ resetAfter = 0 }: { resetAfter?: number }) 
     if (!el) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= THRESHOLD;
     atBottomRef.current = atBottom;
-    setShowJump(!atBottom && segments.length > 0);
+    setShowJump(!atBottom && lines.length > 0);
   }
 
   // Stick to the newest line on each segment update, but ONLY when the user is at
@@ -76,9 +68,9 @@ export default function Transcript({ resetAfter = 0 }: { resetAfter?: number }) 
       el.scrollTop = el.scrollHeight;
     } else {
       // New content arrived while scrolled up — surface the jump pill.
-      setShowJump(segments.length > 0);
+      setShowJump(lines.length > 0);
     }
-  }, [segments]);
+  }, [lines]);
 
   function jumpToLatest() {
     const el = containerRef.current;
@@ -96,7 +88,7 @@ export default function Transcript({ resetAfter = 0 }: { resetAfter?: number }) 
         onScroll={recomputeAtBottom}
         style={{ flex: 1, minHeight: 0, overflowY: "auto", textAlign: "left" }}
       >
-        {visibleSegments.length === 0 ? (
+        {visibleLines.length === 0 ? (
           <div
             style={{
               height: "100%",
@@ -127,23 +119,23 @@ export default function Transcript({ resetAfter = 0 }: { resetAfter?: number }) 
               gap: space.sm,
             }}
           >
-            {visibleSegments.map((segment) => {
-              const isUser = segment.participantInfo.identity.startsWith(USER_IDENTITY_PREFIX);
-              const isFinal =
-                segment.streamInfo.attributes?.[TRANSCRIPTION_FINAL_ATTRIBUTE] === "true";
+            {visibleLines.map((line) => {
+              const isUser = line.speaker === "You";
               // Use the theme-reactive .bubble classes (globals.css): agent = glass
               // left, user = accent-gradient right, .interim = tentative, .bubble-pop
-              // = one-shot entrance (runs once; the <li> is keyed by segment id so a
+              // = one-shot entrance (runs once; the <li> is keyed by line id so a
               // streaming text update reuses the node and never re-animates).
               return (
                 <li
-                  key={segment.streamInfo.id}
+                  key={line.id}
                   data-from={isUser ? "user" : "agent"}
-                  data-final={isFinal ? "true" : "false"}
-                  className={`bubble bubble-pop ${isUser ? "user" : "agent"}${isFinal ? "" : " interim"}`}
+                  data-final={line.isFinal ? "true" : "false"}
+                  data-source-id={line.sourceId}
+                  className={`bubble bubble-pop ${isUser ? "user" : "agent"}${line.isFinal ? "" : " interim"}`}
                 >
-                  <span className="who">{isUser ? "You" : "Agent"}</span>
-                  {segment.text}
+                  <span className="who">{line.speaker}</span>
+                  {line.text}
+                  {line.isFinal && <span className="final-mark" aria-label="final transcript">✓</span>}
                 </li>
               );
             })}
