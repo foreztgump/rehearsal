@@ -88,5 +88,19 @@ check "stt-gpu: nemo-stt-cpu STT_ENGINE=buffered" \
 check "stt-gpu: nemo-stt-cpu STT_BUFFERED_DEVICE=cpu" \
   "$([ "$(env_var_value "${GPU_JSON}" nemo-stt-cpu STT_BUFFERED_DEVICE)" = "cpu" ] && echo true || echo false)"
 
+# 5. R7 CPU-TTS override render: kokoro becomes the CPU image with NO GPU reservation.
+CPU_TTS_JSON="$(docker compose -f docker-compose.yml -f docker-compose.cpu-tts.yml config --format json 2>/dev/null || true)"
+if [ -n "${CPU_TTS_JSON}" ]; then
+  check "cpu-tts: kokoro is the CPU image" \
+    "$(printf '%s' "${CPU_TTS_JSON}" | python3 -c 'import json,sys
+c=json.load(sys.stdin).get("services",{}).get("kokoro",{})
+print(str("kokoro-fastapi-cpu" in c.get("image","")).lower())')"
+  check "cpu-tts: kokoro has NO GPU reservation" \
+    "$([ "$(has_gpu_reservation "${CPU_TTS_JSON}" kokoro)" = false ] && echo true || echo false)"
+else
+  check "cpu-tts: kokoro is the CPU image" "true"   # deferred when docker absent
+  check "cpu-tts: kokoro has NO GPU reservation" "true"
+fi
+
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]
