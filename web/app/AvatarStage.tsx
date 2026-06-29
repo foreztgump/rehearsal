@@ -10,6 +10,14 @@ import {
   LIPSYNC_TOPIC,
   TALKINGHEAD_SPECIFIER,
 } from "./avatarConfig";
+import {
+  activeVisemeAt,
+  advancePathB,
+  queueSchedule,
+  type ActiveSchedule,
+  type LipsyncSchedule,
+  type QueuedSchedule,
+} from "./avatarPathB";
 
 // Surface of the TalkingHead 1.7 instance we touch. Path-A streaming API confirmed
 // against the vendored source (web/public/vendor/talkinghead/talkinghead.mjs):
@@ -71,15 +79,6 @@ function releaseRealtime(head: TalkingHeadInstance, mt: string) {
   }
 }
 
-// --- Word schedule (Path-B captioned lip-sync) types + word->viseme timeline. ---
-// The agent's CaptionedTTS publishes {seq, request_id, words:[{w,s,e}]} on
-// LIPSYNC_TOPIC, where s/e are sentence-relative seconds (see agent/captioned_tts.py).
-type ScheduleWord = { w: string; s: number; e: number };
-type LipsyncSchedule = { seq: number; words: ScheduleWord[] };
-// A flat, time-ordered list of viseme spans (sentence-relative seconds) we derive
-// once per schedule and scan each frame against the measured audio elapsed time.
-type VisemeSpan = { m: string; s: number; e: number };
-
 // All Oculus visemes the GLB carries (ARKit-52 + Oculus-15, per avatarConfig). We
 // zero every one each frame except the active span so shapes never stick open.
 const VISEME_MORPHS = [
@@ -99,141 +98,6 @@ const VISEME_MORPHS = [
   "viseme_RR",
 ];
 
-// Map a lowercase English word to an ordered list of Oculus viseme keys. This is a
-// grapheme heuristic (NOT a true phonemizer — TalkingHead's lipsync-en.mjs is not
-// vendored), but driven by REAL per-word timing it reads as proper lip-sync: the
-// mouth makes the right shapes at the right millisecond, which energy/formant alone
-// can never do. Digraphs (th/sh/ch/ph/wh/ck/qu) are matched before single letters.
-function wordToVisemes(word: string): string[] {
-  const w = word.toLowerCase().replace(/[^a-z]/g, "");
-  const out: string[] = [];
-  let i = 0;
-  const push = (m: string) => {
-    // Collapse immediate repeats so "mm"/"ee" don't stutter the same shape.
-    if (out.length === 0 || out[out.length - 1] !== m) out.push(m);
-  };
-  while (i < w.length) {
-    const two = w.slice(i, i + 2);
-    if (two === "th") {
-      push("viseme_TH");
-      i += 2;
-      continue;
-    }
-    if (two === "sh" || two === "ch") {
-      push("viseme_CH");
-      i += 2;
-      continue;
-    }
-    if (two === "ph") {
-      push("viseme_FF");
-      i += 2;
-      continue;
-    }
-    if (two === "ck") {
-      push("viseme_kk");
-      i += 2;
-      continue;
-    }
-    if (two === "qu") {
-      push("viseme_kk");
-      push("viseme_U");
-      i += 2;
-      continue;
-    }
-    if (two === "wh") {
-      push("viseme_U");
-      i += 2;
-      continue;
-    }
-    const c = w[i];
-    i += 1;
-    switch (c) {
-      case "a":
-        push("viseme_aa");
-        break;
-      case "e":
-        push("viseme_E");
-        break;
-      case "i":
-      case "y":
-        push("viseme_I");
-        break;
-      case "o":
-        push("viseme_O");
-        break;
-      case "u":
-        push("viseme_U");
-        break;
-      case "w":
-        push("viseme_U");
-        break;
-      case "m":
-      case "b":
-      case "p":
-        push("viseme_PP");
-        break;
-      case "f":
-      case "v":
-        push("viseme_FF");
-        break;
-      case "t":
-      case "d":
-        push("viseme_DD");
-        break;
-      case "n":
-      case "l":
-        push("viseme_nn");
-        break;
-      case "k":
-      case "g":
-      case "c":
-      case "q":
-      case "x":
-        push("viseme_kk");
-        break;
-      case "j":
-        push("viseme_CH");
-        break;
-      case "s":
-      case "z":
-        push("viseme_SS");
-        break;
-      case "r":
-        push("viseme_RR");
-        break;
-      case "h":
-        // Mostly a breath — fold into the following vowel; skip if standalone.
-        break;
-      default:
-        break;
-    }
-  }
-  // A wordless token (e.g. "h" only, or all-symbol) still needs a mouth movement.
-  if (out.length === 0) out.push("viseme_aa");
-  return out;
-}
-
-// Flatten a word schedule into evenly-timed viseme spans in sentence-relative
-// seconds. Each word's visemes split its [s,e] window equally — good enough because
-// the WORD boundaries are real (from Kokoro's phonemizer); only the intra-word
-// distribution is approximated.
-function scheduleToTimeline(words: ScheduleWord[]): VisemeSpan[] {
-  const spans: VisemeSpan[] = [];
-  for (const word of words) {
-    const dur = Math.max(0, word.e - word.s);
-    if (dur <= 0 || !word.w) continue;
-    const vis = wordToVisemes(word.w);
-    const step = dur / vis.length;
-    for (let j = 0; j < vis.length; j++) {
-      spans.push({
-        m: vis[j],
-        s: word.s + j * step,
-        e: word.s + (j + 1) * step,
-      });
-    }
-  }
-  return spans;
-}
 type TalkingHeadModule = {
   TalkingHead: new (
     node: HTMLElement,
@@ -293,15 +157,10 @@ export default function AvatarStage({
   // FIFO of word schedules received over LIPSYNC_TOPIC but not yet started. Each is
   // popped and anchored to the next measured audio onset (the docstring contract in
   // agent/captioned_tts.py), so data-channel/audio ordering slack never desyncs.
-  const scheduleQueueRef = useRef<LipsyncSchedule[]>([]);
+  const scheduleQueueRef = useRef<QueuedSchedule[]>([]);
   // The schedule currently driving the mouth: its viseme timeline + the audioCtx
   // time (seconds) we anchored word s=0 to. null => fall back to Path-A formants.
-  const activeRef = useRef<{ timeline: VisemeSpan[]; anchor: number } | null>(
-    null,
-  );
-  // Tracks audio-energy edges so we only anchor a queued schedule on a TRUE onset
-  // (silence -> sound), not on every frame the agent is mid-word.
-  const wasAudibleRef = useRef(false);
+  const activeRef = useRef<ActiveSchedule | null>(null);
   // Drop schedules whose seq we've already enqueued (publish_data can redeliver).
   const lastSeqRef = useRef(-1);
 
@@ -317,12 +176,9 @@ export default function AvatarStage({
         if (obj.seq <= lastSeqRef.current) return; // dup/out-of-order replay
         lastSeqRef.current = obj.seq;
       }
-      const timeline = scheduleToTimeline(obj.words);
-      if (timeline.length === 0) return;
-      scheduleQueueRef.current.push({ seq: obj.seq, words: obj.words });
-      // Stash the precomputed timeline alongside via a parallel field on the item.
-      (scheduleQueueRef.current[scheduleQueueRef.current.length - 1] as
-        LipsyncSchedule & { timeline?: VisemeSpan[] }).timeline = timeline;
+      const queued = queueSchedule(obj);
+      if (!queued) return;
+      scheduleQueueRef.current.push(queued);
     } catch {
       // Malformed payload: ignore, lip-sync simply falls back to Path-A this turn.
     }
@@ -588,42 +444,20 @@ export default function AvatarStage({
         // sentence-relative word times then map to wall-clock by adding this anchor,
         // so buffer/network jitter on the data channel never desyncs the mouth. ---
         const audible = !mutedRef.current && rms > RMS_HI;
-        if (audible && !wasAudibleRef.current) {
-          const next = scheduleQueueRef.current.shift() as
-            | (LipsyncSchedule & { timeline?: VisemeSpan[] })
-            | undefined;
-          if (next?.timeline?.length) {
-            activeRef.current = {
-              timeline: next.timeline,
-              anchor: ctx.currentTime,
-            };
-          }
-        }
-        if (!mutedRef.current && rms > RMS_HI) wasAudibleRef.current = true;
-        else if (mutedRef.current || rms < RMS_LO) wasAudibleRef.current = false;
+        const pathB = advancePathB(
+          { active: activeRef.current, queue: scheduleQueueRef.current },
+          { now: ctx.currentTime, audible },
+        );
+        activeRef.current = pathB.active;
+        scheduleQueueRef.current = pathB.queue;
 
         // --- 3) Viseme selection. Prefer the captioned schedule (Path-B, real word
         // timing -> true lip-sync); fall back to the F1/F2 formant estimate (Path-A)
         // whenever no schedule is active (e.g. the stock OpenAI TTS, or pre-onset). ---
         let target = "viseme_aa";
-        const active = activeRef.current;
-        if (active && !mutedRef.current) {
-          const t = ctx.currentTime - active.anchor; // seconds into the utterance
-          const last = active.timeline[active.timeline.length - 1];
-          if (t > last.e + 0.15) {
-            // Utterance finished — release the schedule so Path-A resumes for any
-            // residual energy and the next onset can anchor a fresh schedule.
-            activeRef.current = null;
-          } else {
-            // Linear scan (timelines are short, one sentence) for the active span.
-            for (let s = 0; s < active.timeline.length; s++) {
-              const span = active.timeline[s];
-              if (t >= span.s && t < span.e) {
-                target = span.m;
-                break;
-              }
-            }
-          }
+        const scheduledViseme = activeVisemeAt(activeRef.current, ctx.currentTime);
+        if (scheduledViseme) {
+          target = scheduledViseme;
         } else if (!mutedRef.current && smooth > 0.06) {
           analyser.getByteFrequencyData(freq);
           const f1 = peakHz(250, 900);
@@ -736,7 +570,6 @@ export default function AvatarStage({
       // micro-expressions resume — do NOT pin them to 0 (that froze the mouth).
       activeRef.current = null;
       scheduleQueueRef.current = [];
-      wasAudibleRef.current = false;
       try {
         releaseRealtime(head, "mouthOpen");
         for (const v of VISEME_MORPHS) releaseRealtime(head, v);
