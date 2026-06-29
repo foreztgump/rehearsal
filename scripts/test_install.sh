@@ -76,5 +76,21 @@ else
   printf -- '------ install output ------\n%s\n----------------------------\n' "$(cat "$WORK/b.out")"
 fi
 
+# --- Scenario C: -y with GPU=none → floor default + INSTALL_MODELS propagation ---
+# Same isolated PATH as B (docker stub), still no nvidia-smi → GPU=none → floor
+# default. Stubs pull-and-pin so it logs INSTALL_MODELS without a real container.
+BIN_C="$WORK/bin_c"; build_path "$BIN_C"
+make_shim "$BIN_C" docker 'echo "docker $*" >> "$PWD/docker.log"; exit 0'
+make_shim "$BIN_C" openssl 'echo deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
+printf '#!/usr/bin/env bash\necho "[stub] pull-and-pin INSTALL_MODELS=${INSTALL_MODELS}" > "$PWD/pin.log"\n' > "$WORK/ollama/pull-and-pin.sh"
+chmod +x "$WORK/ollama/pull-and-pin.sh"
+( cd "$WORK" && env -i PATH="$BIN_C" ASSUME_YES=1 bash install.sh -y >c.out 2>&1 ) && rcc=0 || rcc=$?
+if [ "${rcc:-1}" -eq 0 ]    && grep -q 'ADEPT_MODEL_CHOICES=floor' "$WORK/.env"    && grep -q 'INSTALL_MODELS=floor' "$WORK/pin.log" 2>/dev/null; then
+  ok "Scenario C: GPU=none → floor default + INSTALL_MODELS passed to pull-and-pin"
+else
+  bad "Scenario C: model selection path incomplete (rc=$rcc)"
+  printf -- '------ install output ------\n%s\n----------------------------\n' "$(cat "$WORK/c.out")"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
