@@ -86,6 +86,45 @@ else
   fi
 fi
 
+BIN_OSV_CVSS="$WORK/bin-osv-cvss"
+build_path "$BIN_OSV_CVSS"
+install_success_shims "$BIN_OSV_CVSS"
+make_shim "$BIN_OSV_CVSS" osv-scanner '
+printf "%s\n" "{\"results\":[{\"packages\":[{\"vulnerabilities\":[{\"id\":\"OSV-TEST-1\",\"severity\":[{\"type\":\"CVSS_V3\",\"score\":\"9.8\"}]}]}]}]}"
+exit 1
+'
+if env -i PATH="$BIN_OSV_CVSS" SECURITY_REPORT_DIR="$WORK/reports-osv-cvss" bash scripts/security-check.sh >"$WORK/osv-cvss.out" 2>&1; then
+  bad "OSV CVSS high severity must fail"
+else
+  grep -q "OSV-Scanner recursive scan: 1 blocking vulnerabilities (1 total)" "$WORK/osv-cvss.out" \
+    && ok "OSV CVSS high severity blocks" \
+    || { bad "OSV CVSS high severity did not block"; cat "$WORK/osv-cvss.out"; }
+fi
+
+BIN_GITLEAKS_CONFIG="$WORK/bin-gitleaks-config"
+build_path "$BIN_GITLEAKS_CONFIG"
+install_success_shims "$BIN_GITLEAKS_CONFIG"
+make_shim "$BIN_GITLEAKS_CONFIG" gitleaks '
+config=""
+out=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --config) config="$2"; shift 2 ;;
+    --report-path) out="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[ -n "$config" ] && [ -s "$config" ] || { echo "missing config" >&2; exit 2; }
+[ -n "$out" ] && printf "%s\n" "[]" >"$out"
+exit 0
+'
+if env -i PATH="$BIN_GITLEAKS_CONFIG" SECURITY_REPORT_DIR="$WORK/reports-gitleaks-config" bash scripts/security-check.sh >"$WORK/gitleaks-config.out" 2>&1; then
+  ok "Gitleaks receives generated config"
+else
+  bad "Gitleaks did not receive generated config"
+  cat "$WORK/gitleaks-config.out"
+fi
+
 BIN_OK="$WORK/bin-ok"
 build_path "$BIN_OK"
 install_success_shims "$BIN_OK"

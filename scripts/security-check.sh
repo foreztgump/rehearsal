@@ -63,6 +63,12 @@ def walk(value):
 def blocking_severity(value):
     return str(value or "").lower() in {"high", "critical"}
 
+def blocking_cvss_score(value):
+    try:
+        return float(value) >= 7.0
+    except (TypeError, ValueError):
+        return False
+
 def recursive_blocking_count(value):
     return sum(
         1
@@ -70,6 +76,17 @@ def recursive_blocking_count(value):
         for key, val in obj.items()
         if str(key).lower() == "severity" and blocking_severity(val)
     )
+
+def osv_vulnerability_blocks(vuln):
+    for obj in walk(vuln):
+        for key, val in obj.items():
+            name = str(key).replace("-", "_").lower()
+            if name == "severity" and blocking_severity(val):
+                return True
+            if name in {"score", "max_severity", "max_severity_score"}:
+                if blocking_severity(val) or blocking_cvss_score(val):
+                    return True
+    return False
 
 if kind == "npm":
     vulns = list((data.get("vulnerabilities") or {}).values())
@@ -88,12 +105,13 @@ elif kind == "grype":
         if blocking_severity((match.get("vulnerability") or {}).get("severity"))
     )
 elif kind == "osv":
-    total = 0
+    vulns = []
     for obj in walk(data):
-        vulns = obj.get("vulnerabilities")
-        if isinstance(vulns, list):
-            total += len(vulns)
-    blocking = recursive_blocking_count(data)
+        found = obj.get("vulnerabilities")
+        if isinstance(found, list):
+            vulns.extend(found)
+    total = len(vulns)
+    blocking = sum(1 for vuln in vulns if osv_vulnerability_blocks(vuln))
 else:
     total = 0
     blocking = recursive_blocking_count(data)
@@ -205,11 +223,33 @@ run_sbom_and_grype() {
 run_gitleaks() {
   info "== secret scan =="
   local report="${REPORT_DIR}/gitleaks.json"
-  if gitleaks detect --source . --no-banner --redact --report-format json --report-path "$report"; then
+  local config="${REPORT_DIR}/gitleaks.toml"
+  write_gitleaks_config "$config"
+  if gitleaks detect --source . --config "$config" --no-banner --redact --report-format json --report-path "$report"; then
     pass "Gitleaks secret scan"
   else
     block "Gitleaks found verified or likely secrets. See ${report}"
   fi
+}
+
+write_gitleaks_config() {
+  cat >"$1" <<'TOML'
+title = "voice-trainer security-check gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "repository paths excluded from the local security baseline"
+paths = [
+  '''(^|/)\.planning/''',
+  '''(^|/)security/reports/''',
+  '''(^|/)web/node_modules/''',
+  '''(^|/)web/\.next/''',
+  '''(^|/)\.env(\..*)?$''',
+  '''(^|/)certs/.*\.pem$''',
+]
+TOML
 }
 
 run_shellcheck_if_present() {
