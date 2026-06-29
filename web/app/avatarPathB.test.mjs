@@ -67,14 +67,29 @@ test("acceptScheduleSequence allows seq reset on a new request_id", () => {
   const afterFirst = acceptScheduleSequence(
     { requestId: null, lastSeq: -1 },
     first,
+    true,
   );
 
   assert.deepEqual(afterFirst, { requestId: "old", lastSeq: 4 });
-  assert.equal(acceptScheduleSequence(afterFirst, first), null);
-  assert.deepEqual(acceptScheduleSequence(afterFirst, restarted), {
+  assert.equal(acceptScheduleSequence(afterFirst, first, true), null);
+  assert.deepEqual(acceptScheduleSequence(afterFirst, restarted, true), {
     requestId: "new",
     lastSeq: 1,
   });
+});
+
+test("acceptScheduleSequence rejects late schedules while not speaking", () => {
+  const late = queueSchedule({
+    seq: 5,
+    request_id: "interrupted",
+    words: [{ w: "late", s: 0, e: 0.2 }],
+  });
+
+  assert.ok(late);
+  assert.equal(
+    acceptScheduleSequence({ requestId: null, lastSeq: -1 }, late, false),
+    null,
+  );
 });
 
 test("advancePathB anchors the first schedule on audible audio", () => {

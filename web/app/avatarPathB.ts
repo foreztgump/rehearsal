@@ -137,7 +137,9 @@ export function queueSchedule(
 export function acceptScheduleSequence(
   gate: SequenceGate,
   schedule: QueuedSchedule,
+  accepting: boolean,
 ): SequenceGate | null {
+  if (!accepting) return null;
   const requestId = schedule.request_id ?? null;
   if (requestId === gate.requestId && schedule.seq <= gate.lastSeq) {
     return null;

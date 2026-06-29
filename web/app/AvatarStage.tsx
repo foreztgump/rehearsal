@@ -163,7 +163,7 @@ export default function AvatarStage({
   } | null>(null);
   // barge-in flag: when the user is speaking we hold the mouth shut regardless of
   // any residual inbound audio energy.
-  const mutedRef = useRef(false);
+  const mutedRef = useRef(true);
   const activeMoodRef = useRef<string | null>(null);
 
   // --- Path-B captioned lip-sync state ---
@@ -189,7 +189,11 @@ export default function AvatarStage({
       if (!obj || !Array.isArray(obj.words) || obj.words.length === 0) return;
       const queued = queueSchedule(obj);
       if (!queued) return;
-      const nextGate = acceptScheduleSequence(sequenceGateRef.current, queued);
+      const nextGate = acceptScheduleSequence(
+        sequenceGateRef.current,
+        queued,
+        !mutedRef.current,
+      );
       if (!nextGate) return;
       sequenceGateRef.current = nextGate;
       scheduleQueueRef.current.push(queued);
