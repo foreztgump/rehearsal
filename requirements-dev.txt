@@ -1,0 +1,9 @@
+# Local development diagnostics and LSP servers.
+basedpyright==1.39.9
+ruff==0.15.20
+
+# R3 STT gate harness (host/dev only; not baked into images).
+jiwer~=4.0
+sherpa-onnx~=1.13
+numpy~=1.26; python_version < "3.14"
+numpy~=2.5; python_version >= "3.14"

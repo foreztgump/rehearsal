@@ -17,3 +17,5 @@ uvicorn[standard]~=0.34
 python-multipart~=0.0.20
 numpy~=1.26
 sentencepiece~=0.2
+# R3 buffered Parakeet (D22): sherpa-onnx OfflineRecognizer (CPU EP).
+sherpa-onnx~=1.13

@@ -51,6 +51,22 @@ forwarded to the WAN. To serve **other LAN devices** (not the same machine), see
 [Serving other LAN devices (optional TLS)](#serving-other-lan-devices-optional-tls)
 below.
 
+## Development checks
+
+Python diagnostics use BasedPyright for semantic LSP/type checks and Ruff for fast
+syntax/undefined-name checks. The web app uses the project-pinned TypeScript compiler.
+
+```bash
+UV_CACHE_DIR=/tmp/uv-cache UV_TOOL_DIR=/tmp/uv-tools uvx --from ruff==0.15.20 ruff check agent stt tests
+UV_CACHE_DIR=/tmp/uv-cache UV_TOOL_DIR=/tmp/uv-tools uvx --from basedpyright==1.39.9 basedpyright agent stt tests
+npm --prefix web run typecheck
+```
+
+Editors can run `basedpyright-langserver --stdio` and `ruff server` from the same
+pinned dev-tool versions in [`requirements-dev.txt`](requirements-dev.txt).
+R3 STT gate helpers also use that file for `scripts/stt-wer.py` (`jiwer` +
+`sherpa-onnx`).
+
 ## GPU setup (NVIDIA Container Toolkit)
 
 `docker compose up` on your own machine is the only supported deployment. The three
@@ -138,6 +154,8 @@ GPU (advise-only — it never edits `.env`). All three run fully local.
 `buffered`/`hybrid` use NVIDIA `parakeet-tdt-0.6b-v2` (int8 ONNX) as the authoritative `final` engine;
 it eliminates the streaming model's end-of-speech word-drop (no lookahead = no held tail) and emits
 nothing on silence. They are **accuracy modes**, off the P50 < 1.0s hot path by design.
+Live smoke test note: `buffered` was much more accurate than `streaming` with acceptable latency; barge-in at
+`INTERRUPT_MIN_DURATION_S=0.25` felt sensitive but usable, so keep it for now and polish later only if it false-interrupts.
 (A `TTS_ENGINE` seam mirroring this is the v1.3 path; today TTS is Kokoro-only.)
 
 ### Diagnosing the two common failure modes

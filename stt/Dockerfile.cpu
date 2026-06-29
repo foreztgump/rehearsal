@@ -40,6 +40,10 @@ RUN HF_HUB_OFFLINE=1 python export_onnx.py
 FROM python:3.11-slim
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash bzip2 ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Single-sourced tags carried via ARG → ENV (no hardcoded literal — mirrors
 # stt/Dockerfile:15-33). The loaded artifact == the baked artifact so they never drift.
 ARG STT_ONNX_MODEL
@@ -50,12 +54,9 @@ ARG STT_QUANT=int8-dynamic
 COPY requirements-cpu.txt ./
 RUN pip install --no-cache-dir -r requirements-cpu.txt
 
-# Both backends + the tag-free shared constants are copied so STT_RUNTIME can switch
-# without a rebuild; server.py imports the chosen one lazily, and only backend_onnx
-# (+ backend_common) is exercised at cpu runtime. backend_common holds the shared
-# streaming constants so the CPU path never imports backend_nemo (which requires
-# STT_MODEL, unset in this image; Phase 10 C1).
-COPY server.py backend_common.py backend_nemo.py backend_onnx.py ./
+# Backends + tag-free shared constants are copied so STT_RUNTIME/STT_ENGINE can
+# switch without a rebuild.
+COPY server.py backend_common.py backend_nemo.py backend_onnx.py backend_parakeet.py ./
 
 # Bake the exported ONNX bundle from the builder stage (the four artifacts
 # backend_onnx.load_model loads). No first-run download — offline/local-first.
@@ -67,13 +68,11 @@ ENV STT_QUANT=${STT_QUANT}
 ENV STT_RUNTIME=cpu
 ENV STT_ONNX_DIR=/app/onnx
 
-# Buffered Parakeet (R3): int8 ONNX baked offline; loaded only for STT_ENGINE=buffered|hybrid.
-# onnxruntime (CPU EP) is already in requirements-cpu.txt — no extra dep needed.
+# Buffered Parakeet (R3 D22): sherpa-onnx int8 bundle baked offline; loaded only
+# for STT_ENGINE=buffered|hybrid.
 ENV STT_PARAKEET_MODEL=/models/parakeet-tdt-0.6b-v2-onnx-int8
-# GATE: COPY/fetch the sherpa-onnx int8 export (encoder/decoder/joiner) into that dir.
-# G1 (operator): run `scripts/export_parakeet_onnx.py` on the GPU host, then
-#   COPY ./parakeet-tdt-0.6b-v2-onnx-int8 /models/parakeet-tdt-0.6b-v2-onnx-int8
-# after the pip install layer. Pin model rev; verify WER before enabling buffered|hybrid.
+COPY fetch_parakeet_onnx.sh ./fetch_parakeet_onnx.sh
+RUN bash ./fetch_parakeet_onnx.sh "${STT_PARAKEET_MODEL}"
 
 EXPOSE 8000
 

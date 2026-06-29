@@ -33,11 +33,54 @@ def _assert_parakeet_imports_without_ort() -> None:
     assert proc.returncode == 0, f"backend_parakeet seam import failed: {proc.stderr.strip()}"
 
 
+def _assert_parakeet_real_body() -> None:
+    """Real load/finalize body wires sherpa-onnx and float32 PCM (stubbed sherpa_onnx)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    code = (
+        "import sys, types, numpy as np\n"
+        "calls = {}\n"
+        "class _Stream:\n"
+        "    def __init__(self): self.result = types.SimpleNamespace(text='hello world')\n"
+        "    def accept_waveform(self, sr, samples): "
+        "calls.update(sr=sr, n=len(samples), dtype=str(samples.dtype))\n"
+        "def _from_transducer(**kw):\n"
+        "    calls.update(kw)\n"
+        "    recognizer = types.SimpleNamespace()\n"
+        "    recognizer.create_stream = lambda: _Stream()\n"
+        "    recognizer.decode_stream = lambda stream: calls.__setitem__('decoded', True)\n"
+        "    return recognizer\n"
+        "shim = types.ModuleType('sherpa_onnx')\n"
+        "shim.OfflineRecognizer = types.SimpleNamespace(from_transducer=_from_transducer)\n"
+        "sys.modules['sherpa_onnx'] = shim\n"
+        "import backend_parakeet as backend\n"
+        "model = backend.load_model()\n"
+        "assert calls['encoder'].endswith('/encoder.int8.onnx'), calls['encoder']\n"
+        "assert calls['decoder'].endswith('/decoder.int8.onnx')\n"
+        "assert calls['joiner'].endswith('/joiner.int8.onnx')\n"
+        "assert calls['tokens'].endswith('/tokens.txt')\n"
+        "assert calls['model_type'] == 'nemo_transducer', calls['model_type']\n"
+        "assert calls['decoding_method'] == 'greedy_search'\n"
+        "assert calls['provider'] == 'cpu', calls['provider']\n"
+        "state = backend.new_stream_state(model)\n"
+        "state['_turn_pcm'] = bytearray(b'\\x00\\x01' * 16)\n"
+        "assert backend.finalize(model, state) == 'hello world'\n"
+        "assert calls.get('decoded') is True\n"
+        "assert calls['sr'] == 16000 and calls['n'] == 16 and calls['dtype'] == 'float32', calls\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code], cwd=here,
+        env={k: v for k, v in os.environ.items() if k != "STT_MODEL"}
+        | {"STT_PARAKEET_MODEL": "/models/pk", "STT_BUFFERED_DEVICE": "cpu"},
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, f"parakeet real body failed: {proc.stderr.strip()}"
+
+
 def _run_buffered_exchange():
     """Drive ws_stream with a STREAMS=False stub: voiced→silence must yield ONE final,
     sourced from the final backend, with no deltas."""
-    import asyncio, importlib, types
-    from test_dispatch import _install_fastapi_stub, _FakeWebSocket
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub, _FakeWebSocket, _run_async
 
     voiced = b"\x40\x10" * 8960   # ~loud 560ms @16k int16 (17920 bytes = 1 stream chunk)
     silence = b"\x00\x00" * 8960  # ~silent 560ms (17920 bytes = 1 stream chunk)
@@ -60,7 +103,7 @@ def _run_buffered_exchange():
              [{"bytes": silence} for _ in range(server._ENDPOINT_SILENCE_CHUNKS + 1)] + \
              [{"type": "websocket.disconnect"}]
     ws = _FakeWebSocket(frames)
-    asyncio.run(server.ws_stream(ws))
+    _run_async(server.ws_stream(ws))
     return [m for m in ws.sent if m.get("type") in ("delta", "final")]
 
 
@@ -78,8 +121,8 @@ def _run_hybrid_exchange():
     """Streaming stub primary (emits growing deltas + stalls) + buffered stub final.
     Deltas must come from primary; the final must come from the buffered final over
     the server-accumulated _turn_pcm."""
-    import asyncio, importlib, types
-    from test_dispatch import _install_fastapi_stub, _FakeWebSocket
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub, _FakeWebSocket, _run_async
 
     # Full stream chunk (17920 bytes = 560ms @16kHz int16) so two voiced frames fill
     # one stream chunk and each silence frame fills one — matching _ENDPOINT_SILENCE_CHUNKS.
@@ -114,7 +157,7 @@ def _run_hybrid_exchange():
              [{"bytes": b"\x00\x00" * 8960} for _ in range(server._ENDPOINT_SILENCE_CHUNKS + 1)] + \
              [{"type": "websocket.disconnect"}]
     ws = _FakeWebSocket(frames)
-    asyncio.run(server.ws_stream(ws))
+    _run_async(server.ws_stream(ws))
     return ws.sent
 
 
@@ -132,8 +175,8 @@ def _assert_hybrid() -> None:
 
 def _run_finalize_error_exchange():
     """I1 proof: stub finalize RAISES → ws_stream must emit both error + final (turn unblocks)."""
-    import asyncio, importlib, types
-    from test_dispatch import _install_fastapi_stub, _FakeWebSocket
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub, _FakeWebSocket, _run_async
 
     def _raise_finalize(m, s):
         raise RuntimeError("finalize exploded")
@@ -157,7 +200,7 @@ def _run_finalize_error_exchange():
              [{"bytes": silence} for _ in range(server._ENDPOINT_SILENCE_CHUNKS + 1)] + \
              [{"type": "websocket.disconnect"}]
     ws = _FakeWebSocket(frames)
-    asyncio.run(server.ws_stream(ws))
+    _run_async(server.ws_stream(ws))
     return ws.sent
 
 
@@ -173,8 +216,8 @@ def _assert_finalize_error_boundary() -> None:
 
 def _run_reset_pcm_exchange():
     """M2 proof: reset then PCM must not KeyError (hybrid new_stream_state omits _turn_pcm)."""
-    import asyncio, importlib, types
-    from test_dispatch import _install_fastapi_stub, _FakeWebSocket
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub, _FakeWebSocket, _run_async
 
     chunk = b"\x40\x10" * 8960
     prim = types.ModuleType("backend_nemo"); prim.STREAMS = True
@@ -207,7 +250,7 @@ def _run_reset_pcm_exchange():
     ws = _FakeWebSocket(frames)
     raised = None
     try:
-        asyncio.run(server.ws_stream(ws))
+        _run_async(server.ws_stream(ws))
     except Exception as exc:
         raised = exc
     return raised
@@ -220,8 +263,8 @@ def _assert_reset_turn_pcm_safe() -> None:
 
 def _run_streaming_eou_exchange():
     """Streaming stub: text-stall EOU must yield a final with dur_ms == 0 (pre-R3 compat, F2)."""
-    import asyncio, importlib, types
-    from test_dispatch import _install_fastapi_stub, _FakeWebSocket
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub, _FakeWebSocket, _run_async
 
     chunk = b"\x40\x10" * 8960   # 17920 bytes = 1 stream chunk @ 16kHz int16
     prim = types.ModuleType("backend_nemo"); prim.STREAMS = True
@@ -244,7 +287,7 @@ def _run_streaming_eou_exchange():
              [{"bytes": b"\x00\x00" * 8960} for _ in range(server._ENDPOINT_SILENCE_CHUNKS + 1)] + \
              [{"type": "websocket.disconnect"}]
     ws = _FakeWebSocket(frames)
-    asyncio.run(server.ws_stream(ws))
+    _run_async(server.ws_stream(ws))
     return ws.sent
 
 
@@ -260,6 +303,7 @@ def _assert_streaming_eou_dur_ms() -> None:
 def _self_check() -> None:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     _assert_parakeet_imports_without_ort()
+    _assert_parakeet_real_body()
     _assert_buffered_eou()
     _assert_hybrid()
     _assert_finalize_error_boundary()

@@ -189,8 +189,15 @@ Full NeMo model on GPU is ~600M params (~1.2–1.5GB fp16 + CUDA buffers). Co-re
   encoder + TDT greedy decode), English-only, offline. **Pin v2, NOT v3** (v3 is multilingual and
   *regresses* English). License **CC-BY-4.0** (attribution required). WER 6.91% independent
   (≈ Nemotron streaming); the durable win is **cut-off elimination + silence-robustness**, not WER (D18).
-- **Runtime:** `nemo-toolkit` 2.7.3-class for any NeMo export; `onnxruntime` / `onnxruntime-gpu` for the
-  Parakeet ONNX path. Pin exact tags; never `:latest`.
+- **Runtime:** `sherpa-onnx~=1.13` (PyPI 1.13.3) — k2-fsa `OfflineRecognizer` over the
+  prebuilt transducer bundle. CPU provider is sandbox-verified; CUDA provider support is an
+  operator gate on the GPU host, with `STT_BUFFERED_DEVICE=cpu` as fallback. D22 supersedes
+  the D17 hand-rolled ORT+numpy decode.
+- **Weights:** `sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8` (k2-fsa `asr-models` release):
+  `encoder.int8.onnx`, `decoder.int8.onnx`, `joiner.int8.onnx`, `tokens.txt`.
+  Fetched by `stt/fetch_parakeet_onnx.sh`; tarball sha256
+  `157c157bc51155e03e37d2466522a3a737dd9c72bb25f36eb18912964161e1ad`.
+- **Dev harness:** `jiwer~=4.0` in `requirements-dev.txt` for WER measurement; never baked into an image.
 - **TTS:** still **Kokoro-only** in v1.2. The `TTS_ENGINE` seam (mirrors `STT_ENGINE`) + Chatterbox-Turbo
   (350M, MIT, streaming) is the **v1.3** target — designed, not built (D20).
 

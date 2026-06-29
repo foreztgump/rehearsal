@@ -51,6 +51,7 @@ set -euo pipefail
 readonly VRAM_LIMIT_MB="${VRAM_LIMIT_MB:-16384}"
 readonly VRAM_HEADROOM_MB="${VRAM_HEADROOM_MB:-1024}"
 readonly VRAM_CEILING_MB=$((VRAM_LIMIT_MB - VRAM_HEADROOM_MB))
+readonly WHOLE_GB_MB=1024
 readonly CONCURRENT_LLM="${CONCURRENT_LLM:-3}"
 readonly OLLAMA_CONTAINER="${OLLAMA_CONTAINER:-ollama}"
 readonly OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
@@ -203,6 +204,23 @@ record_state() {
   echo "  (peak VRAM ${peak} MB + q8_0 engagement recorded to STATE.md by the operator run)" >&2
 }
 
+derive_hybrid_threshold() {
+  local hybrid_peak="$1" streaming_peak="$2"
+  local parakeet_mb=$((hybrid_peak - streaming_peak))
+  [ "${parakeet_mb}" -gt 0 ] || fail "hybrid peak must exceed streaming peak"
+  local min_total=$((hybrid_peak + VRAM_HEADROOM_MB))
+  local recommended=$(( (min_total + WHOLE_GB_MB - 1) / WHOLE_GB_MB * WHOLE_GB_MB ))
+  echo "parakeet_gpu_mb=${parakeet_mb} min_total_mb=${min_total} recommended_VRAM_HYBRID_MB=${recommended}"
+}
+
+self_test() {
+  local output
+  output="$(derive_hybrid_threshold 14000 11600)"
+  [ "${output}" = "parakeet_gpu_mb=2400 min_total_mb=15024 recommended_VRAM_HYBRID_MB=15360" ] \
+    || fail "derive_hybrid_threshold self-test mismatch: ${output}"
+  echo "vram-validate self-test OK (derive_hybrid_threshold)" >&2
+}
+
 parse_args() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -254,5 +272,14 @@ main() {
   [ "${KB_MODE}" = "true" ] && mode_note="KB-loaded"
   echo "PASS (${mode_note}): STT+LLM+TTS co-resident at ${peak} MB < ${VRAM_LIMIT_MB} MB; q8_0 KV engaged."
 }
+
+case "${1:-}" in
+  --self-test) self_test; exit 0 ;;
+  --derive-hybrid)
+    [ "$#" -eq 3 ] || fail "usage: --derive-hybrid <hybrid_peak_mb> <streaming_peak_mb>"
+    derive_hybrid_threshold "$2" "$3"
+    exit 0
+    ;;
+esac
 
 main "$@"

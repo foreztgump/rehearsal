@@ -12,6 +12,10 @@ FROM nvcr.io/nvidia/nemo:25.11
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash bzip2 ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Single-sourced model tag (no hardcoded literal in this Dockerfile body — the
 # Compose build.args supplies it from the single-sourced STT_MODEL env, AGENTS.md).
 ARG STT_MODEL
@@ -26,9 +30,8 @@ ARG STT_MODEL_REVISION
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# server.py imports backend_common + backend_nemo (the GPU backend selected when
-# STT_RUNTIME=gpu). All three must be present or uvicorn fails at import.
-COPY server.py backend_common.py backend_nemo.py ./
+# server.py imports the selected backend by STT_ENGINE/STT_RUNTIME.
+COPY server.py backend_common.py backend_nemo.py backend_parakeet.py ./
 
 # Bake the ~2.4 GB .nemo into the image at build (the NeMo equivalent of
 # agent/Dockerfile's `download-files`) so the container starts offline-capable
@@ -49,12 +52,12 @@ ENV STT_MODEL=${STT_MODEL}
 # Runtime loads ONLY from the baked, pinned cache — never re-resolves a newer main.
 ENV HF_HUB_OFFLINE=1
 
-# Buffered Parakeet (R3): int8 ONNX baked offline; loaded only for STT_ENGINE=buffered|hybrid.
+# Buffered Parakeet (R3 D22): sherpa-onnx int8 bundle baked offline; loaded only
+# for STT_ENGINE=buffered|hybrid. CUDA provider support is operator-gated (G2);
+# STT_BUFFERED_DEVICE=cpu is the fallback.
 ENV STT_PARAKEET_MODEL=/models/parakeet-tdt-0.6b-v2-onnx-int8
-# GATE: COPY/fetch the sherpa-onnx int8 export (encoder/decoder/joiner) into that dir.
-# G1 (operator): run `scripts/export_parakeet_onnx.py` on the GPU host, then
-#   COPY ./parakeet-tdt-0.6b-v2-onnx-int8 /models/parakeet-tdt-0.6b-v2-onnx-int8
-# after the pip install layer. Pin model rev; verify WER before enabling buffered|hybrid.
+COPY fetch_parakeet_onnx.sh ./fetch_parakeet_onnx.sh
+RUN bash ./fetch_parakeet_onnx.sh "${STT_PARAKEET_MODEL}"
 
 EXPOSE 8000
 

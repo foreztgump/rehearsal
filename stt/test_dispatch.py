@@ -93,6 +93,24 @@ class _FakeWebSocket:
         self.sent.append(payload)
 
 
+def _run_async(coro) -> None:
+    """Run a coroutine with stubbed to_thread; Python 3.14 hangs on the second call here."""
+    loop = asyncio.new_event_loop()
+    original_to_thread = asyncio.to_thread
+
+    async def inline_to_thread(func, /, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    try:
+        asyncio.to_thread = inline_to_thread
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(coro)
+    finally:
+        asyncio.to_thread = original_to_thread
+        asyncio.set_event_loop(None)
+        loop.close()
+
+
 def _run_exchange():
     """Drive ws_stream through delta/final/error then a disconnect; return sends."""
     server = importlib.import_module("server")
@@ -105,7 +123,7 @@ def _run_exchange():
         {"type": "websocket.disconnect"},        # end the loop
     ]
     ws = _FakeWebSocket(frames)
-    asyncio.run(server.ws_stream(ws))
+    _run_async(server.ws_stream(ws))
     return ws.sent
 
 
