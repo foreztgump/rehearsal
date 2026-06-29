@@ -23,6 +23,11 @@ readonly -a NEEDED_TOOLS=(dirname cp grep sed mv head base64 tr cat env bash)
 # 0) Syntax
 bash -n install.sh && ok "install.sh parses" || bad "install.sh syntax"
 bash -n down.sh    && ok "down.sh parses"    || bad "down.sh syntax"
+# R7: confirm the Windows PowerShell siblings exist (no pwsh here to run them).
+[ -f install.ps1 ]                && ok "install.ps1 present (PS parse deferred to operator)" || bad "install.ps1 missing"
+[ -f scripts/gpu-doctor.ps1 ]     && ok "gpu-doctor.ps1 present (PS parse deferred to operator)" || bad "gpu-doctor.ps1 missing"
+[ -f up.ps1 ]                     && ok "up.ps1 present" || bad "up.ps1 missing"
+[ -f down.ps1 ]                   && ok "down.ps1 present" || bad "down.ps1 missing"
 
 # Build a throwaway working copy so we never touch the real .env / run real docker.
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
