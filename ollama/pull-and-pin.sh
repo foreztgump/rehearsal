@@ -124,6 +124,7 @@ main() {
   local installed_any=0
   local chosen_default=""
   local default_tag=""
+  local first_installed_tag=""   # fallback if the chosen default's ladder fails
 
   # Determine the chosen default (explicit ADEPT_DEFAULT_MODEL if it's in the
   # install set, else the first model in INSTALL_MODELS).
@@ -144,11 +145,13 @@ main() {
         ollama_exec create "${FLOOR_MODEL_NAME}" -f /tmp/Modelfile.floor
         write_resolved_tag OLLAMA_MODEL_FLOOR "${FLOOR_MODEL_NAME}"
         echo "pinned OLLAMA_MODEL_FLOOR=${FLOOR_MODEL_NAME} (built from ${floor_tag}) in ${ENV_FILE}"
+        floor_tag="${FLOOR_MODEL_NAME}"
       else
         write_resolved_tag OLLAMA_MODEL_FLOOR "${floor_tag}"
         echo "pinned OLLAMA_MODEL_FLOOR=${floor_tag} in ${ENV_FILE}"
       fi
       installed_any=1
+      [ -z "${first_installed_tag}" ] && first_installed_tag="${floor_tag}"
       [ "${chosen_default}" = "floor" ] && default_tag="${floor_tag}"
     else
       echo "WARN: no FLOOR_LADDER rung resolved — Floor tier unavailable on this host" >&2
@@ -157,36 +160,45 @@ main() {
 
   if should_install "fast"; then
     local fast_tag
-    if ! fast_tag="$(resolve_tag FAST_LADDER)"; then
-      echo "FATAL: no FAST_LADDER rung resolved a usable model tag" >&2
-      exit 1
+    if fast_tag="$(resolve_tag FAST_LADDER)"; then
+      write_resolved_tag OLLAMA_MODEL_FAST "${fast_tag}"
+      installed_any=1
+      [ -z "${first_installed_tag}" ] && first_installed_tag="${fast_tag}"
+      [ "${chosen_default}" = "fast" ] && default_tag="${fast_tag}"
+      ollama_exec list | grep -F "${fast_tag}" \
+        || { echo "FATAL: pinned tag ${fast_tag} not in container 'ollama list'" >&2; exit 1; }
+    else
+      echo "WARN: no FAST_LADDER rung resolved — Fast tier unavailable on this host" >&2
     fi
-    write_resolved_tag OLLAMA_MODEL_FAST "${fast_tag}"
-    installed_any=1
-    [ "${chosen_default}" = "fast" ] && default_tag="${fast_tag}"
-    ollama_exec list | grep -F "${fast_tag}" \
-      || { echo "FATAL: pinned tag ${fast_tag} not in container 'ollama list'" >&2; exit 1; }
   fi
 
   if should_install "better"; then
     local better_tag
-    if ! better_tag="$(resolve_tag BETTER_LADDER)"; then
-      echo "FATAL: no BETTER_LADDER rung resolved a usable model tag" >&2
-      exit 1
+    if better_tag="$(resolve_tag BETTER_LADDER)"; then
+      write_resolved_tag OLLAMA_MODEL_BETTER "${better_tag}"
+      installed_any=1
+      [ -z "${first_installed_tag}" ] && first_installed_tag="${better_tag}"
+      [ "${chosen_default}" = "better" ] && default_tag="${better_tag}"
+      ollama_exec list | grep -F "${better_tag}" \
+        || { echo "FATAL: pinned tag ${better_tag} not in container 'ollama list'" >&2; exit 1; }
+    else
+      echo "WARN: no BETTER_LADDER rung resolved — Better tier unavailable on this host" >&2
     fi
-    write_resolved_tag OLLAMA_MODEL_BETTER "${better_tag}"
-    installed_any=1
-    [ "${chosen_default}" = "better" ] && default_tag="${better_tag}"
-    ollama_exec list | grep -F "${better_tag}" \
-      || { echo "FATAL: pinned tag ${better_tag} not in container 'ollama list'" >&2; exit 1; }
   fi
 
-  [ "${installed_any}" -eq 1 ] || { echo "FATAL: INSTALL_MODELS selected no valid ladders" >&2; exit 1; }
-  [ -n "${default_tag}" ] || { echo "FATAL: chosen default ${chosen_default} was not installed" >&2; exit 1; }
+  [ "${installed_any}" -eq 1 ] || { echo "FATAL: INSTALL_MODELS selected no valid ladders (all tiers failed to pull)" >&2; exit 1; }
+
+  # If the chosen default's ladder failed, fall back to the first installed model
+  # (with a WARN) so a partial install set still boots — never leave .env with a
+  # default whose tag is unset (the floor-path landmine).
+  if [ -z "${default_tag}" ]; then
+    echo "WARN: chosen default ${chosen_default} did not install — falling back to the first installed model" >&2
+    default_tag="${first_installed_tag}"
+  fi
 
   # Back-compat alias: point OLLAMA_MODEL at the chosen default's tag (NOT always Fast).
   write_resolved_tag OLLAMA_MODEL "${default_tag}"
-  echo "pinned installed set=${INSTALL_MODELS}; OLLAMA_MODEL=${default_tag} (${chosen_default} alias) in ${ENV_FILE}"
+  echo "pinned installed set=${INSTALL_MODELS}; OLLAMA_MODEL=${default_tag} in ${ENV_FILE}"
 }
 
 main "$@"

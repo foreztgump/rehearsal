@@ -115,16 +115,19 @@ function Prompt-Models {
   Log "Will install: $script:InstallModels"
 }
 
+# Set or replace an env key in a content string (top-level — not nested, so
+# PowerShell scoping is predictable). Used by Write-ModelEnv.
+function Set-EnvKey($content, $key, $value) {
+  if ($content -match "(?m)^$key=") {
+    $content = $content -replace "(?m)^$key=.*", "$key=$value"
+  } else {
+    $content = $content.TrimEnd() + "`n$key=$value`n"
+  }
+  return $content
+}
+
 function Write-ModelEnv {
   $envContent = Get-Content .env -Raw
-  function Set-EnvKey($content, $key, $value) {
-    if ($content -match "(?m)^$key=") {
-      $content = $content -replace "(?m)^$key=.*", "$key=$value"
-    } else {
-      $content = $content.TrimEnd() + "`n$key=$value`n"
-    }
-    return $content
-  }
   $envContent = Set-EnvKey $envContent "ADEPT_MODEL_CHOICES" $script:InstallModels
   $envContent = Set-EnvKey $envContent "NEXT_PUBLIC_ADEPT_MODEL_LABELS" $script:ModelLabels
   $defaultChoice = ($script:InstallModels -split ",")[0].Trim()
@@ -165,6 +168,9 @@ function Build-AndPull {
   $env:INSTALL_MODELS = $script:InstallModels
   $env:ADEPT_DEFAULT_MODEL = ($script:InstallModels -split ",")[0].Trim()
   & ./ollama/pull-and-pin.sh
+  # Write the model-choices env ONLY after pull-and-pin succeeds — so .env never
+  # claims a model is installed before its tag is confirmed resident.
+  Write-ModelEnv
   Log "Starting the full stack…"
   docker compose up -d
 }
@@ -182,7 +188,6 @@ if ($Gpu -eq "nvidia" -and -not $SkipDoctor) {
 }
 Scaffold-Env
 Prompt-Models -Gpu $Gpu
-Write-ModelEnv
 Print-Plan -Gpu $Gpu -Models $script:InstallModels
 if (-not (Confirm)) {
   Log "Aborted — nothing built. Re-run .\install.ps1 when ready."

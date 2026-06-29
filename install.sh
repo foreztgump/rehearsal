@@ -62,10 +62,11 @@ offer_install_prereqs() {
   fi
   case "$reply" in
     y|Y|yes|Yes)
+      # A sudo/package failure falls back to guidance (not a silent set -e abort).
       case "$pm" in
-        apt)  sudo apt-get update && sudo apt-get install -y docker.io docker-compose-v2 ;;
-        dnf)  sudo dnf install -y docker docker-compose-plugin ;;
-        pacman) sudo pacman -S --noconfirm docker docker-compose ;;
+        apt)  sudo apt-get update && sudo apt-get install -y docker.io docker-compose-v2                 || { err "apt install failed."; log "Install Docker/Compose manually, then re-run."; } ;;
+        dnf)  sudo dnf install -y docker docker-compose-plugin                 || { err "dnf install failed."; log "Install Docker/Compose manually, then re-run."; } ;;
+        pacman) sudo pacman -S --noconfirm docker docker-compose                 || { err "pacman install failed."; log "Install Docker/Compose manually, then re-run."; } ;;
       esac
       ;;
     *) log "Skipping auto-install. Install Docker/Compose manually, then re-run." ;;
@@ -183,6 +184,10 @@ build_and_pull() {
   docker compose up -d ollama
   INSTALL_MODELS="${INSTALL_MODELS}" ADEPT_DEFAULT_MODEL="${INSTALL_MODELS%%,*}" \
     ./ollama/pull-and-pin.sh
+  # Write the model-choices env ONLY after pull-and-pin succeeds — so .env never
+  # claims a model is installed before its tag is confirmed resident (the
+  # floor-path landmine: ADEPT_DEFAULT_MODEL=floor with no OLLAMA_MODEL_FLOOR).
+  write_model_env
   log "Starting the full stack…"
   docker compose up -d
 }
@@ -201,7 +206,6 @@ if [ "$GPU" = "nvidia" ] && [ "${SKIP_DOCTOR:-0}" != "1" ]; then
 fi
 scaffold_env
 prompt_models "$GPU"
-write_model_env
 print_plan "$GPU" "$INSTALL_MODELS"
 confirm
 build_and_pull
