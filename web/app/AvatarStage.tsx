@@ -48,6 +48,7 @@ type MorphTier = { realtime: number | null; needsUpdate: boolean };
 type TalkingHeadInstance = {
   showAvatar: (avatar: Record<string, unknown>) => Promise<void>;
   setMood: (mood: string) => void;
+  speakWithHands: (delay?: number, prob?: number) => void;
   setValue: (mt: string, val: number, ms?: number | null) => void;
   makeEyeContact: (ms: number) => void;
   lookAtCamera: (ms: number) => void;
@@ -97,6 +98,15 @@ const VISEME_MORPHS = [
   "viseme_nn",
   "viseme_RR",
 ];
+
+const SPEAKING_GESTURE_INTERVAL_MS = 2600;
+const SPEAKING_GESTURE_PROBABILITY = 0.35;
+
+function moodForConversationState(state: string, restingMood: string): string {
+  if (state === "speaking") return "happy";
+  if (state === "listening" || state === "thinking") return "neutral";
+  return restingMood;
+}
 
 type TalkingHeadModule = {
   TalkingHead: new (
@@ -152,6 +162,7 @@ export default function AvatarStage({
   // barge-in flag: when the user is speaking we hold the mouth shut regardless of
   // any residual inbound audio energy.
   const mutedRef = useRef(false);
+  const activeMoodRef = useRef<string | null>(null);
 
   // --- Path-B captioned lip-sync state ---
   // FIFO of word schedules received over LIPSYNC_TOPIC but not yet started. Each is
@@ -239,6 +250,7 @@ export default function AvatarStage({
         }
 
         head.setMood(avatar.mood);
+        activeMoodRef.current = avatar.mood;
 
         // Framing is USER-controlled (the Full-body toggle), not width-derived:
         // full body reads unnatural without body motion/emotion, so default to the
@@ -289,18 +301,44 @@ export default function AvatarStage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // --- Persona change: re-apply mood without reloading the head (AVTR-04). ---
-  // (GLB swap on persona change is a future refinement — see 12-AVATAR-VERIFY.md.)
+  // --- Conversation-state mood (R5): deterministic presenter expression. ---
   useEffect(() => {
     const head = headRef.current;
-    if (head && status === "ready") {
+    if (!head || status !== "ready") return;
+
+    const mood = moodForConversationState(state, avatar.mood);
+    if (activeMoodRef.current === mood) return;
+
+    try {
+      head.setMood(mood);
+      activeMoodRef.current = mood;
+    } catch {
+      /* non-fatal */
+    }
+  }, [avatar.mood, state, status]);
+
+  // --- Speaking gestures (R5): light presenter hand motion, no custom scheduler. ---
+  useEffect(() => {
+    const head = headRef.current;
+    if (!head || status !== "ready" || state !== "speaking") return;
+
+    let disposed = false;
+    const gesture = () => {
+      if (disposed) return;
       try {
-        head.setMood(avatar.mood);
+        head.speakWithHands(0, SPEAKING_GESTURE_PROBABILITY);
       } catch {
         /* non-fatal */
       }
-    }
-  }, [avatar.mood, status]);
+    };
+
+    gesture();
+    const interval = window.setInterval(gesture, SPEAKING_GESTURE_INTERVAL_MS);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+    };
+  }, [state, status]);
 
   // --- Path-A lip-sync tap on the INBOUND Kokoro track (AVTR-02). ---
   // Build the read-only Web Audio tap once the head is ready and the agent audio
