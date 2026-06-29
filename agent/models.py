@@ -31,15 +31,39 @@ _MODEL_ENV: dict[str, str] = {
 _DEFAULT_MODEL_ENV: str = "ADEPT_DEFAULT_MODEL"
 _FALLBACK_DEFAULT_CHOICE: str = "fast"
 
+# Install-set env: the R7 installer writes the comma list of installed choice keys
+# so the web picker + agent only surface models that were actually pulled. Unset
+# -> the full shipped set (back-compat for pre-R7 deploys).
+_INSTALL_SET_ENV: str = "ADEPT_MODEL_CHOICES"
+
+
+def effective_model_choices(env: Mapping[str, str]) -> tuple[str, ...]:
+    """Resolve the effective choice set from the installed-set env.
+
+    Unset/empty -> the full shipped MODEL_CHOICES (back-compat). Unknown keys are
+    dropped so a typo never surfaces a choice with no pinned tag.
+    """
+    raw = env.get(_INSTALL_SET_ENV, "").strip()
+    if not raw:
+        return MODEL_CHOICES
+    keys = [k.strip().lower() for k in raw.split(",") if k.strip()]
+    installed = tuple(k for k in keys if k in MODEL_CHOICES)
+    return installed if installed else MODEL_CHOICES
+
 
 def default_model_choice(env: Mapping[str, str]) -> str:
-    """Resolve the session default choice from env, falling back to "fast".
+    """Resolve the session default choice from env, falling back to the first
+    effective choice (Fast in the full set).
 
-    Unset/unknown ADEPT_DEFAULT_MODEL yields the fallback — never raises, so a profile
-    typo cannot brick startup (a genuine misconfig surfaces in resolved_model_tag).
+    A default not in the narrowed effective set falls back — never raises, so a
+    profile typo cannot brick startup (a genuine misconfig surfaces in
+    resolved_model_tag).
     """
+    choices = effective_model_choices(env)
     choice = env.get(_DEFAULT_MODEL_ENV, "").strip().lower()
-    return choice if choice in MODEL_CHOICES else _FALLBACK_DEFAULT_CHOICE
+    if choice in choices:
+        return choice
+    return choices[0] if choices else _FALLBACK_DEFAULT_CHOICE
 
 
 def resolved_model_tag(choice: str, env: Mapping[str, str] | None = None) -> str:
