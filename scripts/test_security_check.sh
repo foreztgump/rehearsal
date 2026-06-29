@@ -13,13 +13,13 @@ bad() { FAIL=$((FAIL + 1)); printf 'FAIL: %s\n' "$1"; }
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-readonly -a NEEDED_TOOLS=(bash cat dirname env find grep mkdir printf sed tr python3)
+readonly -a NEEDED_TOOLS=(bash cat dirname env find grep mkdir sed tr python3)
 
 build_path() {
   local dir="$1" tool path
   mkdir -p "$dir"
   for tool in "${NEEDED_TOOLS[@]}"; do
-    path="$(command -v "$tool")" && ln -sf "$path" "$dir/$tool"
+    path="$(type -P "$tool")" && ln -sf "$path" "$dir/$tool"
   done
 }
 
