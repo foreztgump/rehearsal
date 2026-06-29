@@ -29,6 +29,7 @@ provenance scrutiny before public access.
 | --- | --- | --- | --- | --- |
 | `livekit/livekit-server:v1.10.1` | `docker-compose.yml` | https://hub.docker.com/r/livekit/livekit-server | tag-pinned | Self-hosted LiveKit server. |
 | `ollama/ollama:0.30.10` | `docker-compose.yml` | https://hub.docker.com/r/ollama/ollama | tag-pinned | Gemma 4 support; local model server. |
+| `ollama/ollama:0.30.10-rocm` | `docker-compose.amd.yml` | https://hub.docker.com/r/ollama/ollama | tag-pinned | AMD ROCm local model server override. |
 | `ghcr.io/remsky/kokoro-fastapi-gpu:v0.5.0-cu128` | `docker-compose.yml` | https://github.com/remsky/Kokoro-FastAPI | tag-pinned | NVIDIA CUDA 12.8 TTS image. |
 | `ghcr.io/remsky/kokoro-fastapi-cpu:v0.5.0` | `docker-compose.cpu-tts.yml` | https://github.com/remsky/Kokoro-FastAPI | tag-pinned | CPU TTS override. |
 | `ghcr.io/remsky/kokoro-fastapi-rocm:v0.5.0` | `docker-compose.amd.yml` | https://github.com/remsky/Kokoro-FastAPI | tag-pinned | AMD ROCm TTS override. |
