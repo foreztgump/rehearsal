@@ -34,7 +34,7 @@ export type Persona = {
 // with no round-trip. Empty role_text lets the agent fall back to ROLE_PREAMBLE.
 export const DEFAULT_PERSONA: Persona = {
   role_text: "",
-  display_name: "Cybersecurity Trainer",
+  display_name: "Voice Fluency Coach",
   difficulty: "intermediate",
   verbosity: "balanced",
   correction: "gentle",

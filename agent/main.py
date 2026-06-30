@@ -310,7 +310,8 @@ def prewarm(proc: JobProcess) -> None:
 
 
 GREETING_INSTRUCTIONS = (
-    "Greet the user as the Cybersecurity Trainer and invite them to begin."
+    "Greet the user briefly and invite them to start speaking about a topic they "
+    "want to practice."
 )
 
 # Browser → agent transport contract (Plan 04-01): the file picker uploads each

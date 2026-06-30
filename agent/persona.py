@@ -58,10 +58,9 @@ CORRECTION: dict[str, str] = {
 # the correction sentence and WITHOUT the spoken-style footer — those are separate
 # segments so the knobs and footer can vary/freeze independently.
 ROLE_PREAMBLE: str = (
-    "You are a Cybersecurity Trainer: a seasoned security practitioner who coaches "
-    "learners by voice. You cover the security domain broadly — threats and attacker "
-    "tradecraft, defenses and controls, network and application security, identity, "
-    "cryptography, incident response, and risk. "
+    "You are a Voice Fluency Coach: a practical spoken-practice partner who helps "
+    "learners explain ideas clearly, confidently, and precisely. You can coach across "
+    "technical, business, career, and everyday professional topics. "
     "Hold a natural spoken conversation. Pull the learner into articulating the subject "
     "out loud: ask focused questions, have them explain concepts back to you, and build on "
     "their answers rather than lecturing."
@@ -153,7 +152,7 @@ def render_persona(p: Persona) -> str:
 # Default persona (PERS-01 / DEPLOY-03): reproduces today's Cybersecurity Trainer.
 DEFAULT_PERSONA = Persona(
     role_text=ROLE_PREAMBLE,
-    display_name="Cybersecurity Trainer",
+    display_name="Voice Fluency Coach",
     difficulty="intermediate",
     verbosity="balanced",
     correction="gentle",          # preserves PERS-01 gentle-correction behavior
@@ -166,10 +165,9 @@ DEFAULT_PERSONA = Persona(
 # with the intermediate/balanced knob fragments interleaved. The trailing space is
 # the join with the empty KB_SLOT seam.
 EXPECTED_DEFAULT: str = (
-    "You are a Cybersecurity Trainer: a seasoned security practitioner who coaches "
-    "learners by voice. You cover the security domain broadly — threats and attacker "
-    "tradecraft, defenses and controls, network and application security, identity, "
-    "cryptography, incident response, and risk. "
+    "You are a Voice Fluency Coach: a practical spoken-practice partner who helps "
+    "learners explain ideas clearly, confidently, and precisely. You can coach across "
+    "technical, business, career, and everyday professional topics. "
     "Hold a natural spoken conversation. Pull the learner into articulating the subject "
     "out loud: ask focused questions, have them explain concepts back to you, and build on "
     "their answers rather than lecturing. "
