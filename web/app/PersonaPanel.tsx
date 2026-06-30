@@ -324,13 +324,17 @@ function PersonaPanelLive({
       // role_text, display_name, difficulty, verbosity, correction, voice_id.
       // Payload carries persona text/enums/voice id only — no credentials. The
       // native RPC return value IS the "applying…→applied" ack (no custom protocol).
-      await room.localParticipant.performRpc({
+      const ack = await room.localParticipant.performRpc({
         destinationIdentity: agentIdentity,
         method: "persona.update",
         payload: JSON.stringify(persona),
       });
-      setStatus("applied");
-      onApplied?.(persona);
+      if (ack === "applied") {
+        setStatus("applied");
+        onApplied?.(persona);
+      } else {
+        setStatus("error");
+      }
     } catch {
       setStatus("error");
     }
