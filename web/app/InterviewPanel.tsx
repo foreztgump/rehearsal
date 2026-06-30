@@ -3,15 +3,16 @@
 import { useRoomContext, useVoiceAssistant } from "@livekit/components-react";
 import { useEffect, useState } from "react";
 
+import SegmentedToggle from "./SegmentedToggle";
 import {
   DEFAULT_INTERVIEW,
-  MODE_DRILL,
   MODE_INTERVIEW,
-  MODE_LEARN,
-  MODE_ROLEPLAY,
+  PRACTICE_SCENARIOS,
   ROLE_LABEL,
   ROLES,
+  isInterviewMode,
   type InterviewMode,
+  withPracticeMode,
 } from "./practiceFlow";
 import { ApplyState, STATUS_COLOR, STATUS_LABEL } from "./ui/apply";
 
@@ -27,48 +28,44 @@ export { DEFAULT_INTERVIEW, MODE_INTERVIEW, type InterviewMode } from "./practic
 export function InterviewFields({
   value,
   onChange,
+  personaDisplayName = "",
   disabled,
 }: {
   value: InterviewMode;
   onChange: (m: InterviewMode) => void;
+  personaDisplayName?: string;
   disabled?: boolean;
 }) {
   return (
     <>
-      <div className="field">
-        <label className="field-label" htmlFor="mode-select">
-          Practice mode
-        </label>
-        <select
-          id="mode-select"
-          className="control"
+      <div className="field full">
+        <label className="field-label">What do you want to practice?</label>
+        <SegmentedToggle
+          ariaLabel="Practice scenario"
+          options={PRACTICE_SCENARIOS}
           value={value.mode}
-          disabled={disabled}
-          onChange={(e) => onChange({ ...value, mode: e.target.value })}
-        >
-          <option value={MODE_LEARN}>Learn</option>
-          <option value={MODE_DRILL}>Drill</option>
-          <option value={MODE_ROLEPLAY}>Roleplay</option>
-          <option value={MODE_INTERVIEW}>Interview</option>
-        </select>
+          onChange={(mode) => onChange(withPracticeMode(value, mode, personaDisplayName))}
+        />
       </div>
 
-      <div className="field">
-        <label className="field-label" htmlFor="role-select">
-          Interview target
-        </label>
-        <select
-          id="role-select"
-          className="control"
-          value={value.role_key}
-          disabled={disabled || value.mode !== MODE_INTERVIEW}
-          onChange={(e) => onChange({ ...value, role_key: e.target.value })}
-        >
-          {ROLES.map((r) => (
-            <option key={r} value={r}>{ROLE_LABEL[r]}</option>
-          ))}
-        </select>
-      </div>
+      {isInterviewMode(value) && (
+        <div className="field">
+          <label className="field-label" htmlFor="role-select">
+            Interview target
+          </label>
+          <select
+            id="role-select"
+            className="control"
+            value={value.role_key}
+            disabled={disabled}
+            onChange={(e) => onChange({ ...value, role_key: e.target.value })}
+          >
+            {ROLES.map((r) => (
+              <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+            ))}
+          </select>
+        </div>
+      )}
     </>
   );
 }
@@ -135,6 +132,7 @@ function InterviewPanelLive({
       <InterviewFields
         value={interview}
         onChange={setInterview}
+        personaDisplayName={personaDisplayName}
         disabled={status === "applying"}
       />
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
@@ -170,7 +168,13 @@ export default function InterviewPanel({
   onApplied?: (m: InterviewMode) => void;
 }) {
   if (onChange) {
-    return <InterviewFields value={value ?? DEFAULT_INTERVIEW} onChange={onChange} />;
+    return (
+      <InterviewFields
+        value={value ?? DEFAULT_INTERVIEW}
+        onChange={onChange}
+        personaDisplayName={personaDisplayName}
+      />
+    );
   }
   return (
     <InterviewPanelLive

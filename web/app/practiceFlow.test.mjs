@@ -54,3 +54,10 @@ test("switching between non-interview modes does not rewrite role key", () => {
 
   assert.deepEqual(next, { mode: MODE_DRILL, role_key: "product_manager" });
 });
+
+test("re-entering interview keeps a user's explicit interview target", () => {
+  const current = { mode: MODE_INTERVIEW, role_key: "cybersecurity" };
+  const next = withPracticeMode(current, MODE_INTERVIEW, "AI/ML Coach");
+
+  assert.deepEqual(next, current);
+});
