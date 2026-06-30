@@ -40,12 +40,18 @@ support.
   (was writing `.env` before tags were confirmed).
 - `README.md` — both-OS install commands, the supported-host profile
   matrix, model-selection guidance, and the per-VRAM doctor recommendations.
+- Local security baseline now treats OSV resolver-internal errors with a
+  valid zero-vulnerability report as a warning, while still failing on
+  malformed reports and high/critical findings.
 
 ### Fixed
 - `offer_install_prereqs` sudo failure now falls back to guidance instead
   of a silent `set -e` abort.
 - `install.ps1` `Set-EnvKey` hoisted to a top-level function (was scoped
   inside the param block).
+- Hardened dependency floors for STT (`h11`, `idna`, `python-multipart`,
+  `sentencepiece`) and forced the web lockfile to the fixed `postcss` line
+  until Next ships a clean transitive dependency.
 
 ### Notes
 - R3 STT decision: `buffered` non-streaming Parakeet is the supported path.

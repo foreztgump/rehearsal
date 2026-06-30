@@ -86,6 +86,19 @@ else
   fi
 fi
 
+BIN_OSV_RESOLVER="$WORK/bin-osv-resolver"
+build_path "$BIN_OSV_RESOLVER"
+install_success_shims "$BIN_OSV_RESOLVER"
+make_shim "$BIN_OSV_RESOLVER" osv-scanner 'printf "%s\n" "{\"results\":[]}"; exit 1'
+if env -i PATH="$BIN_OSV_RESOLVER" SECURITY_REPORT_DIR="$WORK/reports-osv-resolver" bash scripts/security-check.sh >"$WORK/osv-resolver.out" 2>&1; then
+  grep -q "WARN: OSV-Scanner recursive scan: command failed but reported no vulnerabilities" "$WORK/osv-resolver.out" \
+    && ok "OSV resolver failure without findings warns only" \
+    || { bad "OSV resolver failure warning absent"; cat "$WORK/osv-resolver.out"; }
+else
+  bad "OSV resolver failure without findings must not fail"
+  cat "$WORK/osv-resolver.out"
+fi
+
 BIN_OSV_CVSS="$WORK/bin-osv-cvss"
 build_path "$BIN_OSV_CVSS"
 install_success_shims "$BIN_OSV_CVSS"

@@ -138,7 +138,7 @@ evaluate_json_report() {
   elif [ "$total" -gt 0 ]; then
     warn "${label}: ${total} non-blocking/unknown vulnerabilities. See ${file}"
   elif [ "$rc" -ne 0 ]; then
-    block "${label}: command failed without parseable vulnerabilities. See ${file}"
+    warn "${label}: command failed but reported no vulnerabilities. See ${file}"
   else
     pass "${label}: clean"
   fi

@@ -6,6 +6,8 @@
 # RTX 5090 (sm_120) with "no kernel image is available" (09-RESEARCH §6).
 fastapi~=0.115
 uvicorn[standard]~=0.34
+h11~=0.16
+idna~=3.15
 numpy~=1.26
 soundfile~=0.12
 # R3 buffered Parakeet (D22): sherpa-onnx OfflineRecognizer. CUDA provider support

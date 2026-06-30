@@ -12,10 +12,12 @@
 onnxruntime~=1.20
 fastapi~=0.115
 uvicorn[standard]~=0.34
+h11~=0.16
+idna~=3.15
 # FastAPI needs python-multipart to parse the server's multipart/form-data upload
 # endpoint (server.py); without it FastAPI raises at route-registration/startup.
-python-multipart~=0.0.20
+python-multipart~=0.0.32
 numpy~=1.26
-sentencepiece~=0.2
+sentencepiece~=0.2.1
 # R3 buffered Parakeet (D22): sherpa-onnx OfflineRecognizer (CPU EP).
 sherpa-onnx~=1.13
