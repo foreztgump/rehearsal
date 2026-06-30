@@ -23,9 +23,9 @@ All notable changes to Rehearsal are documented here. The format follows
 
 ## [0.1.0] - 2026-06-30
 
-Rehearsal is now installable from a local repo checkout on Linux and native
-Windows, with install-time model selection and best-effort Windows-AMD
-support.
+Rehearsal is now installable with a Linux curl bootstrap, from a local repo
+checkout on Linux, and from native Windows, with install-time model selection
+and best-effort Windows-AMD support.
 
 ### Added
 - Added broad voice-practice persona presets across AI/ML, data, software,
@@ -37,6 +37,9 @@ support.
   with offer-to-install prerequisites, a model-selection prompt, and
   per-model user-chosen aliases. Aliases are baked into the web build so
   the picker shows only what was installed, named as the user named it.
+- `install.sh` curl-style bootstrap — when streamed outside a checkout, it
+  clones `foreztgump/rehearsal` into `~/rehearsal` or `REHEARSAL_INSTALL_DIR`
+  and then runs the normal local installer.
 - `ollama/pull-and-pin.sh` — accepts an `INSTALL_MODELS` set and pulls only
   the selected model ladders; the chosen default is aliased to `OLLAMA_MODEL`.
   Fast/better ladder failures are skip-with-warning (like floor); empty
@@ -93,6 +96,8 @@ support.
 - R3 STT decision: `buffered` non-streaming Parakeet is the supported path.
   `streaming` and `hybrid` engines are retained in code as legacy/manual
   comparison modes only.
+- Linux curl bootstrap live-tested against a real GitHub clone with Docker/Ollama
+  shimmed to avoid multi-GB image and model pulls.
 - Operator-deferred (need Windows / `pwsh` / real GPU hardware): PowerShell
   parse checks, Windows NVIDIA Docker GPU probe, Windows AMD native Ollama
   probe. Linux AMD ROCm and Windows AMD profiles are gated on R6 verification.

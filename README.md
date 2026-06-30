@@ -22,7 +22,20 @@ TLS setup in `certs/README.md` and keep firewall rules LAN-only.
 
 ## Quick start
 
-Linux:
+Linux one-line install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/foreztgump/rehearsal/master/install.sh | bash
+```
+
+That clones Rehearsal into `~/rehearsal` and runs the local installer. To choose
+another location:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/foreztgump/rehearsal/master/install.sh | REHEARSAL_INSTALL_DIR="$HOME/apps/rehearsal" bash
+```
+
+Already cloned:
 
 ```bash
 ./install.sh

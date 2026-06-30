@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
 # install.sh — one-command bootstrap for the Rehearsal local-first voice stack.
-# curl|sh-compatible. Detects OS + Docker/Compose + GPU vendor, scaffolds .env with a
+# curl|bash-compatible. Detects OS + Docker/Compose + GPU vendor, scaffolds .env with a
 # generated LIVEKIT_API_SECRET, prompts for which models to install + their aliases,
 # prints a setup plan and confirms, builds images + pulls/pins the selected models,
 # then prints exact start/stop commands. Missing prerequisites are OFFERED for
 # auto-install (apt/dnf/pacman) behind a confirmation gate; declining falls back to
 # guidance.
 #
-#   ./install.sh            # interactive
+#   ./install.sh            # interactive, from a cloned checkout
 #   ./install.sh -y         # accept the plan non-interactively (CI / repeat)
 #   ASSUME_YES=1 ./install.sh
 set -euo pipefail
@@ -16,9 +16,43 @@ cd "$(dirname "$0")"
 
 ASSUME_YES="${ASSUME_YES:-0}"
 [ "${1:-}" = "-y" ] && ASSUME_YES=1
+DEFAULT_INSTALL_DIR="${HOME:-$PWD}/rehearsal"
+REHEARSAL_REPO_URL="${REHEARSAL_REPO_URL:-https://github.com/foreztgump/rehearsal.git}"
+REHEARSAL_INSTALL_DIR="${REHEARSAL_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 
 log() { printf '%s\n' "$*"; }
 err() { printf 'ERROR: %s\n' "$*" >&2; }
+
+# --- 0. curl|bash bootstrap ------------------------------------------------
+in_checkout() {
+  [ -f install.sh ] && [ -f docker-compose.yml ] && [ -f .env.example ] \
+    && [ -f ollama/pull-and-pin.sh ]
+}
+
+bootstrap_checkout() {
+  in_checkout && return 0
+  if [ "${REHEARSAL_BOOTSTRAPPED:-0}" = "1" ]; then
+    err "Installer checkout is incomplete: $PWD"
+    exit 1
+  fi
+  if ! command -v git >/dev/null 2>&1; then
+    err "git is required for curl-style install."
+    log "Install git, or run: git clone ${REHEARSAL_REPO_URL} ${REHEARSAL_INSTALL_DIR}"
+    exit 1
+  fi
+  if [ -e "$REHEARSAL_INSTALL_DIR" ]; then
+    err "Install directory already exists but is not a complete Rehearsal checkout:"
+    log "  ${REHEARSAL_INSTALL_DIR}"
+    exit 1
+  fi
+  log "Cloning Rehearsal into ${REHEARSAL_INSTALL_DIR}..."
+  mkdir -p "$(dirname "$REHEARSAL_INSTALL_DIR")"
+  git clone "$REHEARSAL_REPO_URL" "$REHEARSAL_INSTALL_DIR"
+  cd "$REHEARSAL_INSTALL_DIR"
+  REHEARSAL_BOOTSTRAPPED=1 exec ./install.sh "$@"
+}
+
+bootstrap_checkout "$@"
 
 # --- 1. Prerequisites: guide, do not auto-install ---------------------------
 require_docker() {

@@ -18,7 +18,7 @@ bad()  { FAIL=$((FAIL+1)); printf 'FAIL: %s\n' "$1"; }
 # isolated PATH is what keeps the host's real docker/nvidia-smi out (their dirs are
 # never on PATH). env + bash are needed because the stub helpers use a
 # `#!/usr/bin/env bash` shebang that must resolve against this isolated PATH.
-readonly -a NEEDED_TOOLS=(dirname cp grep sed mv head base64 tr cat env bash)
+readonly -a NEEDED_TOOLS=(dirname cp grep sed mv head base64 tr cat env bash mkdir chmod)
 
 # 0) Syntax
 bash -n install.sh && ok "install.sh parses" || bad "install.sh syntax"
@@ -33,6 +33,7 @@ bash -n down.sh    && ok "down.sh parses"    || bad "down.sh syntax"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 cp install.sh down.sh "$WORK"/
 cp .env.example "$WORK"/
+: > "$WORK/docker-compose.yml"
 mkdir -p "$WORK/scripts" "$WORK/ollama"
 # Stubs the script calls relative to its own dir (cd "$(dirname "$0")"):
 printf '#!/usr/bin/env bash\nexit 0\n' > "$WORK/scripts/gpu-doctor.sh"
@@ -95,6 +96,32 @@ if [ "${rcc:-1}" -eq 0 ]    && grep -q 'REHEARSAL_MODEL_CHOICES=floor' "$WORK/.e
 else
   bad "Scenario C: model selection path incomplete (rc=$rcc)"
   printf -- '------ install output ------\n%s\n----------------------------\n' "$(cat "$WORK/c.out")"
+fi
+
+# --- Scenario D: curl|bash style outside a checkout clones then runs local installer ---
+mkdir -p "$WORK/pipe"
+BIN_D="$WORK/bin_d"; build_path "$BIN_D"
+make_shim "$BIN_D" docker 'echo "docker $*" >> "$PWD/docker.log"; exit 0'
+make_shim "$BIN_D" openssl 'echo deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
+make_shim "$BIN_D" git '
+echo "git $*" > "$PWD/git.log"
+mkdir -p "$REHEARSAL_INSTALL_DIR/scripts" "$REHEARSAL_INSTALL_DIR/ollama"
+cp "$SOURCE_INSTALL_SH" "$REHEARSAL_INSTALL_DIR/install.sh"
+cp "$SOURCE_ENV_EXAMPLE" "$REHEARSAL_INSTALL_DIR/.env.example"
+: > "$REHEARSAL_INSTALL_DIR/docker-compose.yml"
+printf "#!/usr/bin/env bash\nexit 0\n" > "$REHEARSAL_INSTALL_DIR/scripts/gpu-doctor.sh"
+printf "#!/usr/bin/env bash\necho clone-pull > \"\$PWD/pin.log\"\n" > "$REHEARSAL_INSTALL_DIR/ollama/pull-and-pin.sh"
+chmod +x "$REHEARSAL_INSTALL_DIR/install.sh" "$REHEARSAL_INSTALL_DIR/scripts/gpu-doctor.sh" "$REHEARSAL_INSTALL_DIR/ollama/pull-and-pin.sh"
+'
+( cd "$WORK/pipe" && env -i PATH="$BIN_D" ASSUME_YES=1 REHEARSAL_INSTALL_DIR="$WORK/cloned" SOURCE_INSTALL_SH="$REPO/install.sh" SOURCE_ENV_EXAMPLE="$REPO/.env.example" bash -s -- -y < "$REPO/install.sh" >d.out 2>&1 ) && rcd=0 || rcd=$?
+if [ "${rcd:-1}" -eq 0 ] \
+   && grep -q 'clone https://github.com/foreztgump/rehearsal.git' "$WORK/pipe/git.log" \
+   && grep -q 'compose build' "$WORK/cloned/docker.log" \
+   && grep -q 'REHEARSAL_MODEL_CHOICES=floor' "$WORK/cloned/.env"; then
+  ok "Scenario D: curl-style bootstrap clones then runs local installer"
+else
+  bad "Scenario D: curl-style bootstrap incomplete (rc=$rcd)"
+  printf -- '------ install output ------\n%s\n----------------------------\n' "$(cat "$WORK/pipe/d.out")"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
