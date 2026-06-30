@@ -41,6 +41,7 @@ export default function TalkingScreen({
   config,
   sessionEpoch,
   onBeginConfigApply,
+  onInvalidateConfigApplies,
   onConfigChange,
 }: {
   avatarOn: boolean;
@@ -63,6 +64,7 @@ export default function TalkingScreen({
   config: SessionConfig;
   sessionEpoch: number;
   onBeginConfigApply: (field: LiveConfigField) => number;
+  onInvalidateConfigApplies: () => void;
   onConfigChange: (
     sessionEpoch: number,
     field: LiveConfigField,
@@ -194,6 +196,7 @@ export default function TalkingScreen({
         config={config}
         sessionEpoch={sessionEpoch}
         onBeginConfigApply={onBeginConfigApply}
+        onInvalidateConfigApplies={onInvalidateConfigApplies}
         onConfigChange={onConfigChange}
       />
       <SttDebugWindow />

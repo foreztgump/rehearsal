@@ -2,28 +2,58 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import {
+  invalidateLiveApplyVersions,
+  nextLiveApplyVersion,
+  shouldApplyLiveConfig,
+} from "./liveApplyVersions.ts";
+
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
-test("live config updates are gated by same-session field versions", () => {
-  const voiceRoom = read("./VoiceRoom.tsx");
-  const talkingScreen = read("./TalkingScreen.tsx");
-  const settingsDrawer = read("./SettingsDrawer.tsx");
-  const panels = [
-    read("./PersonaPanel.tsx"),
-    read("./InterviewPanel.tsx"),
-    read("./ModelPanel.tsx"),
-  ].join("\n");
+test("live apply acks stay valid across close without reopen", () => {
+  const currentEpoch = 7;
+  const initial = { persona: 0, mode: 0, model: 0 };
+  const apply = nextLiveApplyVersion(initial, "persona");
 
-  assert.match(voiceRoom, /type LiveConfigField = "persona" \| "mode" \| "model"/);
-  assert.match(voiceRoom, /liveApplyVersionRef = useRef\(\{ persona: 0, mode: 0, model: 0 \}\)/);
-  assert.match(voiceRoom, /beginLiveConfigApply\(field: LiveConfigField\): number/);
-  assert.match(voiceRoom, /version !== liveApplyVersionRef\.current\[field\]/);
-  assert.match(talkingScreen, /onBeginConfigApply/);
-  assert.match(settingsDrawer, /onBeginConfigApply\("persona"\)/);
-  assert.match(settingsDrawer, /onBeginConfigApply\("mode"\)/);
-  assert.match(settingsDrawer, /onBeginConfigApply\("model"\)/);
-  assert.match(panels, /onApplyStart\?\.\(\) \?\? 0/);
-  assert.match(panels, /onApplied\?\.\([^,\n]+, applyVersion\)/);
+  assert.equal(
+    shouldApplyLiveConfig(
+      currentEpoch,
+      currentEpoch,
+      apply.versions,
+      "persona",
+      apply.version,
+    ),
+    true,
+  );
+});
+
+test("settings reopen invalidates old acks without blocking new applies", () => {
+  const currentEpoch = 7;
+  const initial = { persona: 0, mode: 0, model: 0 };
+  const firstApply = nextLiveApplyVersion(initial, "persona");
+  const reopened = invalidateLiveApplyVersions(firstApply.versions);
+  const secondApply = nextLiveApplyVersion(reopened, "persona");
+
+  assert.equal(
+    shouldApplyLiveConfig(
+      currentEpoch,
+      currentEpoch,
+      secondApply.versions,
+      "persona",
+      firstApply.version,
+    ),
+    false,
+  );
+  assert.equal(
+    shouldApplyLiveConfig(
+      currentEpoch,
+      currentEpoch,
+      secondApply.versions,
+      "persona",
+      secondApply.version,
+    ),
+    true,
+  );
 });
 
 test("segmented controls can shrink within narrow panels", () => {

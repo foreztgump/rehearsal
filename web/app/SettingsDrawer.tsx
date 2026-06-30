@@ -57,6 +57,7 @@ export default function SettingsDrawer({
   config,
   sessionEpoch,
   onBeginConfigApply,
+  onInvalidateConfigApplies,
   onConfigChange,
 }: {
   open: boolean;
@@ -71,6 +72,7 @@ export default function SettingsDrawer({
   config: SessionConfig;
   sessionEpoch: number;
   onBeginConfigApply: (field: LiveConfigField) => number;
+  onInvalidateConfigApplies: () => void;
   onConfigChange: (
     sessionEpoch: number,
     field: LiveConfigField,
@@ -79,7 +81,13 @@ export default function SettingsDrawer({
   ) => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const wasOpenRef = useRef(false);
+  const invalidateConfigAppliesRef = useRef(onInvalidateConfigApplies);
   const [confirmLeave, setConfirmLeave] = useState(false);
+
+  useEffect(() => {
+    invalidateConfigAppliesRef.current = onInvalidateConfigApplies;
+  }, [onInvalidateConfigApplies]);
 
   // Live-room hooks (the drawer always renders inside <LiveKitRoom>). Called before
   // the `if (!open)` early return so hook order stays stable across open/close.
@@ -184,8 +192,13 @@ export default function SettingsDrawer({
   // Move focus into the drawer when it opens; reset the leave-confirm on close.
   useEffect(() => {
     if (!open) {
+      wasOpenRef.current = false;
       setConfirmLeave(false);
       return;
+    }
+    if (!wasOpenRef.current) {
+      wasOpenRef.current = true;
+      invalidateConfigAppliesRef.current();
     }
     const root = panelRef.current;
     const firstFocusable = root?.querySelector<HTMLElement>(FOCUSABLE);

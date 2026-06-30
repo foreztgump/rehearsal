@@ -10,6 +10,13 @@ import { DEFAULT_MODEL, ModelChoice } from "./ModelPanel";
 import { DEFAULT_PERSONA, Persona } from "./PersonaPanel";
 import SetupScreen from "./SetupScreen";
 import TalkingScreen from "./TalkingScreen";
+import {
+  invalidateLiveApplyVersions,
+  nextLiveApplyVersion,
+  shouldApplyLiveConfig,
+  type LiveApplyVersions,
+  type LiveConfigField,
+} from "./liveApplyVersions";
 
 // Dynamic-import the OPTIONAL 3D avatar so it is ABSENT from the voice-only bundle
 // (AVTR-01). ssr:false: WebGL/TalkingHead is browser-only. When the toggle is OFF the
@@ -45,7 +52,7 @@ export type SessionConfig = {
   kbFiles: File[];
 };
 
-export type LiveConfigField = "persona" | "mode" | "model";
+export type { LiveConfigField } from "./liveApplyVersions";
 
 const DEFAULT_SESSION_CONFIG: SessionConfig = {
   persona: DEFAULT_PERSONA,
@@ -79,7 +86,7 @@ export default function VoiceRoom() {
   const [token, setToken] = useState<string | null>(null);
   const [sessionEpoch, setSessionEpoch] = useState(0);
   const sessionEpochRef = useRef(sessionEpoch);
-  const liveApplyVersionRef = useRef({ persona: 0, mode: 0, model: 0 });
+  const liveApplyVersionRef = useRef<LiveApplyVersions>({ persona: 0, mode: 0, model: 0 });
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // SESS-02 transcript reset marker: a wall-clock timestamp bumped on Reset so the
@@ -101,8 +108,13 @@ export default function VoiceRoom() {
   }
 
   function beginLiveConfigApply(field: LiveConfigField): number {
-    liveApplyVersionRef.current[field] += 1;
-    return liveApplyVersionRef.current[field];
+    const next = nextLiveApplyVersion(liveApplyVersionRef.current, field);
+    liveApplyVersionRef.current = next.versions;
+    return next.version;
+  }
+
+  function invalidateLiveConfigApplies(): void {
+    liveApplyVersionRef.current = invalidateLiveApplyVersions(liveApplyVersionRef.current);
   }
 
   function updateLiveSessionConfig(
@@ -111,8 +123,17 @@ export default function VoiceRoom() {
     version: number,
     update: (current: SessionConfig) => SessionConfig,
   ) {
-    if (epoch !== sessionEpochRef.current) return;
-    if (version !== liveApplyVersionRef.current[field]) return;
+    if (
+      !shouldApplyLiveConfig(
+        sessionEpochRef.current,
+        epoch,
+        liveApplyVersionRef.current,
+        field,
+        version,
+      )
+    ) {
+      return;
+    }
     setSessionConfig(update);
   }
 
@@ -240,6 +261,7 @@ export default function VoiceRoom() {
         config={sessionConfig}
         sessionEpoch={sessionEpoch}
         onBeginConfigApply={beginLiveConfigApply}
+        onInvalidateConfigApplies={invalidateLiveConfigApplies}
         onConfigChange={updateLiveSessionConfig}
       />
     </LiveKitRoom>
