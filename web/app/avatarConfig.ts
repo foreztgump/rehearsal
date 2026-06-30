@@ -76,11 +76,21 @@ export const DEFAULT_AVATAR: AvatarSpec = {
 // the resting mood varies per preset, so the avatar's expression follows the chosen
 // persona with no new asset. Keys MUST match the preset display_names exactly.
 export const PERSONA_AVATARS: Record<string, AvatarSpec> = {
+  "Voice Fluency Coach": { glb: DEFAULT_AVATAR.glb, mood: "happy", body: "F" },
   "Cybersecurity Trainer": DEFAULT_AVATAR,
-  "SOC Analyst Coach": { glb: DEFAULT_AVATAR.glb, mood: "neutral", body: "F" },
-  "Security Engineer Coach": { glb: DEFAULT_AVATAR.glb, mood: "neutral", body: "F" },
-  "GRC Advisor": { glb: DEFAULT_AVATAR.glb, mood: "neutral", body: "F" },
-  "Domain Expert": { glb: DEFAULT_AVATAR.glb, mood: "happy", body: "F" },
+  "AI/ML Coach": { glb: DEFAULT_AVATAR.glb, mood: "happy", body: "F" },
+  "Data Analyst Coach": { glb: DEFAULT_AVATAR.glb, mood: "neutral", body: "F" },
+  "Software Engineering Mentor": { glb: DEFAULT_AVATAR.glb, mood: "neutral", body: "M" },
+  "Cloud/DevOps Coach": { glb: DEFAULT_AVATAR.glb, mood: "neutral", body: "M" },
+  "Product Manager Coach": { glb: DEFAULT_AVATAR.glb, mood: "happy", body: "F" },
+  "Sales Roleplay Partner": { glb: DEFAULT_AVATAR.glb, mood: "neutral", body: "M" },
+  "Customer Success Coach": { glb: DEFAULT_AVATAR.glb, mood: "happy", body: "F" },
+  "Leadership Coach": { glb: DEFAULT_AVATAR.glb, mood: "neutral", body: "M" },
+  "Healthcare Communication Coach": { glb: DEFAULT_AVATAR.glb, mood: "love", body: "F" },
+  "Finance & Business Coach": { glb: DEFAULT_AVATAR.glb, mood: "neutral", body: "M" },
+  "GRC / Policy Advisor": { glb: DEFAULT_AVATAR.glb, mood: "neutral", body: "F" },
+  "Climate & Energy Coach": { glb: DEFAULT_AVATAR.glb, mood: "neutral", body: "F" },
+  "Language Conversation Partner": { glb: DEFAULT_AVATAR.glb, mood: "happy", body: "F" },
 };
 
 // Resolve a persona display_name to its avatar, defaulting so Avatar mode never
