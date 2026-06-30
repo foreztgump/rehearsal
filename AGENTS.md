@@ -20,11 +20,12 @@ Full rules: `CODE_PRINCIPLES.md` (loaded every session in this project via the p
 - Request a review pass before committing; fix critical issues first. Never push unreviewed code.
 
 ## Existing Conventions
-- **State**: greenfield — no source code committed yet (only `.planning/`). Establish conventions as code lands; update this section when tooling configs (linter/formatter) appear.
+- **State**: implemented — agent, stt, web, docker-compose, installers, and test suites all committed on `master`. Update this section when tooling configs change.
 - **Commits**: Conventional Commits (`docs:`, `chore:`, `feat:`, `fix:`).
 - **Branches**: `master` only; GSD branching strategy is `none` (work on `master`, tags at milestones).
 - **Naming**: Python agent code → `snake_case`; TS/React web → `camelCase` (vars/functions), `PascalCase` (components/types).
-- **Planned stack** (from `.planning/research/STACK.md`): Python agent (`livekit-agents~=1.5`) via **uv**; TS/Next.js web (`livekit-client`) via npm; Docker Compose (6 GPU services). Pin image tags — never `:latest`.
+- **Tooling**: `ruff` (E9/F821/F822/F823, line-length 100, py311) and `basedpyright` (basic, py311) configured in `pyproject.toml`. Web uses `tsc --noEmit`. Shell scripts lint via `bash -n` + the sandbox test harnesses in `scripts/`.
+- **Stack** (from `.planning/research/STACK.md` + R3 decision): Python agent (`livekit-agents>=1.5.6`) via **uv**; TS/Next.js web (`livekit-client`) via npm; Docker Compose (NVIDIA default + CPU-TTS and Windows-AMD overrides). STT is buffered Parakeet (`streaming`/`hybrid` retained as legacy/manual modes). Pin image tags — never `:latest`.
 
 ## Tool Workflow (opencode)
 - **Research** (never guess versions/APIs — research first):
