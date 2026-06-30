@@ -39,7 +39,7 @@ const ROLE_LABEL: Record<(typeof ROLES)[number], string> = {
   grc_policy: "GRC / Policy",
 };
 
-// Shared interview-mode shape — imported by SetupScreen + ApplySetupOnConnect so
+// Shared practice-mode shape — imported by SetupScreen + ApplySetupOnConnect so
 // the pre-connect held config and the post-connect apply use the same type. Keys
 // MUST match the agent's handle_mode_update parse: mode, role_key.
 export type InterviewMode = {
@@ -54,7 +54,7 @@ export const DEFAULT_INTERVIEW: InterviewMode = {
 };
 
 /**
- * Presentational, fully-controlled interview-mode fields. Renders the panel
+ * Presentational, fully-controlled practice-mode fields. Renders the panel
  * container (heading + mode/role selects) writing every edit through `onChange`.
  * NO room context, NO RPC — safe to render outside <LiveKitRoom> (the
  * setup-screen path). An optional `footer` slot lets the live wrapper inject its
@@ -107,7 +107,7 @@ export function InterviewFields({
 }
 
 /**
- * Live (uncontrolled) interview-mode control — the in-room/settings-drawer path.
+ * Live (uncontrolled) practice-mode control — the in-room/settings-drawer path.
  * Holds its own state (mode default Learn, MODE-01 + target role) and sends a
  * {mode, role_key} snapshot on Apply over the `mode.update` RPC; the native RPC
  * return IS the ack. Must render inside <LiveKitRoom> for room context.
@@ -164,7 +164,7 @@ function InterviewPanelLive() {
 }
 
 /**
- * Side-panel Interview-mode control (MODE-01..MODE-04). Two modes:
+ * Side-panel practice-mode control (MODE-01..MODE-04). Two modes:
  * - Controlled (setup path): pass `value` + `onChange` → renders the form against
  *   lifted state with NO Apply button and NO room context (safe outside the room).
  * - Uncontrolled (live/drawer path): omit props → holds its own state + Apply RPC.
