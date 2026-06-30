@@ -46,6 +46,7 @@ support.
 ### Changed
 - Renamed the app to Rehearsal, including package metadata, UI copy,
   runtime prefixes, Docker labels/network names, and model-picker env keys.
+- Reworked setup and live settings around a scenario-first mode/persona flow.
 - Rewrote `README.md` for the public repo with setup, privacy, security checks,
   and project credits.
 - Default persona changed to Voice Fluency Coach, with Cybersecurity Trainer
