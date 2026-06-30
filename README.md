@@ -1,13 +1,13 @@
 # Rehearsal
 
-Private voice practice with expert personas.
+Local first fully private voice practice with expert personas.
 
 Rehearsal is a local web app for practicing a subject out loud. Pick a persona,
 choose a practice mode, optionally add local reference documents, then speak with
 the agent through your browser. It is built for live spoken practice rather than
 chat: STT, LLM, and TTS all run on your machine or LAN.
 
-Current release: `0.1.0`
+Current release: `0.2.0`
 
 ## What stays private
 

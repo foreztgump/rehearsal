@@ -4,6 +4,23 @@ All notable changes to Rehearsal are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); commits use
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [0.2.0] - 2026-06-30
+
+### Added
+- Added browser-local saved personas so custom persona setups can be saved,
+  loaded, and deleted from setup or in-session settings.
+
+### Changed
+- Reworked setup and live settings around a scenario-first mode/persona flow.
+- Updated the product tagline to "Local first fully private voice practice
+  with expert personas."
+
+### Fixed
+- Guarded live settings updates against stale RPC acknowledgements and
+  settings-drawer reopen races.
+- Preserved explicit Mock Interview targets while keeping other scenarios
+  mapped to the right persona defaults.
+
 ## [0.1.0] - 2026-06-30
 
 Rehearsal is now installable from a local repo checkout on Linux and native
@@ -15,8 +32,6 @@ support.
   cloud/DevOps, product, sales, customer success, leadership, healthcare
   communication, finance/business, GRC/policy, climate/energy, and language
   conversation practice.
-- Added browser-local saved personas so custom persona setups can be saved,
-  loaded, and deleted from setup or in-session settings.
 - Added Drill and Roleplay practice modes alongside Learn and Interview.
 - `install.sh` / `install.ps1` — two native installers (bash + PowerShell)
   with offer-to-install prerequisites, a model-selection prompt, and
@@ -46,7 +61,6 @@ support.
 ### Changed
 - Renamed the app to Rehearsal, including package metadata, UI copy,
   runtime prefixes, Docker labels/network names, and model-picker env keys.
-- Reworked setup and live settings around a scenario-first mode/persona flow.
 - Rewrote `README.md` for the public repo with setup, privacy, security checks,
   and project credits.
 - Default persona changed to Voice Fluency Coach, with Cybersecurity Trainer

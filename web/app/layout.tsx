@@ -7,7 +7,7 @@ import "./globals.css";
 
 export const metadata = {
   title: "Rehearsal",
-  description: "Private voice practice with expert personas.",
+  description: "Local first fully private voice practice with expert personas.",
 };
 
 // Same-origin importmap for the OPTIONAL 3D avatar (Phase 12). Maps the bare

@@ -113,7 +113,7 @@ function KbQueueFields({
           }
         }}
       >
-        Drop a PDF, TXT, MD or DOCX — stays on your LAN
+        Drop a PDF, TXT, MD or DOCX
       </div>
 
       {files.length > 0 && (
@@ -250,7 +250,7 @@ function KbPanelLive() {
           }
         }}
       >
-        Drop a PDF, TXT, MD or DOCX — stays on your LAN
+        Drop a PDF, TXT, MD or DOCX
       </div>
 
       <span

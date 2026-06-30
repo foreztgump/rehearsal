@@ -11,7 +11,7 @@ import ThemeDots from "./ThemeDots";
 import type { SessionConfig } from "./VoiceRoom";
 
 // UI-SPEC Copywriting table — verbatim copy slots.
-const TAGLINE = "Private voice practice with expert personas.";
+const TAGLINE = "Local first fully private voice practice with expert personas.";
 const HEADPHONES_TIP =
   "Tip: use headphones for the cleanest experience — they stop the agent from hearing (and interrupting) itself.";
 
