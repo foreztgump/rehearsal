@@ -299,10 +299,12 @@ export function SavedPersonaControls({
  */
 function PersonaPanelLive({
   initialPersona = DEFAULT_PERSONA,
+  onApplyStart,
   onApplied,
 }: {
   initialPersona?: Persona;
-  onApplied?: (persona: Persona) => void;
+  onApplyStart?: () => number;
+  onApplied?: (persona: Persona, version: number) => void;
 }) {
   const room = useRoomContext();
   const { agent } = useVoiceAssistant();
@@ -320,6 +322,7 @@ function PersonaPanelLive({
   }
 
   async function apply() {
+    const applyVersion = onApplyStart?.() ?? 0;
     setStatus("applying");
     // Target the agent participant (the RPC destination). Prefer the identity
     // surfaced by useVoiceAssistant().agent; fall back to the first non-local
@@ -342,7 +345,7 @@ function PersonaPanelLive({
       });
       if (ack === "applied") {
         setStatus("applied");
-        onApplied?.(persona);
+        onApplied?.(persona, applyVersion);
       } else {
         setStatus("error");
       }
@@ -390,14 +393,22 @@ function PersonaPanelLive({
 export default function PersonaPanel({
   value,
   onChange,
+  onApplyStart,
   onApplied,
 }: {
   value?: Persona;
   onChange?: (p: Persona) => void;
-  onApplied?: (p: Persona) => void;
+  onApplyStart?: () => number;
+  onApplied?: (p: Persona, version: number) => void;
 }) {
   if (onChange) {
     return <PersonaFields value={value ?? DEFAULT_PERSONA} onChange={onChange} />;
   }
-  return <PersonaPanelLive initialPersona={value ?? DEFAULT_PERSONA} onApplied={onApplied} />;
+  return (
+    <PersonaPanelLive
+      initialPersona={value ?? DEFAULT_PERSONA}
+      onApplyStart={onApplyStart}
+      onApplied={onApplied}
+    />
+  );
 }

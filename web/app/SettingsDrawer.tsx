@@ -12,7 +12,7 @@ import { normalizeTranscriptSegments } from "./transcriptSegments";
 import { downloadTranscript, formatTranscript, TranscriptEntry } from "./transcriptExport";
 import { font, palette, radius, space } from "./ui/tokens";
 import { useTranscriptionSegments } from "./useTranscriptionSegments";
-import type { SessionConfig } from "./VoiceRoom";
+import type { LiveConfigField, SessionConfig } from "./VoiceRoom";
 
 // UI-SPEC Copywriting table — verbatim destructive-confirm copy (SESS-03 End is the
 // two-step inline confirm; SESS-01 New / SESS-02 Reset use a native confirm).
@@ -56,6 +56,7 @@ export default function SettingsDrawer({
   resetMarker,
   config,
   sessionEpoch,
+  onBeginConfigApply,
   onConfigChange,
 }: {
   open: boolean;
@@ -69,8 +70,11 @@ export default function SettingsDrawer({
   resetMarker: number;
   config: SessionConfig;
   sessionEpoch: number;
+  onBeginConfigApply: (field: LiveConfigField) => number;
   onConfigChange: (
     sessionEpoch: number,
+    field: LiveConfigField,
+    version: number,
     update: (current: SessionConfig) => SessionConfig,
   ) => void;
 }) {
@@ -254,21 +258,33 @@ export default function SettingsDrawer({
             from the running session config instead of panel-local defaults. */}
         <PersonaPanel
           value={config.persona}
-          onApplied={(persona) =>
-            onConfigChange(sessionEpoch, (current) => ({ ...current, persona }))
+          onApplyStart={() => onBeginConfigApply("persona")}
+          onApplied={(persona, version) =>
+            onConfigChange(sessionEpoch, "persona", version, (current) => ({
+              ...current,
+              persona,
+            }))
           }
         />
         <InterviewPanel
           value={config.mode}
           personaDisplayName={config.persona.display_name}
-          onApplied={(mode) =>
-            onConfigChange(sessionEpoch, (current) => ({ ...current, mode }))
+          onApplyStart={() => onBeginConfigApply("mode")}
+          onApplied={(mode, version) =>
+            onConfigChange(sessionEpoch, "mode", version, (current) => ({
+              ...current,
+              mode,
+            }))
           }
         />
         <ModelPanel
           value={config.model}
-          onApplied={(model) =>
-            onConfigChange(sessionEpoch, (current) => ({ ...current, model }))
+          onApplyStart={() => onBeginConfigApply("model")}
+          onApplied={(model, version) =>
+            onConfigChange(sessionEpoch, "model", version, (current) => ({
+              ...current,
+              model,
+            }))
           }
         />
         <KbPanel />

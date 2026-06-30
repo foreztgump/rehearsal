@@ -9,7 +9,7 @@ import SettingsDrawer from "./SettingsDrawer";
 import SttDebugWindow from "./SttDebugWindow";
 import Transcript from "./Transcript";
 import Visualizer from "./Visualizer";
-import type { SessionConfig } from "./VoiceRoom";
+import type { LiveConfigField, SessionConfig } from "./VoiceRoom";
 import WhoName from "./WhoName";
 
 const AVATAR_OPTIONS = [
@@ -40,6 +40,7 @@ export default function TalkingScreen({
   agentName,
   config,
   sessionEpoch,
+  onBeginConfigApply,
   onConfigChange,
 }: {
   avatarOn: boolean;
@@ -61,8 +62,11 @@ export default function TalkingScreen({
   agentName: string;
   config: SessionConfig;
   sessionEpoch: number;
+  onBeginConfigApply: (field: LiveConfigField) => number;
   onConfigChange: (
     sessionEpoch: number,
+    field: LiveConfigField,
+    version: number,
     update: (current: SessionConfig) => SessionConfig,
   ) => void;
 }) {
@@ -189,6 +193,7 @@ export default function TalkingScreen({
         resetMarker={resetMarker}
         config={config}
         sessionEpoch={sessionEpoch}
+        onBeginConfigApply={onBeginConfigApply}
         onConfigChange={onConfigChange}
       />
       <SttDebugWindow />

@@ -86,10 +86,12 @@ export function ModelFields({
  */
 function ModelPanelLive({
   initialChoice = DEFAULT_MODEL,
+  onApplyStart,
   onApplied,
 }: {
   initialChoice?: ModelChoice;
-  onApplied?: (choice: ModelChoice) => void;
+  onApplyStart?: () => number;
+  onApplied?: (choice: ModelChoice, version: number) => void;
 }) {
   const room = useRoomContext();
   const { agent } = useVoiceAssistant();
@@ -102,6 +104,7 @@ function ModelPanelLive({
   }, [initialChoice]);
 
   async function apply() {
+    const applyVersion = onApplyStart?.() ?? 0;
     setStatus("applying");
     // Target the agent participant (the RPC destination). Prefer the identity
     // surfaced by useVoiceAssistant().agent; fall back to the first non-local
@@ -123,7 +126,7 @@ function ModelPanelLive({
       });
       if (ack === "applied") {
         setStatus("applied");
-        onApplied?.(choice);
+        onApplied?.(choice, applyVersion);
       } else {
         setStatus("error");
       }
@@ -161,17 +164,25 @@ export default function ModelPanel({
   value,
   onChange,
   className,
+  onApplyStart,
   onApplied,
 }: {
   value?: ModelChoice;
   onChange?: (c: ModelChoice) => void;
   className?: string;
-  onApplied?: (c: ModelChoice) => void;
+  onApplyStart?: () => number;
+  onApplied?: (c: ModelChoice, version: number) => void;
 }) {
   if (onChange) {
     return (
       <ModelFields value={value ?? DEFAULT_MODEL} onChange={onChange} className={className} />
     );
   }
-  return <ModelPanelLive initialChoice={value ?? DEFAULT_MODEL} onApplied={onApplied} />;
+  return (
+    <ModelPanelLive
+      initialChoice={value ?? DEFAULT_MODEL}
+      onApplyStart={onApplyStart}
+      onApplied={onApplied}
+    />
+  );
 }

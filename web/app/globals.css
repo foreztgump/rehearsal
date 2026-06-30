@@ -569,12 +569,15 @@ textarea.control {
   align-items: stretch;
   padding: 4px;
   gap: 3px;
-  width: fit-content;
+  width: 100%;
+  min-width: 0;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--line);
 }
 .seg button {
+  flex: 1 1 0;
+  min-width: 0;
   position: relative;
   z-index: 1;
   border: none;
@@ -583,9 +586,11 @@ textarea.control {
   font-weight: 700;
   font-size: 13.5px;
   color: var(--text-muted);
-  padding: 8px 18px;
+  padding: 8px 10px;
   border-radius: 999px;
   cursor: pointer;
+  text-align: center;
+  white-space: normal;
   transition: color 0.25s ease;
 }
 .seg button.on {

@@ -45,6 +45,8 @@ export type SessionConfig = {
   kbFiles: File[];
 };
 
+export type LiveConfigField = "persona" | "mode" | "model";
+
 const DEFAULT_SESSION_CONFIG: SessionConfig = {
   persona: DEFAULT_PERSONA,
   mode: DEFAULT_INTERVIEW,
@@ -77,6 +79,7 @@ export default function VoiceRoom() {
   const [token, setToken] = useState<string | null>(null);
   const [sessionEpoch, setSessionEpoch] = useState(0);
   const sessionEpochRef = useRef(sessionEpoch);
+  const liveApplyVersionRef = useRef({ persona: 0, mode: 0, model: 0 });
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // SESS-02 transcript reset marker: a wall-clock timestamp bumped on Reset so the
@@ -97,11 +100,19 @@ export default function VoiceRoom() {
     setSessionEpoch(next);
   }
 
+  function beginLiveConfigApply(field: LiveConfigField): number {
+    liveApplyVersionRef.current[field] += 1;
+    return liveApplyVersionRef.current[field];
+  }
+
   function updateLiveSessionConfig(
     epoch: number,
+    field: LiveConfigField,
+    version: number,
     update: (current: SessionConfig) => SessionConfig,
   ) {
     if (epoch !== sessionEpochRef.current) return;
+    if (version !== liveApplyVersionRef.current[field]) return;
     setSessionConfig(update);
   }
 
@@ -228,6 +239,7 @@ export default function VoiceRoom() {
         agentName={sessionConfig.persona.display_name}
         config={sessionConfig}
         sessionEpoch={sessionEpoch}
+        onBeginConfigApply={beginLiveConfigApply}
         onConfigChange={updateLiveSessionConfig}
       />
     </LiveKitRoom>

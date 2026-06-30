@@ -86,11 +86,13 @@ export function InterviewFields({
 function InterviewPanelLive({
   initialInterview = DEFAULT_INTERVIEW,
   personaDisplayName = "",
+  onApplyStart,
   onApplied,
 }: {
   initialInterview?: InterviewMode;
   personaDisplayName?: string;
-  onApplied?: (interview: InterviewMode) => void;
+  onApplyStart?: () => number;
+  onApplied?: (interview: InterviewMode, version: number) => void;
 }) {
   const room = useRoomContext();
   const { agent } = useVoiceAssistant();
@@ -103,6 +105,7 @@ function InterviewPanelLive({
   }, [initialInterview]);
 
   async function apply() {
+    const applyVersion = onApplyStart?.() ?? 0;
     setStatus("applying");
     // Target the agent participant (the RPC destination). Prefer the identity
     // surfaced by useVoiceAssistant().agent; fall back to the first non-local
@@ -124,7 +127,7 @@ function InterviewPanelLive({
       });
       if (ack === "applied") {
         setStatus("applied");
-        onApplied?.(interview);
+        onApplied?.(interview, applyVersion);
       } else {
         setStatus("error");
       }
@@ -167,12 +170,14 @@ export default function InterviewPanel({
   value,
   onChange,
   personaDisplayName,
+  onApplyStart,
   onApplied,
 }: {
   value?: InterviewMode;
   onChange?: (m: InterviewMode) => void;
   personaDisplayName?: string;
-  onApplied?: (m: InterviewMode) => void;
+  onApplyStart?: () => number;
+  onApplied?: (m: InterviewMode, version: number) => void;
 }) {
   if (onChange) {
     return (
@@ -187,6 +192,7 @@ export default function InterviewPanel({
     <InterviewPanelLive
       initialInterview={value ?? DEFAULT_INTERVIEW}
       personaDisplayName={personaDisplayName}
+      onApplyStart={onApplyStart}
       onApplied={onApplied}
     />
   );
