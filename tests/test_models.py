@@ -44,11 +44,11 @@ def test_resolved_tag_unknown_choice_exits() -> None:
 
 
 def test_default_choice_env_override() -> None:
-    """ADEPT_DEFAULT_MODEL lets the installer boot a host on floor; bad/unset → fast."""
-    assert default_model_choice({"ADEPT_DEFAULT_MODEL": "floor"}) == "floor"
-    assert default_model_choice({"ADEPT_DEFAULT_MODEL": "FLOOR"}) == "floor"
+    """REHEARSAL_DEFAULT_MODEL lets the installer boot a host on floor; bad/unset → fast."""
+    assert default_model_choice({"REHEARSAL_DEFAULT_MODEL": "floor"}) == "floor"
+    assert default_model_choice({"REHEARSAL_DEFAULT_MODEL": "FLOOR"}) == "floor"
     assert default_model_choice({}) == "fast"
-    assert default_model_choice({"ADEPT_DEFAULT_MODEL": "bogus"}) == "fast"
+    assert default_model_choice({"REHEARSAL_DEFAULT_MODEL": "bogus"}) == "fast"
 
 
 def _run_all() -> None:
@@ -63,31 +63,31 @@ if __name__ == "__main__":
 
 
 def test_effective_choices_default_to_full_set() -> None:
-    """With ADEPT_MODEL_CHOICES unset, the effective set is the shipped tuple."""
+    """With REHEARSAL_MODEL_CHOICES unset, the effective set is the shipped tuple."""
     from models import effective_model_choices
     assert set(effective_model_choices({})) == {"fast", "better", "floor"}
 
 
 def test_effective_choices_narrowed_by_env() -> None:
-    """ADEPT_MODEL_CHOICES narrows the effective set to the installed models."""
+    """REHEARSAL_MODEL_CHOICES narrows the effective set to the installed models."""
     from models import effective_model_choices
-    assert set(effective_model_choices({"ADEPT_MODEL_CHOICES": "fast,floor"})) == {"fast", "floor"}
+    assert set(effective_model_choices({"REHEARSAL_MODEL_CHOICES": "fast,floor"})) == {"fast", "floor"}
 
 
 def test_effective_choices_single_model() -> None:
     """A one-model install yields a one-element set."""
     from models import effective_model_choices
-    assert set(effective_model_choices({"ADEPT_MODEL_CHOICES": "floor"})) == {"floor"}
+    assert set(effective_model_choices({"REHEARSAL_MODEL_CHOICES": "floor"})) == {"floor"}
 
 
 def test_effective_choices_ignores_unknown_keys() -> None:
-    """Unknown keys in ADEPT_MODEL_CHOICES are dropped (never surface a choice with no tag)."""
+    """Unknown keys in REHEARSAL_MODEL_CHOICES are dropped (never surface a choice with no tag)."""
     from models import effective_model_choices
-    assert set(effective_model_choices({"ADEPT_MODEL_CHOICES": "fast,bogus"})) == {"fast"}
+    assert set(effective_model_choices({"REHEARSAL_MODEL_CHOICES": "fast,bogus"})) == {"fast"}
 
 
 def test_default_choice_must_be_in_effective_set() -> None:
     """A default not in the narrowed effective set falls back to the first effective choice."""
     from models import default_model_choice
     # floor installed, default=fast not installed → fallback to floor (the only choice)
-    assert default_model_choice({"ADEPT_MODEL_CHOICES": "floor", "ADEPT_DEFAULT_MODEL": "fast"}) == "floor"
+    assert default_model_choice({"REHEARSAL_MODEL_CHOICES": "floor", "REHEARSAL_DEFAULT_MODEL": "fast"}) == "floor"

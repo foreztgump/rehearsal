@@ -118,6 +118,9 @@ BIN_GITLEAKS_CONFIG="$WORK/bin-gitleaks-config"
 build_path "$BIN_GITLEAKS_CONFIG"
 install_success_shims "$BIN_GITLEAKS_CONFIG"
 make_shim "$BIN_GITLEAKS_CONFIG" gitleaks '
+cmd="${1:-}"
+[ "$cmd" = "git" ] || { echo "expected gitleaks git, got: ${cmd}" >&2; exit 2; }
+shift
 config=""
 out=""
 while [ "$#" -gt 0 ]; do

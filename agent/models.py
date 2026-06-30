@@ -1,4 +1,4 @@
-"""Pure, livekit-free LLM model-CHOICE resolution for the Adept voice loop (v1.2 R2).
+"""Pure, livekit-free LLM model-CHOICE resolution for the Rehearsal voice loop (v1.2 R2).
 
 Owns the mapping from a plain picker CHOICE key (fast/better/floor) to its pinned
 Ollama tag, plus the session DEFAULT choice — a pure function of the process
@@ -28,13 +28,13 @@ _MODEL_ENV: dict[str, str] = {
 
 # Session default choice. Env-overridable so the R7 installer can boot a weak-hardware
 # host on "floor" without a code change; falls back to "fast" (the Phase-8 default).
-_DEFAULT_MODEL_ENV: str = "ADEPT_DEFAULT_MODEL"
+_DEFAULT_MODEL_ENV: str = "REHEARSAL_DEFAULT_MODEL"
 _FALLBACK_DEFAULT_CHOICE: str = "fast"
 
 # Install-set env: the R7 installer writes the comma list of installed choice keys
 # so the web picker + agent only surface models that were actually pulled. Unset
 # -> the full shipped set (back-compat for pre-R7 deploys).
-_INSTALL_SET_ENV: str = "ADEPT_MODEL_CHOICES"
+_INSTALL_SET_ENV: str = "REHEARSAL_MODEL_CHOICES"
 
 
 def effective_model_choices(env: Mapping[str, str]) -> tuple[str, ...]:

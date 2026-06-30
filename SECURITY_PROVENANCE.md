@@ -54,7 +54,7 @@ provenance scrutiny before public access.
 | --- | --- | --- | --- |
 | Fast | `evalengine/unbound-e2b:latest`, fallback `gemma4:e2b` | tag resolved during install; build verified by `ollama/verify-build.sh` when operator runs it | Community first rung, official fallback. |
 | Better | `defyma85/gemma-4-E4B-it-ultra-uncensored-heretic-Q4_K_M_gguf:latest`, fallback `gemma4:e4b` | tag resolved during install; build verified by `ollama/verify-build.sh` when operator runs it | Community first rung, official fallback. |
-| Floor | `hf.co/mradermacher/Huihui-Qwen3-4B-Instruct-2507-abliterated-GGUF:Q4_K_M`, `hf.co/bartowski/mlabonne_Qwen3-1.7B-abliterated-GGUF:Q4_K_M`, fallback `qwen3.5:2b-q4_K_M` | tag resolved during install | First rung is rebuilt as `adept-floor` with the local Modelfile template fix. |
+| Floor | `hf.co/mradermacher/Huihui-Qwen3-4B-Instruct-2507-abliterated-GGUF:Q4_K_M`, `hf.co/bartowski/mlabonne_Qwen3-1.7B-abliterated-GGUF:Q4_K_M`, fallback `qwen3.5:2b-q4_K_M` | tag resolved during install | First rung is rebuilt as `rehearsal-floor` with the local Modelfile template fix. |
 
 ## Vendored Browser Assets
 

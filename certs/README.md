@@ -55,7 +55,7 @@ Then, on a LAN device **with the CA trusted**, open:
 https://<lan-ip>/
 ```
 
-You should see "Adept — stack online" and the green line
+You should see "Rehearsal — stack online" and the green line
 **`secure context: mediaDevices defined`**. If it reads `undefined`, the page is
 not in a secure context — check the cert is trusted on that device and that you
 loaded the `https://` URL (not `http://`).

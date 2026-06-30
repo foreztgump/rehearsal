@@ -1,4 +1,4 @@
-"""Setup-time KB distillation for the Adept trainer (Plan 04-02).
+"""Setup-time KB distillation for the Rehearsal trainer (Plan 04-02).
 
 Turns the concatenated uploaded docs into a compact, byte-stable brief that lands
 ONCE in the frozen ``KB_SLOT`` prefix (persona.render_prompt). Two surfaces:

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# install.sh — one-command bootstrap for the Adept local-first voice stack.
+# install.sh — one-command bootstrap for the Rehearsal local-first voice stack.
 # curl|sh-compatible. Detects OS + Docker/Compose + GPU vendor, scaffolds .env with a
 # generated LIVEKIT_API_SECRET, prompts for which models to install + their aliases,
 # prints a setup plan and confirms, builds images + pulls/pins the selected models,
@@ -100,24 +100,24 @@ prompt_models() {  # sets INSTALL_MODELS + MODEL_LABELS (globals)
 
 # --- 1d. Write model-choices env to .env ------------------------------------
 write_model_env() {
-  # ADEPT_MODEL_CHOICES — the installed set (comma list).
-  if grep -q '^ADEPT_MODEL_CHOICES=' .env 2>/dev/null; then
-    sed -i "s|^ADEPT_MODEL_CHOICES=.*|ADEPT_MODEL_CHOICES=${INSTALL_MODELS}|" .env
+  # REHEARSAL_MODEL_CHOICES — the installed set (comma list).
+  if grep -q '^REHEARSAL_MODEL_CHOICES=' .env 2>/dev/null; then
+    sed -i "s|^REHEARSAL_MODEL_CHOICES=.*|REHEARSAL_MODEL_CHOICES=${INSTALL_MODELS}|" .env
   else
-    printf 'ADEPT_MODEL_CHOICES=%s\n' "${INSTALL_MODELS}" >> .env
+    printf 'REHEARSAL_MODEL_CHOICES=%s\n' "${INSTALL_MODELS}" >> .env
   fi
-  # Labels (baked into the web build via NEXT_PUBLIC_ADEPT_MODEL_LABELS).
-  if grep -q '^NEXT_PUBLIC_ADEPT_MODEL_LABELS=' .env 2>/dev/null; then
-    sed -i "s|^NEXT_PUBLIC_ADEPT_MODEL_LABELS=.*|NEXT_PUBLIC_ADEPT_MODEL_LABELS=${MODEL_LABELS}|" .env
+  # Labels (baked into the web build via NEXT_PUBLIC_REHEARSAL_MODEL_LABELS).
+  if grep -q '^NEXT_PUBLIC_REHEARSAL_MODEL_LABELS=' .env 2>/dev/null; then
+    sed -i "s|^NEXT_PUBLIC_REHEARSAL_MODEL_LABELS=.*|NEXT_PUBLIC_REHEARSAL_MODEL_LABELS=${MODEL_LABELS}|" .env
   else
-    printf 'NEXT_PUBLIC_ADEPT_MODEL_LABELS=%s\n' "${MODEL_LABELS}" >> .env
+    printf 'NEXT_PUBLIC_REHEARSAL_MODEL_LABELS=%s\n' "${MODEL_LABELS}" >> .env
   fi
-  # ADEPT_DEFAULT_MODEL — first of the installed set (safe: its tag is pinned).
+  # REHEARSAL_DEFAULT_MODEL — first of the installed set (safe: its tag is pinned).
   default_choice="${INSTALL_MODELS%%,*}"
-  if grep -q '^ADEPT_DEFAULT_MODEL=' .env 2>/dev/null; then
-    sed -i "s|^ADEPT_DEFAULT_MODEL=.*|ADEPT_DEFAULT_MODEL=${default_choice}|" .env
+  if grep -q '^REHEARSAL_DEFAULT_MODEL=' .env 2>/dev/null; then
+    sed -i "s|^REHEARSAL_DEFAULT_MODEL=.*|REHEARSAL_DEFAULT_MODEL=${default_choice}|" .env
   else
-    printf 'ADEPT_DEFAULT_MODEL=%s\n' "${default_choice}" >> .env
+    printf 'REHEARSAL_DEFAULT_MODEL=%s\n' "${default_choice}" >> .env
   fi
 }
 
@@ -150,7 +150,7 @@ scaffold_env() {
 print_plan() {
   gpu="$1"; models="$2"
   log ""
-  log "================ Adept setup plan ================"
+  log "================ Rehearsal setup plan ================"
   log "Services: livekit-server, agent, ollama, kokoro, nemo-stt-cpu, web"
   log "          (+ nemo-stt on GPU, opt-in via --profile stt-gpu)"
   log "GPU vendor detected: ${gpu}"
@@ -182,11 +182,11 @@ build_and_pull() {
   docker compose build
   log "Starting ollama to pull + pin the selected models…"
   docker compose up -d ollama
-  INSTALL_MODELS="${INSTALL_MODELS}" ADEPT_DEFAULT_MODEL="${INSTALL_MODELS%%,*}" \
+  INSTALL_MODELS="${INSTALL_MODELS}" REHEARSAL_DEFAULT_MODEL="${INSTALL_MODELS%%,*}" \
     ./ollama/pull-and-pin.sh
   # Write the model-choices env ONLY after pull-and-pin succeeds — so .env never
   # claims a model is installed before its tag is confirmed resident (the
-  # floor-path landmine: ADEPT_DEFAULT_MODEL=floor with no OLLAMA_MODEL_FLOOR).
+  # floor-path landmine: REHEARSAL_DEFAULT_MODEL=floor with no OLLAMA_MODEL_FLOOR).
   write_model_env
   log "Starting the full stack…"
   docker compose up -d

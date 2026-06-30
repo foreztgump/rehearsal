@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# down.sh — clean stop for the Adept stack. Stops and removes the compose services
+# down.sh — clean stop for the Rehearsal stack. Stops and removes the compose services
 # (containers + default network), leaving named volumes (pulled models, caches) intact.
 #
 #   ./down.sh             # stop + remove containers

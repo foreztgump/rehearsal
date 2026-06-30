@@ -207,7 +207,13 @@ run_sbom_and_grype() {
     --exclude './web/node_modules/**' \
     --exclude './web/.next/**' \
     --exclude './security/reports/**' \
+    --exclude './.agents/**' \
+    --exclude './.claude/**' \
+    --exclude './.codex/**' \
+    --exclude './.superpowers/**' \
     --exclude './.planning/**' \
+    --exclude './docs/superpowers/**' \
+    --exclude './design-mockups/**' \
     -o cyclonedx-json >"$SBOM_FILE"
   pass "Syft source SBOM: ${SBOM_FILE}"
 
@@ -225,7 +231,7 @@ run_gitleaks() {
   local report="${REPORT_DIR}/gitleaks.json"
   local config="${REPORT_DIR}/gitleaks.toml"
   write_gitleaks_config "$config"
-  if gitleaks detect --source . --config "$config" --no-banner --redact --report-format json --report-path "$report"; then
+  if gitleaks git . --config "$config" --no-banner --redact --report-format json --report-path "$report"; then
     pass "Gitleaks secret scan"
   else
     block "Gitleaks found verified or likely secrets. See ${report}"
@@ -234,7 +240,7 @@ run_gitleaks() {
 
 write_gitleaks_config() {
   cat >"$1" <<'TOML'
-title = "voice-trainer security-check gitleaks config"
+title = "rehearsal security-check gitleaks config"
 
 [extend]
 useDefault = true
@@ -243,6 +249,12 @@ useDefault = true
 description = "repository paths excluded from the local security baseline"
 paths = [
   '''(^|/)\.planning/''',
+  '''(^|/)\.agents/''',
+  '''(^|/)\.claude/''',
+  '''(^|/)\.codex/''',
+  '''(^|/)\.superpowers/''',
+  '''(^|/)docs/superpowers/''',
+  '''(^|/)design-mockups/''',
   '''(^|/)security/reports/''',
   '''(^|/)web/node_modules/''',
   '''(^|/)web/\.next/''',

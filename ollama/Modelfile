@@ -1,4 +1,4 @@
-# Adept LLM Modelfile — Phase 1 (01-02).
+# Rehearsal LLM Modelfile — Phase 1 (01-02).
 #
 # Bakes the tight Phase-1 context window + Gemma 4 sampling params onto the
 # resolved base tag. FROM uses ${OLLAMA_MODEL} so there is no hardcoded gemma
@@ -6,7 +6,7 @@
 #
 #   set -a && . ./.env && set +a
 #   envsubst '${OLLAMA_MODEL}' < ollama/Modelfile \
-#     | docker compose exec -T ollama ollama create adept-gemma -f -
+#     | docker compose exec -T ollama ollama create rehearsal-gemma -f -
 #
 # (OLLAMA_MODEL is resolved by ollama/pull-and-pin.sh; rung 1 = gemma4:e4b-it-q4_K_M.)
 FROM ${OLLAMA_MODEL}
@@ -31,11 +31,11 @@ FROM ${OLLAMA_MODEL}
 # The operator confirms the REAL distilled-brief token count via Proof C in
 # 04-KB-VERIFY.md and bumps this only to a measured value if 8192 ever overflows.
 # HOT-PATH NOTE (04-04): the agent (`/v1/chat` via with_ollama) and the distiller
-# (`/api/generate`) load the BASE tag ${OLLAMA_MODEL}, NOT this `adept-gemma` model,
+# (`/api/generate`) load the BASE tag ${OLLAMA_MODEL}, NOT this `rehearsal-gemma` model,
 # so this PARAMETER does NOT reach the runtime on the hot path. The effective
 # context there is enforced by the compose `ollama` service env
 # (OLLAMA_CONTEXT_LENGTH=8192 + OLLAMA_NUM_PARALLEL=1). This PARAMETER documents the
-# same budget and governs `adept-gemma` only if it is ever created (e.g. for the
+# same budget and governs `rehearsal-gemma` only if it is ever created (e.g. for the
 # VRAM validator).
 PARAMETER num_ctx 8192
 

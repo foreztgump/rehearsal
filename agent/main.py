@@ -1,4 +1,4 @@
-"""Adept LiveKit agent worker — AgentSession wiring + walking-skeleton gate.
+"""Rehearsal LiveKit agent worker — AgentSession wiring + walking-skeleton gate.
 
 Phase 1 scope (Plan 01-03): construct an AgentSession against the three LOCAL
 model endpoints (Nemotron streaming STT, Ollama LLM, Kokoro TTS) with the LOCAL
@@ -8,7 +8,7 @@ the self-hosted livekit-server. NO live voice turn happens yet — no participan
 audio flows in Phase 1.
 
 Local-first invariant (PERF-03 / DEPLOY-02): every model base_url is an in-stack
-service on the `adept` Docker network; the turn detector is the local
+service on the `rehearsal` Docker network; the turn detector is the local
 MultilingualModel, never the cloud-default turn detector plugin. Nothing reaches
 a non-LAN endpoint at startup.
 """
@@ -58,9 +58,9 @@ from persona import (
     render_prompt,
 )
 
-logger = logging.getLogger("adept.agent")
+logger = logging.getLogger("rehearsal.agent")
 
-# In-stack model endpoints (Docker `adept` network — all LAN-local, no egress).
+# In-stack model endpoints (Docker `rehearsal` network — all LAN-local, no egress).
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://ollama:11434/v1")
 OLLAMA_GENERATE_URL = os.environ.get("OLLAMA_GENERATE_URL", "http://ollama:11434/api/generate")
 # NemoSTT websocket endpoint — a `ws://` URL (NOT `http://.../v1`), matching the
@@ -118,7 +118,7 @@ FALSE_INTERRUPT_TIMEOUT_S: float = 2.0
 # LiveKit's default 3s AEC warmup sends silence to STT while the agent speaks.
 # In a headphone-first local trainer, that drops the first words of real barge-in.
 AEC_WARMUP_DURATION_S: float = 0.0
-TRANSCRIPT_CORRECTION_TOPIC = "adept.transcript.correction"
+TRANSCRIPT_CORRECTION_TOPIC = "rehearsal.transcript.correction"
 
 # Default persona (PERS-01) now lives in agent/persona.py as a structured config:
 # DEFAULT_PERSONA renders (via render_persona) to a byte-stable system prompt with
@@ -140,9 +140,9 @@ def resolved_llm_tag() -> str:
 # ("Fast (snappier)" / "Better (more thoughtful)"); v1.2 R2 adds a third "floor" tier
 # (a small model for ~6GB hosts — see agent/models.py MODEL_CHOICES). The agent only ever
 # sees the validated plain choice key here — NEVER a raw Ollama tag from the client
-# (LLM-01). Fast is the default unless ADEPT_DEFAULT_MODEL overrides (LLM-02). No
+# (LLM-01). Fast is the default unless REHEARSAL_DEFAULT_MODEL overrides (LLM-02). No
 # hardcoded gemma tag: each choice resolves to its own env var (no-hardcoded-tag invariant).
-# Session default choice — env-overridable (ADEPT_DEFAULT_MODEL) so the R7 installer can
+# Session default choice — env-overridable (REHEARSAL_DEFAULT_MODEL) so the R7 installer can
 # boot a weak host on "floor". build_session/placement read this once at startup.
 DEFAULT_MODEL_CHOICE = default_model_choice(os.environ)
 

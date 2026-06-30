@@ -1,4 +1,4 @@
-# Adept — self-hosted LiveKit server config (Plan 01-03).
+# Rehearsal — self-hosted LiveKit server config (Plan 01-03).
 #
 # Local-first / no-egress design (PERF-03, DEPLOY-02):
 #   We set rtc.node_ip (LAN VM IP) with use_external_ip:false rather than

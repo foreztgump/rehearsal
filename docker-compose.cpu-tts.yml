@@ -1,4 +1,4 @@
-# Adept CPU TTS override — Kokoro-FastAPI CPU image (ONNX-optimized, no GPU).
+# Rehearsal CPU TTS override — Kokoro-FastAPI CPU image (ONNX-optimized, no GPU).
 # Use with:
 #   COMPOSE_FILE=docker-compose.yml:docker-compose.cpu-tts.yml docker compose up -d
 #

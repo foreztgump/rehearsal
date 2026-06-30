@@ -32,6 +32,9 @@ install_success_shims() {
   local dir="$1"
   make_shim "$dir" timeout 'shift; exec "$@"'
   make_shim "$dir" uvx '
+case " $* " in
+  *" --no-sandbox "*) echo "sandbox disabled" >&2; exit 2 ;;
+esac
 out="${*: -1}"
 case "$out" in
   *package.json)
@@ -101,6 +104,11 @@ if env -i PATH="$BIN_OK" SECURITY_REPORT_DIR="$WORK/reports-ok" bash scripts/gua
   else
     bad "success path did not write expected reports"
     find "$WORK/reports-ok" -type f -maxdepth 2 -print 2>/dev/null || true
+  fi
+  if grep -q "sandbox disabled" "$WORK/ok.out"; then
+    bad "GuardDog npm scan disabled sandbox"
+  else
+    ok "GuardDog npm scan keeps sandbox enabled"
   fi
 else
   bad "all-shim success path failed"

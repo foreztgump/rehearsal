@@ -23,7 +23,7 @@
 #          (no <think> leak), dual-provenance (huihui-ai abliterate + mradermacher GGUF).
 #          NB: this GGUF's bundled Ollama template is broken — when it wins, main() grafts
 #          the correct Qwen3-2507 template via ollama/Modelfile.floor + `ollama create` and
-#          pins the built model `adept-floor` instead of the raw GGUF.
+#          pins the built model `rehearsal-floor` instead of the raw GGUF.
 #     2. hf.co/bartowski/mlabonne_Qwen3-1.7B-abliterated-GGUF:Q4_K_M
 #          smaller abliterated fallback (~1.1GB; mlabonne+bartowski) for tight 6GB cards
 #     3. qwen3.5:2b-q4_K_M
@@ -39,7 +39,7 @@
 #         ENV_FILE          (default: .env)   — file the resolved tags are written to
 #         INSTALL_MODELS    (default: fast,better,floor) — comma list of which
 #                          ladders to run + pin. Only the selected models are pulled.
-#         ADEPT_DEFAULT_MODEL (default: first of INSTALL_MODELS) — which installed
+#         REHEARSAL_DEFAULT_MODEL (default: first of INSTALL_MODELS) — which installed
 #                          model the OLLAMA_MODEL back-compat alias points at.
 set -euo pipefail
 
@@ -65,12 +65,12 @@ readonly FLOOR_LADDER=(
 # When rung 1's GGUF wins, its bundled Ollama chat template is broken, so we graft the correct
 # Qwen3-2507 template (ollama/Modelfile.floor) via `ollama create` and pin the BUILT model below
 # instead of the raw GGUF (see main()). The 1.7B / qwen3.5 fallback rungs are pinned as-is.
-readonly FLOOR_MODEL_NAME="adept-floor"
+readonly FLOOR_MODEL_NAME="rehearsal-floor"
 readonly FLOOR_TEMPLATE_FIX_TAG="hf.co/mradermacher/Huihui-Qwen3-4B-Instruct-2507-abliterated-GGUF:Q4_K_M"
 readonly OLLAMA_CONTAINER="${OLLAMA_CONTAINER:-ollama}"
 readonly ENV_FILE="${ENV_FILE:-.env}"
 readonly INSTALL_MODELS="${INSTALL_MODELS:-fast,better,floor}"
-readonly DEFAULT_CHOICE="${ADEPT_DEFAULT_MODEL:-}"
+readonly DEFAULT_CHOICE="${REHEARSAL_DEFAULT_MODEL:-}"
 
 # Resolve which ladders to run from INSTALL_MODELS (comma list, order preserved).
 # Unknown keys are ignored (defensive — the installer only writes known keys).
@@ -126,7 +126,7 @@ main() {
   local default_tag=""
   local first_installed_tag=""   # fallback if the chosen default's ladder fails
 
-  # Determine the chosen default (explicit ADEPT_DEFAULT_MODEL if it's in the
+  # Determine the chosen default (explicit REHEARSAL_DEFAULT_MODEL if it's in the
   # install set, else the first model in INSTALL_MODELS).
   if [ -n "${DEFAULT_CHOICE}" ] && should_install "${DEFAULT_CHOICE}"; then
     chosen_default="${DEFAULT_CHOICE}"

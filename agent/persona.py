@@ -1,4 +1,4 @@
-"""Pure persona-config module for the Adept voice trainer (Plan 03-01).
+"""Pure persona-config module for the Rehearsal voice trainer (Plan 03-01).
 
 Lifts the static ``PERSONA_INSTRUCTIONS`` literal out of ``agent/main.py`` into a
 structured, livekit-free config: a ``Persona`` dataclass, three enum->fixed-string

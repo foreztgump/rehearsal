@@ -8,7 +8,7 @@ function stamp(at: number): string {
 
 export function formatTranscript(entries: TranscriptEntry[], format: "txt" | "md"): string {
   if (format === "md") {
-    const head = "# Adept session transcript\n\n";
+    const head = "# Rehearsal session transcript\n\n";
     return head + entries.map((e) => `- **${e.speaker}** _(${stamp(e.at)})_: ${e.text}`).join("\n") + "\n";
   }
   return entries.map((e) => `[${stamp(e.at)}] ${e.speaker}: ${e.text}`).join("\n") + "\n";

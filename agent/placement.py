@@ -1,4 +1,4 @@
-"""Pure, livekit-free STT-PLACEMENT decision module for the Adept voice loop (Plan 10-02).
+"""Pure, livekit-free STT-PLACEMENT decision module for the Rehearsal voice loop (Plan 10-02).
 
 This owns the placement DECISION only — *should STT run on GPU
 (``nemo-stt``) or as the off-GPU CPU port (``nemo-stt-cpu``)?* — as a pure
@@ -45,7 +45,7 @@ VRAM_HEADROOM_MB: int = 1024    # peak must stay < total − 1 GB (vram-validate
 LLM_PEAK_MB: dict[str, int] = {
     "fast": 7408,               # E2B, MEASURED Phase 8 Gate D (STATE.md:114)
     "better": 8912,             # E4B, MEASURED Phase 8 Gate D (STATE.md:114)
-    "floor": 3456,              # MEASURED 2026-06-28 (adept-floor: abliterated Qwen3-4B-2507
+    "floor": 3456,              # MEASURED 2026-06-28 (rehearsal-floor: abliterated Qwen3-4B-2507
     #                             q4 + 8192 ctx resident, RTX 5090). Below `better`, so it
     #                             never changes the worst-case math (documentary for R3).
 }

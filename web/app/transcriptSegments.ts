@@ -1,7 +1,7 @@
 export const TRANSCRIPTION_FINAL_ATTRIBUTE = "lk.transcription_final";
 export const TRANSCRIPTION_SEGMENT_ATTRIBUTE = "lk.segment_id";
 export const TRANSCRIPTION_TOPIC = "lk.transcription";
-export const TRANSCRIPT_CORRECTION_TOPIC = "adept.transcript.correction";
+export const TRANSCRIPT_CORRECTION_TOPIC = "rehearsal.transcript.correction";
 export const USER_IDENTITY_PREFIX = "user-";
 
 type AttrValue = string | boolean | undefined;

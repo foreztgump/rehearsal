@@ -1,4 +1,4 @@
-# Adept Windows AMD override — native Ollama off-stack, CPU services in Docker.
+# Rehearsal Windows AMD override — native Ollama off-stack, CPU services in Docker.
 # Use with:
 #   COMPOSE_FILE=docker-compose.yml:docker-compose.windows-amd.yml:docker-compose.cpu-tts.yml docker compose up -d
 #

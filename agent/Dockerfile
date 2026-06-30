@@ -1,4 +1,4 @@
-# Adept LiveKit agent worker image (Plan 01-03).
+# Rehearsal LiveKit agent worker image (Plan 01-03).
 #
 # Extends the 01-01 uv-based placeholder: installs the pinned deps with uv (NOT
 # pip — AGENTS.md mandates the Python agent runs via uv) and bakes the Silero VAD

@@ -25,8 +25,8 @@ const RESET_FAILED_MESSAGE =
 // rejection (LiveKit resolves performRpc with the returned string, it does not throw).
 const RPC_APPLIED = "applied";
 
-const TRANSCRIPT_TXT_FILENAME = "adept-transcript.txt";
-const TRANSCRIPT_MD_FILENAME = "adept-transcript.md";
+const TRANSCRIPT_TXT_FILENAME = "rehearsal-transcript.txt";
+const TRANSCRIPT_MD_FILENAME = "rehearsal-transcript.md";
 
 // The focusable controls a focus trap cycles through. Kept broad so every native
 // control inside the hosted live panels (inputs/selects/textareas/buttons) is

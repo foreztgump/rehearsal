@@ -13,7 +13,7 @@ import ThemeDots from "./ThemeDots";
 import type { SessionConfig } from "./VoiceRoom";
 
 // UI-SPEC Copywriting table — verbatim copy slots.
-const TAGLINE = "Set up your session, then start talking.";
+const TAGLINE = "Private voice practice with expert personas.";
 const HEADPHONES_TIP =
   "Tip: use headphones for the cleanest experience — they stop the agent from hearing (and interrupting) itself.";
 
@@ -67,9 +67,9 @@ export default function SetupScreen({
         {/* Logo + wordmark + always-visible theme switcher. */}
         <div className="card-head" style={{ justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-            <div className="logo" aria-hidden="true">A</div>
+            <div className="logo" aria-hidden="true">R</div>
             <h1 style={{ margin: 0, fontSize: "27px", fontWeight: 800, letterSpacing: "-0.02em" }}>
-              Adept
+              Rehearsal
             </h1>
           </div>
           <ThemeDots />

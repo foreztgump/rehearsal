@@ -1,12 +1,12 @@
 # Changelog
 
-All notable changes to Adept are documented here. The format follows
+All notable changes to Rehearsal are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); commits use
 [Conventional Commits](https://www.conventionalcommits.org/).
 
-## [unreleased] — R7 cross-platform installer (2026-06-29)
+## [0.1.0] - 2026-06-30
 
-Adept is now installable from a local repo checkout on Linux and native
+Rehearsal is now installable from a local repo checkout on Linux and native
 Windows, with install-time model selection and best-effort Windows-AMD
 support.
 
@@ -32,26 +32,34 @@ support.
 - `scripts/gpu-doctor.ps1`, `up.ps1`, `down.ps1` — Windows PowerShell
   siblings of the Linux wrappers.
 - `agent/models.py` `effective_model_choices()` — derives the picker choice
-  set from `ADEPT_MODEL_CHOICES`, narrowing `default_model_choice` to the
+  set from `REHEARSAL_MODEL_CHOICES`, narrowing `default_model_choice` to the
   installed set. Single installed model renders a read-only field.
 - `web/app/ModelPanel.tsx` — choices + labels baked at build time via
-  `NEXT_PUBLIC_ADEPT_MODEL_CHOICES` / `NEXT_PUBLIC_ADEPT_MODEL_LABELS`;
+  `NEXT_PUBLIC_REHEARSAL_MODEL_CHOICES` / `NEXT_PUBLIC_REHEARSAL_MODEL_LABELS`;
   one model renders as a read-only `<input>`, two-plus as a dropdown.
 - `scripts/guarddog-check.sh` — optional GuardDog deep supply-chain scan for
   malicious package signals, with JSON reports under `security/reports/guarddog/`.
+- `SECURITY.md` — public reporting policy and the local scan commands.
 
 ### Changed
+- Renamed the app to Rehearsal, including package metadata, UI copy,
+  runtime prefixes, Docker labels/network names, and model-picker env keys.
+- Rewrote `README.md` for the public repo with setup, privacy, security checks,
+  and project credits.
 - Default persona changed to Voice Fluency Coach, with Cybersecurity Trainer
   moved into the preset library.
 - `docker-compose.yml` — web service build args pass the baked model
   choice/label env to the Next.js build.
+- `web/Dockerfile` now uses `npm ci` and declares the model-picker build args.
 - `install.sh` `write_model_env` now runs after `pull-and-pin.sh` succeeds
   (was writing `.env` before tags were confirmed).
-- `README.md` — both-OS install commands, the supported-host profile
-  matrix, model-selection guidance, and the per-VRAM doctor recommendations.
+- `.gitignore` now excludes local AI/planning workspaces, editor state, caches,
+  local env files, and security reports.
 - Local security baseline now treats OSV resolver-internal errors with a
   valid zero-vulnerability report as a warning, while still failing on
   malformed reports and high/critical findings.
+- Local security scans now use the current Gitleaks `git` command and keep
+  GuardDog's package sandbox enabled for npm dependency scans.
 
 ### Fixed
 - `offer_install_prereqs` sudo failure now falls back to guidance instead

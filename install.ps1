@@ -1,4 +1,4 @@
-# install.ps1 — one-command bootstrap for the Adept local-first voice stack on Windows.
+# install.ps1 — one-command bootstrap for the Rehearsal local-first voice stack on Windows.
 #
 # Native PowerShell installer (mirrors install.sh). Detects Docker Desktop + GPU
 # vendor, offers to install missing prerequisites via winget (behind confirmation),
@@ -128,10 +128,10 @@ function Set-EnvKey($content, $key, $value) {
 
 function Write-ModelEnv {
   $envContent = Get-Content .env -Raw
-  $envContent = Set-EnvKey $envContent "ADEPT_MODEL_CHOICES" $script:InstallModels
-  $envContent = Set-EnvKey $envContent "NEXT_PUBLIC_ADEPT_MODEL_LABELS" $script:ModelLabels
+  $envContent = Set-EnvKey $envContent "REHEARSAL_MODEL_CHOICES" $script:InstallModels
+  $envContent = Set-EnvKey $envContent "NEXT_PUBLIC_REHEARSAL_MODEL_LABELS" $script:ModelLabels
   $defaultChoice = ($script:InstallModels -split ",")[0].Trim()
-  $envContent = Set-EnvKey $envContent "ADEPT_DEFAULT_MODEL" $defaultChoice
+  $envContent = Set-EnvKey $envContent "REHEARSAL_DEFAULT_MODEL" $defaultChoice
   Set-Content .env $envContent
 }
 
@@ -139,7 +139,7 @@ function Write-ModelEnv {
 function Print-Plan {
   param([string]$Gpu, [string]$Models)
   Log ""
-  Log "================ Adept setup plan ================"
+  Log "================ Rehearsal setup plan ================"
   Log "Services: livekit-server, agent, ollama, kokoro, nemo-stt-cpu, web"
   Log "          (+ nemo-stt on GPU, opt-in via --profile stt-gpu)"
   Log "GPU vendor detected: $Gpu"
@@ -166,7 +166,7 @@ function Build-AndPull {
   Log "Starting ollama to pull + pin the selected models…"
   docker compose up -d ollama
   $env:INSTALL_MODELS = $script:InstallModels
-  $env:ADEPT_DEFAULT_MODEL = ($script:InstallModels -split ",")[0].Trim()
+  $env:REHEARSAL_DEFAULT_MODEL = ($script:InstallModels -split ",")[0].Trim()
   & ./ollama/pull-and-pin.sh
   # Write the model-choices env ONLY after pull-and-pin succeeds — so .env never
   # claims a model is installed before its tag is confirmed resident.

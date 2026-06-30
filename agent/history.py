@@ -1,4 +1,4 @@
-"""Pure, livekit-free sliding-window DECISION module for the Adept voice loop (Plan 05-01).
+"""Pure, livekit-free sliding-window DECISION module for the Rehearsal voice loop (Plan 05-01).
 
 This owns the windowing DECISION only — *does the conversation history item list
 exceed budget, and how many items should be kept?* — as a pure function of an

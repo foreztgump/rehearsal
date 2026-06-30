@@ -50,7 +50,7 @@ from livekit.agents import (
 )
 from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS
 
-logger = logging.getLogger("adept.captioned_tts")
+logger = logging.getLogger("rehearsal.captioned_tts")
 
 # Kokoro-FastAPI synthesis params. 24 kHz mono WAV matches the stock OpenAI-plugin path
 # the room already consumes, so nothing downstream of the emitter changes.

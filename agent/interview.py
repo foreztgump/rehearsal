@@ -1,4 +1,4 @@
-"""Pure, livekit-free historical mode-prompt module for Adept.
+"""Pure, livekit-free historical mode-prompt module for Rehearsal.
 
 This file started as the Interview prompt module and now owns the Learn/Drill/
 Roleplay/Interview prompt fragments. Interview still renders a role-specific

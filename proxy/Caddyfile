@@ -8,7 +8,7 @@
 # docker-compose.yml using image caddy:2.8, mounting this file at
 # /etc/caddy/Caddyfile and ./certs at /certs (read-only), publishing 443 + 7443.
 #
-# Adept TLS reverse proxy (Caddy). Terminates the mkcert-minted LAN cert and
+# Rehearsal TLS reverse proxy (Caddy). Terminates the mkcert-minted LAN cert and
 # fronts the web shell; a second TLS vhost passes the LiveKit WS endpoint
 # through so wss:// works on the LAN. The cert/key are mounted read-only at
 # /certs (see certs/README.md for how to mint them).

@@ -6,8 +6,8 @@ import { DEFAULT_THEME_ID } from "./ui/themes";
 import "./globals.css";
 
 export const metadata = {
-  title: "Adept",
-  description: "Near-real-time voice persona trainer",
+  title: "Rehearsal",
+  description: "Private voice practice with expert personas.",
 };
 
 // Same-origin importmap for the OPTIONAL 3D avatar (Phase 12). Maps the bare

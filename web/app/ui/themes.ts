@@ -97,7 +97,7 @@ export const THEMES: Theme[] = [
 
 export const DEFAULT_THEME_ID: ThemeId = "eclipse-aurora";
 
-export const THEME_STORAGE_KEY = "adept.theme";
+export const THEME_STORAGE_KEY = "rehearsal.theme";
 
 const THEME_BY_ID = new Map<ThemeId, Theme>(THEMES.map((t) => [t.id, t]));
 

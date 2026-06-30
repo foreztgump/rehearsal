@@ -1,4 +1,4 @@
-"""Per-stage latency metrics scaffold for the Adept voice loop (Plan 01-03).
+"""Per-stage latency metrics scaffold for the Rehearsal voice loop (Plan 01-03).
 
 Walking-skeleton scope: the plumbing exists and emits ONE real line at startup
 (the warmup LLM TTFT) — no live voice turn yet. Per-turn fields that need a real

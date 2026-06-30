@@ -1,4 +1,6 @@
-# Adept — single-stack Docker Compose.
+name: rehearsal
+
+# Rehearsal — single-stack Docker Compose.
 # Six services boot from one `docker compose up`; the three model containers
 # reserve the GPU; every published port binds to the LAN/host interface only
 # (LAN_BIND_IP, default 127.0.0.1) — never 0.0.0.0 / WAN. The browser talks to
@@ -27,7 +29,7 @@ services:
       - "${LAN_BIND_IP:-127.0.0.1}:7881:7881/tcp"
       - "${LAN_BIND_IP:-127.0.0.1}:7882:7882/udp"
     networks:
-      - adept
+      - rehearsal
     restart: unless-stopped
 
   agent:
@@ -40,9 +42,9 @@ services:
     # STT_ENGINE already reaches the agent via env_file; this label exposes the active
     # engine config to `docker inspect` without grepping the container environment.
     labels:
-      - "com.adept.stt_engine=${STT_ENGINE:-buffered}"
+      - "com.rehearsal.stt_engine=${STT_ENGINE:-buffered}"
     networks:
-      - adept
+      - rehearsal
     # depends_on gates the agent on the other services STARTING (Phase 10 change):
     # the Phase-9 `nemo-stt: service_healthy` HARD-GATE is DROPPED to service_started
     # because placement (Wave 2) picks EITHER nemo-stt (gpu) OR nemo-stt-cpu (cpu) per
@@ -101,7 +103,7 @@ services:
       - OLLAMA_NUM_PARALLEL=1
       # SINGLE SOURCE OF TRUTH for the hot-path context. The agent (`/v1/chat` via
       # with_ollama) and the distiller (`/api/generate`) both load the BASE tag
-      # gemma3:4b-it-qat, NOT the `adept-gemma` pinned model, so the Modelfile
+      # gemma3:4b-it-qat, NOT the `rehearsal-gemma` pinned model, so the Modelfile
       # `num_ctx 8192` never reaches the runtime — this env is what actually pins
       # the effective context to 8192 for every model loaded over either endpoint.
       - OLLAMA_CONTEXT_LENGTH=8192
@@ -110,7 +112,7 @@ services:
     volumes:
       - ollama-models:/root/.ollama
     networks:
-      - adept
+      - rehearsal
     deploy:
       resources:
         reservations:
@@ -171,7 +173,7 @@ services:
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:8000:8000"
     networks:
-      - adept
+      - rehearsal
     deploy:
       resources:
         reservations:
@@ -235,7 +237,7 @@ services:
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:8001:8000"
     networks:
-      - adept
+      - rehearsal
     # No GPU reservation — this service runs OFF the GPU (the whole point of the port).
     # SAME python-urllib /health probe as nemo-stt; a SHORTER start_period is fine since
     # ORT load ≪ NeMo load.
@@ -264,7 +266,7 @@ services:
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:8880:8880"
     networks:
-      - adept
+      - rehearsal
     deploy:
       resources:
         reservations:
@@ -284,17 +286,17 @@ services:
         # R7: bake the installed model choices + labels so the web picker shows only
         # installed models (one-model install → read-only field). Defaults to the
         # pre-R7 fast/better set for back-compat. Changing these requires a web rebuild.
-        NEXT_PUBLIC_ADEPT_MODEL_CHOICES: ${NEXT_PUBLIC_ADEPT_MODEL_CHOICES:-fast,better}
-        NEXT_PUBLIC_ADEPT_MODEL_LABELS: ${NEXT_PUBLIC_ADEPT_MODEL_LABELS:-Fast,Better}
+        NEXT_PUBLIC_REHEARSAL_MODEL_CHOICES: ${REHEARSAL_MODEL_CHOICES:-fast,better}
+        NEXT_PUBLIC_REHEARSAL_MODEL_LABELS: ${NEXT_PUBLIC_REHEARSAL_MODEL_LABELS:-Fast,Better}
     env_file: .env
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:3000:3000"
     networks:
-      - adept
+      - rehearsal
     restart: unless-stopped
 
 networks:
-  adept:
+  rehearsal:
     driver: bridge
 
 volumes:

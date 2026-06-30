@@ -1,4 +1,4 @@
-"""Pure KB parser + extraction gate + size guard for the Adept trainer (Plan 04-01).
+"""Pure KB parser + extraction gate + size guard for the Rehearsal trainer (Plan 04-01).
 
 Livekit-free module mirroring ``agent/metrics.py`` / ``agent/persona.py``: frozen
 module-level constants, ``@dataclass`` results, a ``_self_check()`` guarded by

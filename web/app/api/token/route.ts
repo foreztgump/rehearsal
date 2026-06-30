@@ -11,13 +11,13 @@ import { NextResponse } from "next/server";
 // Always run on demand (per-request signing) — never statically cached.
 export const dynamic = "force-dynamic";
 
-// A FRESH room name per token (not a fixed "adept"). Automatic agent dispatch is a
+// A FRESH room name per token (not a fixed "rehearsal"). Automatic agent dispatch is a
 // JT_ROOM job that fires only when a room is CREATED — never on a join into an
 // existing room (livekit.yaml). With a fixed name, End → quick Start rejoins the
 // still-alive room (inside empty_timeout/departure_timeout) and gets NO agent — a
 // dead "Listening…" session. A unique room per connect makes every session a fresh
 // room, so the agent always dispatches. The agent is room-name-agnostic (ctx.room).
-const ROOM_PREFIX = "adept";
+const ROOM_PREFIX = "rehearsal";
 const DEFAULT_IDENTITY_PREFIX = "user";
 const TOKEN_TTL = "1h";
 

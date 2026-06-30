@@ -9,13 +9,13 @@ import { ApplyState, STATUS_COLOR, STATUS_LABEL } from "./ui/apply";
 // hardcoded array). One-model install → one option (rendered read-only below).
 // Back-compat: unset env → ["fast","better"] (the pre-R7 default). NEVER surface
 // the raw Ollama tag here: the agent maps the plain key → tag (LLM-01).
-const RAW_CHOICES = (process.env.NEXT_PUBLIC_ADEPT_MODEL_CHOICES ?? "fast,better")
+const RAW_CHOICES = (process.env.NEXT_PUBLIC_REHEARSAL_MODEL_CHOICES ?? "fast,better")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
 export const CHOICES = RAW_CHOICES as readonly string[];
 
-const RAW_LABELS = (process.env.NEXT_PUBLIC_ADEPT_MODEL_LABELS ?? "Fast,Better")
+const RAW_LABELS = (process.env.NEXT_PUBLIC_REHEARSAL_MODEL_LABELS ?? "Fast,Better")
   .split(",")
   .map((s) => s.trim());
 const CHOICE_LABEL: Record<string, string> = Object.fromEntries(

@@ -156,7 +156,7 @@ run_npm_direct_scan() {
     item_report="${REPORT_DIR}/npm-$(printf '%s' "$name" | tr '@/ ' '---')-${version}.json"
     rc=0
     set +e
-    guarddog npm scan "$name" --version "$version" --no-sandbox --output-format=json >"$item_report"
+    guarddog npm scan "$name" --version "$version" --output-format=json >"$item_report"
     rc=$?
     set -e
 

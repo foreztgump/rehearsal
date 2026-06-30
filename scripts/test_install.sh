@@ -90,7 +90,7 @@ make_shim "$BIN_C" openssl 'echo deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbee
 printf '#!/usr/bin/env bash\necho "[stub] pull-and-pin INSTALL_MODELS=${INSTALL_MODELS}" > "$PWD/pin.log"\n' > "$WORK/ollama/pull-and-pin.sh"
 chmod +x "$WORK/ollama/pull-and-pin.sh"
 ( cd "$WORK" && env -i PATH="$BIN_C" ASSUME_YES=1 bash install.sh -y >c.out 2>&1 ) && rcc=0 || rcc=$?
-if [ "${rcc:-1}" -eq 0 ]    && grep -q 'ADEPT_MODEL_CHOICES=floor' "$WORK/.env"    && grep -q 'INSTALL_MODELS=floor' "$WORK/pin.log" 2>/dev/null; then
+if [ "${rcc:-1}" -eq 0 ]    && grep -q 'REHEARSAL_MODEL_CHOICES=floor' "$WORK/.env"    && grep -q 'INSTALL_MODELS=floor' "$WORK/pin.log" 2>/dev/null; then
   ok "Scenario C: GPU=none → floor default + INSTALL_MODELS passed to pull-and-pin"
 else
   bad "Scenario C: model selection path incomplete (rc=$rcc)"
