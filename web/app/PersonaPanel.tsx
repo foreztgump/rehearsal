@@ -9,7 +9,7 @@ import {
   PERSONA_DIFFICULTY,
   PERSONA_VERBOSITY,
   PERSONA_VOICE_IDS,
-  deleteSavedPersona,
+  deleteSavedPersonaResult,
   readSavedPersonas,
   saveSavedPersona,
   type Persona,
@@ -211,12 +211,13 @@ export function SavedPersonaControls({
       setStatus("Pick a persona");
       return;
     }
-    const wasSaved = saved.some((item) => item.id === id);
-    const next = deleteSavedPersona(id);
-    refresh(next);
-    setStatus(
-      wasSaved && !next.some((item) => item.id === id) ? "Deleted" : "Couldn't delete",
-    );
+    const result = deleteSavedPersonaResult(id);
+    if (!result.ok) {
+      setStatus("Couldn't delete");
+      return;
+    }
+    refresh(result.personas);
+    setStatus("Deleted");
   }
 
   return (
@@ -294,6 +295,11 @@ function PersonaPanelLive() {
   const [persona, setPersona] = useState<Persona>(DEFAULT_PERSONA);
   const [status, setStatus] = useState<ApplyState>("idle");
 
+  function setLocalPersona(next: Persona) {
+    setPersona(next);
+    setStatus("idle");
+  }
+
   async function apply() {
     setStatus("applying");
     // Target the agent participant (the RPC destination). Prefer the identity
@@ -325,8 +331,8 @@ function PersonaPanelLive() {
     <div className="drawer-section">
       <h4>Persona</h4>
       <div className="grid-2">
-        <SavedPersonaControls value={persona} onLoad={setPersona} />
-        <PersonaFields value={persona} onChange={setPersona} />
+        <SavedPersonaControls value={persona} onLoad={setLocalPersona} />
+        <PersonaFields value={persona} onChange={setLocalPersona} />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
         <button className="btn-apply" disabled={status === "applying"} onClick={apply}>
