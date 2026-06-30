@@ -3,55 +3,19 @@
 import { useRoomContext, useVoiceAssistant } from "@livekit/components-react";
 import { useState } from "react";
 
+import {
+  DEFAULT_INTERVIEW,
+  MODE_DRILL,
+  MODE_INTERVIEW,
+  MODE_LEARN,
+  MODE_ROLEPLAY,
+  ROLE_LABEL,
+  ROLES,
+  type InterviewMode,
+} from "./practiceFlow";
 import { ApplyState, STATUS_COLOR, STATUS_LABEL } from "./ui/apply";
 
-// Duplication seam (06-PATTERNS.md File 3): these mode/role keys MUST
-// mirror agent/interview.py (MODE_LEARN, MODE_INTERVIEW, ROLES). There is no
-// mode.get RPC in the MVP, so drift here is silent — keep in sync by hand.
-const MODE_LEARN = "learn";
-const MODE_DRILL = "drill";
-const MODE_ROLEPLAY = "roleplay";
-const MODE_INTERVIEW = "interview";
-const ROLES = [
-  "general_professional",
-  "software_engineer",
-  "ai_ml_practitioner",
-  "data_analyst",
-  "cloud_devops",
-  "cybersecurity",
-  "product_manager",
-  "sales_customer_success",
-  "leadership",
-  "grc_policy",
-] as const;
-
-// Human-readable labels for the role <select> (UI only — the RPC carries the key).
-const ROLE_LABEL: Record<(typeof ROLES)[number], string> = {
-  general_professional: "General Professional",
-  software_engineer: "Software Engineer",
-  ai_ml_practitioner: "AI / ML Practitioner",
-  data_analyst: "Data Analyst",
-  cloud_devops: "Cloud / DevOps",
-  cybersecurity: "Cybersecurity",
-  product_manager: "Product Manager",
-  sales_customer_success: "Sales / Customer Success",
-  leadership: "Leadership",
-  grc_policy: "GRC / Policy",
-};
-
-// Shared practice-mode shape — imported by SetupScreen + ApplySetupOnConnect so
-// the pre-connect held config and the post-connect apply use the same type. Keys
-// MUST match the agent's handle_mode_update parse: mode, role_key.
-export type InterviewMode = {
-  mode: string;
-  role_key: string;
-};
-
-// Default mirrors MODE-01 (Learn) + the first role. Held by the setup screen on load.
-export const DEFAULT_INTERVIEW: InterviewMode = {
-  mode: MODE_LEARN,
-  role_key: ROLES[0],
-};
+export { DEFAULT_INTERVIEW, MODE_INTERVIEW, type InterviewMode } from "./practiceFlow";
 
 /**
  * Presentational, fully-controlled practice-mode fields. Renders the panel
