@@ -23,6 +23,18 @@ def test_interview_mode_uses_deliberate_floor():
     assert result["max_delay"] == endpointing.INTERVIEW_MAX_DELAY == 5.0
 
 
+def test_drill_mode_uses_snappy_converse_floor():
+    result = endpointing.endpointing_for_mode(interview.MODE_DRILL)
+    assert result["min_delay"] == endpointing.CONVERSE_MIN_DELAY
+    assert result["max_delay"] == endpointing.CONVERSE_MAX_DELAY
+
+
+def test_roleplay_mode_uses_snappy_converse_floor():
+    result = endpointing.endpointing_for_mode(interview.MODE_ROLEPLAY)
+    assert result["min_delay"] == endpointing.CONVERSE_MIN_DELAY
+    assert result["max_delay"] == endpointing.CONVERSE_MAX_DELAY
+
+
 def test_unknown_mode_falls_back_to_snappy_converse():
     # An unknown mode must not strand the agent on the slow interview floor.
     result = endpointing.endpointing_for_mode("bogus")
@@ -32,5 +44,7 @@ def test_unknown_mode_falls_back_to_snappy_converse():
 if __name__ == "__main__":
     test_learn_mode_uses_snappy_converse_floor()
     test_interview_mode_uses_deliberate_floor()
+    test_drill_mode_uses_snappy_converse_floor()
+    test_roleplay_mode_uses_snappy_converse_floor()
     test_unknown_mode_falls_back_to_snappy_converse()
     print("ok: endpointing selector truth table")

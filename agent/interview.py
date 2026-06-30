@@ -30,9 +30,12 @@ import sys
 from persona import SPOKEN_STYLE_FOOTER
 
 # Byte-stable mode keys. MODE_LEARN is the default (MODE-01) — open conversation,
-# unchanged from Phases 2–5. MODE_INTERVIEW selects the Interview system block.
+# unchanged from Phases 2-5. The other modes add a voice-practice pattern.
 MODE_LEARN: str = "learn"
+MODE_DRILL: str = "drill"
+MODE_ROLEPLAY: str = "roleplay"
 MODE_INTERVIEW: str = "interview"
+MODES: tuple[str, ...] = (MODE_LEARN, MODE_DRILL, MODE_ROLEPLAY, MODE_INTERVIEW)
 
 # Role key -> fixed role descriptor (enum->fixed-string, like persona.DIFFICULTY).
 # Hand-authored prose, no interpolated values; identical bytes per key. Each value
@@ -40,31 +43,57 @@ MODE_INTERVIEW: str = "interview"
 # questions should cover) so render_interview_prompt can compose the role into the
 # Interview system block.
 ROLES: dict[str, str] = {
-    "soc_analyst": (
-        "The role is a Security Operations Center (SOC) analyst — a tier-one to "
-        "tier-two defender who monitors alerts, triages incidents, and escalates "
-        "threats. Draw your questions from alert triage, SIEM and log analysis, the "
-        "MITRE ATT&CK framework, phishing and malware investigation, and incident "
-        "escalation procedures."
+    "general_professional": (
+        "The target is a general professional interview. Draw questions from clear "
+        "communication, judgment, tradeoffs, collaboration, and examples from the "
+        "learner's own experience."
     ),
-    "security_engineer": (
-        "The role is a security engineer — a hands-on builder who designs, hardens, "
-        "and automates defensive systems. Draw your questions from secure architecture "
-        "and network segmentation, identity and access management, vulnerability "
-        "management, cloud and infrastructure hardening, and security automation and "
-        "tooling."
+    "software_engineer": (
+        "The target is a software engineering interview. Draw questions from debugging, "
+        "system design, code quality, testing, tradeoffs, and production ownership."
     ),
-    "grc": (
-        "The role is a governance, risk, and compliance (GRC) specialist — a "
-        "practitioner who aligns the security program with frameworks, regulations, "
-        "and business risk. Draw your questions from risk assessment and treatment, "
-        "control frameworks such as NIST and ISO 27001, audit and compliance evidence, "
-        "policy development, and third-party and vendor risk."
+    "ai_ml_practitioner": (
+        "The target is an AI or machine-learning practitioner interview. Draw questions "
+        "from model behavior, evaluation, data quality, applied GenAI systems, safety, "
+        "and deployment tradeoffs."
+    ),
+    "data_analyst": (
+        "The target is a data analyst interview. Draw questions from metrics, SQL-style "
+        "reasoning, dashboards, experiment interpretation, stakeholder questions, and "
+        "turning data into business insight."
+    ),
+    "cloud_devops": (
+        "The target is a cloud or DevOps interview. Draw questions from containers, "
+        "CI/CD, reliability, observability, incident response, cost, and operational "
+        "tradeoffs."
+    ),
+    "cybersecurity": (
+        "The target is a cybersecurity practitioner interview. Draw questions from "
+        "threats, controls, incident response, identity, vulnerability management, "
+        "security architecture, and risk."
+    ),
+    "product_manager": (
+        "The target is a product management interview. Draw questions from product "
+        "sense, prioritization, discovery, roadmaps, stakeholder tradeoffs, and metrics."
+    ),
+    "sales_customer_success": (
+        "The target is a sales or customer success interview. Draw questions from "
+        "discovery, objection handling, customer outcomes, renewals, difficult calls, "
+        "and concise executive communication."
+    ),
+    "leadership": (
+        "The target is a leadership interview. Draw questions from delegation, conflict, "
+        "decision-making, feedback, executive communication, and team accountability."
+    ),
+    "grc_policy": (
+        "The target is a governance, risk, compliance, or policy interview. Draw "
+        "questions from controls, audit evidence, risk treatment, policy reasoning, "
+        "vendor risk, and business alignment."
     ),
 }
 
 # The role the picker seeds to (MODE-03 default selection).
-DEFAULT_ROLE: str = "soc_analyst"
+DEFAULT_ROLE: str = "general_professional"
 
 # Frozen framing constants (multiline prose like kb/distill.DISTILL_INSTRUCTION).
 # Opening framing for the Interview system block.
@@ -113,6 +142,20 @@ CRITIQUE_CONTRACT: str = (
     "next question, …"
 )
 
+MODE_PROMPTS: dict[str, str] = {
+    MODE_DRILL: (
+        "Use Drill mode. Ask one short question at a time about the current persona's "
+        "domain. After the learner answers, give one concise correction or confirmation, "
+        "then ask the next question. Keep the pace brisk and do not lecture."
+    ),
+    MODE_ROLEPLAY: (
+        "Use Roleplay mode. Simulate a realistic stakeholder, customer, peer, or "
+        "interviewer relevant to the current persona's domain. Stay in character, create "
+        "light friction, and ask one spoken prompt at a time. Offer brief feedback only "
+        "when the learner asks or the scenario naturally ends."
+    ),
+}
+
 
 def render_interview_prompt(role_key: str) -> str:
     """Deterministic, byte-stable Interview system block for ``role_key``.
@@ -131,19 +174,31 @@ def render_interview_prompt(role_key: str) -> str:
     ))
 
 
+def render_mode_prompt(mode: str, role_key: str = DEFAULT_ROLE) -> str:
+    """Return the compact voice-practice prompt fragment for ``mode``.
+
+    Learn mode adds no extra fragment. Interview keeps its role-specific block.
+    Drill and Roleplay use fixed prompt fragments and the current persona supplies
+    the domain identity.
+    """
+    if mode == MODE_LEARN:
+        return ""
+    if mode == MODE_INTERVIEW:
+        return render_interview_prompt(role_key)
+    return MODE_PROMPTS[mode]
+
+
 # Golden string: the literal expected ``render_interview_prompt(DEFAULT_ROLE)``
-# output (soc_analyst). Mirrors persona.EXPECTED_DEFAULT — a byte-for-byte golden so
+# output. Mirrors persona.EXPECTED_DEFAULT — a byte-for-byte golden so
 # any drift in the framing constants or the default role descriptor trips the
 # self-check.
 EXPECTED_DEFAULT_INTERVIEW: str = (
     "You are conducting a realistic spoken mock interview for the role described "
     "below. Play the part of an experienced, professional interviewer who probes "
     "the candidate's depth with focused, role-relevant questions. "
-    "The role is a Security Operations Center (SOC) analyst — a tier-one to "
-    "tier-two defender who monitors alerts, triages incidents, and escalates "
-    "threats. Draw your questions from alert triage, SIEM and log analysis, the "
-    "MITRE ATT&CK framework, phishing and malware investigation, and incident "
-    "escalation procedures. "
+    "The target is a general professional interview. Draw questions from clear "
+    "communication, judgment, tradeoffs, collaboration, and examples from the "
+    "learner's own experience. "
     "Ask EXACTLY ONE role-relevant question at a time, then STOP and WAIT for the "
     "candidate's spoken answer. Do not ask several questions at once, do not answer "
     "your own question, and do not move on until they have responded. "
@@ -207,6 +262,15 @@ def _self_check() -> None:
         r2 = render_interview_prompt(role_key)
         assert r1 == r2, f"render not byte-stable for role={role_key}"
         assert descriptor in r1, f"role={role_key} descriptor missing from render"
+
+    assert render_mode_prompt(MODE_LEARN) == "", "learn mode should add no prompt fragment"
+    assert MODE_PROMPTS[MODE_DRILL] in render_mode_prompt(MODE_DRILL), "drill prompt missing"
+    assert MODE_PROMPTS[MODE_ROLEPLAY] in render_mode_prompt(MODE_ROLEPLAY), (
+        "roleplay prompt missing"
+    )
+    assert ROLES[DEFAULT_ROLE] in render_mode_prompt(MODE_INTERVIEW, DEFAULT_ROLE), (
+        "interview role descriptor missing from mode render"
+    )
 
     print("interview _self_check OK", file=sys.stderr)
 

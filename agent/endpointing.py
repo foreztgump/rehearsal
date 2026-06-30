@@ -4,13 +4,13 @@ Pure module — NO LiveKit import — so the truth table runs in the GPU-less sa
 `agent/main.py` applies the returned dict to the live AgentSession turn-handling.
 
 The deliberate floor stays ONLY where it belongs: long, considered interview answers.
-Normal Converse uses the snappy floor so chat feels as live as the Whisper era.
+Non-Interview modes use the snappy floor so chat feels as live as the Whisper era.
 """
 from __future__ import annotations
 
 import interview
 
-# Snappy Converse floor: reply ~0.3s after the user stops (Whisper-era feel).
+# Snappy non-Interview floor: reply ~0.3s after the user stops (Whisper-era feel).
 CONVERSE_MIN_DELAY: float = 0.3
 CONVERSE_MAX_DELAY: float = 1.0
 
@@ -25,7 +25,7 @@ ENDPOINTING_MODE: str = "dynamic"
 def endpointing_for_mode(mode: str) -> dict[str, float | str]:
     """Endpointing dict for the current conversation mode.
 
-    Interview → deliberate floor; everything else (Learn/Converse, or an unknown
+    Interview → deliberate floor; everything else (non-Interview modes, or an unknown
     value) → snappy floor. Defaulting unknown modes to snappy avoids stranding a
     misconfigured session on the slow interview delay.
     """

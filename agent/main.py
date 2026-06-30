@@ -52,7 +52,6 @@ from persona import (
     CORRECTION,
     DEFAULT_PERSONA,
     DIFFICULTY,
-    KB_CITE_NUDGE,
     Persona,
     VERBOSITY,
     VOICE_IDS,
@@ -466,22 +465,15 @@ async def entrypoint(ctx: JobContext) -> None:
     def compose_instructions() -> str:
         """Instruction string for the CURRENT (persona × KB × mode) epoch.
 
-        In Interview mode, render the Interview block for the picked role composed
-        with the current KB brief; otherwise render today's Learn (persona) block
-        composed with the brief. The brief composition mirrors how ingest_kb /
-        handle_persona_update already pass session_kb.brief. The mode toggle is the
-        SINGLE sanctioned re-prefill — this is never called per turn (Pitfall 7).
+        The persona remains the identity. Non-Learn modes append a compact practice
+        pattern fragment. This keeps KB composition centralized in render_prompt and
+        avoids a separate agent class for each mode.
         """
-        if current_mode[0] == interview.MODE_INTERVIEW:
-            interview_block = interview.render_interview_prompt(current_role[0])
-            # Compose the KB brief through the SAME KB_CITE_NUDGE the Learn path uses
-            # (persona.render_prompt) so a KB-grounded interview keeps the 04-04 GAP-2b
-            # cite nudge instead of silently dropping it. Empty brief stays bare
-            # (byte-stable, no nudge leak into the no-KB prefix).
-            if session_kb.brief:
-                return f"{interview_block} {KB_CITE_NUDGE} {session_kb.brief}"
-            return interview_block
-        return render_prompt(current_persona[0], session_kb.brief)
+        base_prompt = render_prompt(current_persona[0], session_kb.brief)
+        mode_prompt = interview.render_mode_prompt(current_mode[0], current_role[0])
+        if not mode_prompt:
+            return base_prompt
+        return f"{base_prompt} {mode_prompt}"
 
     # Live persona hot-swap (PERS-06): the browser side panel sends a full persona
     # snapshot over the `persona.update` RPC. The handler closes over the named
@@ -559,10 +551,10 @@ async def entrypoint(ctx: JobContext) -> None:
             return "error"
         new_mode = snapshot.get("mode")
         new_role = snapshot.get("role_key", current_role[0])
-        if new_mode not in (interview.MODE_LEARN, interview.MODE_INTERVIEW):
+        if new_mode not in interview.MODES:
             logger.warning("mode.update rejected: unknown mode %r", new_mode)
             return "error"
-        if new_mode == interview.MODE_INTERVIEW and new_role not in interview.ROLES:
+        if new_role not in interview.ROLES:
             logger.warning("mode.update rejected: unknown role_key %r", new_role)
             return "error"
         current_mode[0] = new_mode
