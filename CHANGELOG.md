@@ -32,6 +32,8 @@ support.
 - `web/app/ModelPanel.tsx` — choices + labels baked at build time via
   `NEXT_PUBLIC_ADEPT_MODEL_CHOICES` / `NEXT_PUBLIC_ADEPT_MODEL_LABELS`;
   one model renders as a read-only `<input>`, two-plus as a dropdown.
+- `scripts/guarddog-check.sh` — optional GuardDog deep supply-chain scan for
+  malicious package signals, with JSON reports under `security/reports/guarddog/`.
 
 ### Changed
 - `docker-compose.yml` — web service build args pass the baked model
@@ -52,6 +54,8 @@ support.
 - Hardened dependency floors for STT (`h11`, `idna`, `python-multipart`,
   `sentencepiece`) and forced the web lockfile to the fixed `postcss` line
   until Next ships a clean transitive dependency.
+- Pinned previously unbounded agent direct dependencies so supply-chain scans do
+  not resolve prerelease or dev-package artifacts.
 
 ### Notes
 - R3 STT decision: `buffered` non-streaming Parakeet is the supported path.

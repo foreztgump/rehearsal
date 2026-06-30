@@ -8,6 +8,7 @@ provenance scrutiny before public access.
 ## Current Trust Claim
 
 - Source is scanned locally with `./scripts/security-check.sh`.
+- Optional malicious-package heuristics run locally with `./scripts/guarddog-check.sh`.
 - npm dependencies are installed from `web/package-lock.json` with registry integrity metadata.
 - Python dependencies are currently resolved from requirement ranges and scanned at runtime.
 - Docker images are tag-pinned but not digest-pinned.
@@ -69,6 +70,12 @@ Run before public access:
 
 ```bash
 ./scripts/security-check.sh
+```
+
+Run the optional deep supply-chain scan when adding or changing dependencies:
+
+```bash
+./scripts/guarddog-check.sh
 ```
 
 Reports are written to `security/reports/` and are intentionally ignored by git.

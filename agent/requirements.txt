@@ -10,21 +10,21 @@ livekit-agents~=1.5
 # §1.2-1.3); the [VM-INTROSPECT] probe (08-LLM-VERIFY Gate 1) confirms the
 # surface on the rebuilt image.
 livekit-plugins-openai==1.6.4
-livekit-plugins-silero
-livekit-plugins-turn-detector
+livekit-plugins-silero==1.6.4
+livekit-plugins-turn-detector==1.6.4
 
 # Host-side warmup client (ollama/warmup.py logic reused at agent startup).
-httpx
+httpx~=0.28.1
 
 # Websocket client for the NemoSTT streaming plugin (NemoSpeechStream._run
 # streams int16 PCM to the nemo-stt service over ws://).
-aiohttp
+aiohttp~=3.14.1
 
 # KB parse deps (Plan 04-01), pinned tight (no :latest, no unbounded float).
 # PDF/TXT/MD are free via pymupdf4llm/stdlib; DOCX uses python-docx because
 # pymupdf4llm's Office support needs the PAID PyMuPDF Pro (PERF-03 / license —
 # 04-RESEARCH §3.2). pymupdf4llm is the thin meta-package on top of the pinned
 # pymupdf below (the version that actually bounds the PDF parser).
-pymupdf4llm
+pymupdf4llm~=1.28.0
 pymupdf~=1.27
 python-docx~=1.1

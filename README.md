@@ -132,6 +132,17 @@ It checks npm dependencies, Python dependencies, OSV advisories, Syft SBOM outpu
 Grype vulnerabilities, and tracked-source secrets. Reports are written to
 `security/reports/` and are not committed.
 
+For a slower poisoned-package review, run the optional GuardDog scan:
+
+```bash
+./scripts/guarddog-check.sh
+```
+
+GuardDog looks for malicious package signals such as exfiltration, install-time
+network behavior, obfuscation, typosquatting, and suspicious metadata. Its generic
+capability findings can be noisy, so this script fails only on high-confidence
+malicious rules and treats capability-style findings as warnings for review.
+
 See [`SECURITY_PROVENANCE.md`](SECURITY_PROVENANCE.md) for Docker images, vendored
 browser assets, model downloads, and known pinning gaps.
 
