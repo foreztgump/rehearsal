@@ -1,34 +1,22 @@
 "use client";
 
 import { useRoomContext, useVoiceAssistant } from "@livekit/components-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ApplyState, STATUS_COLOR, STATUS_LABEL } from "./ui/apply";
+import {
+  PERSONA_CORRECTION,
+  PERSONA_DIFFICULTY,
+  PERSONA_VERBOSITY,
+  PERSONA_VOICE_IDS,
+  deleteSavedPersona,
+  readSavedPersonas,
+  saveSavedPersona,
+  type Persona,
+  type SavedPersona,
+} from "./savedPersonas";
 
-// File #6 duplication seam (03-PATTERNS.md): these arrays + the seed persona
-// MUST mirror agent/persona.py (VOICE_IDS, DIFFICULTY/VERBOSITY/CORRECTION keys,
-// DEFAULT_PERSONA). There is no persona.get RPC in the MVP, so drift here is
-// silent — keep in sync by hand. Reconcile VOICE_IDS against the Kokoro server
-// (curl http://kokoro:8880/v1/audio/voices) once on the VM ([VM-INTROSPECT]).
-const VOICE_IDS = [
-  "af_heart", "af_bella", "af_nicole", "af_sarah", "af_kore",
-  "am_michael", "am_fenrir", "am_puck", "am_adam",
-  "bf_emma", "bf_alice", "bm_george", "bm_daniel",
-] as const;
-const DIFFICULTY = ["beginner", "intermediate", "expert"] as const;
-const VERBOSITY = ["terse", "balanced", "detailed"] as const;
-const CORRECTION = ["gentle", "moderate", "aggressive"] as const;
-
-// Shared persona shape — imported by SetupScreen + ApplySetupOnConnect so the
-// pre-connect held config and the post-connect apply use the same type.
-export type Persona = {
-  role_text: string;
-  display_name: string;
-  difficulty: string;
-  verbosity: string;
-  correction: string;
-  voice_id: string;
-};
+export type { Persona } from "./savedPersonas";
 
 // Seed mirrors agent/persona.py DEFAULT_PERSONA so the panel is populated on load
 // with no round-trip. Empty role_text lets the agent fall back to ROLE_PREAMBLE.
@@ -95,7 +83,7 @@ export function PersonaFields({
           value={value.difficulty}
           onChange={(e) => set("difficulty", e.target.value)}
         >
-          {DIFFICULTY.map((d) => (
+          {PERSONA_DIFFICULTY.map((d) => (
             <option key={d} value={d}>{d}</option>
           ))}
         </select>
@@ -111,7 +99,7 @@ export function PersonaFields({
           value={value.verbosity}
           onChange={(e) => set("verbosity", e.target.value)}
         >
-          {VERBOSITY.map((v) => (
+          {PERSONA_VERBOSITY.map((v) => (
             <option key={v} value={v}>{v}</option>
           ))}
         </select>
@@ -127,7 +115,7 @@ export function PersonaFields({
           value={value.correction}
           onChange={(e) => set("correction", e.target.value)}
         >
-          {CORRECTION.map((c) => (
+          {PERSONA_CORRECTION.map((c) => (
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
@@ -143,12 +131,154 @@ export function PersonaFields({
           value={value.voice_id}
           onChange={(e) => set("voice_id", e.target.value)}
         >
-          {VOICE_IDS.map((v) => (
+          {PERSONA_VOICE_IDS.map((v) => (
             <option key={v} value={v}>{v}</option>
           ))}
         </select>
       </div>
     </>
+  );
+}
+
+export function SavedPersonaControls({
+  value,
+  onLoad,
+}: {
+  value: Persona;
+  onLoad: (persona: Persona) => void;
+}) {
+  const [saved, setSaved] = useState<SavedPersona[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [saveName, setSaveName] = useState(value.display_name);
+  const [saveNameDirty, setSaveNameDirty] = useState(false);
+  const [status, setStatus] = useState("");
+
+  useEffect(() => {
+    const next = readSavedPersonas();
+    setSaved(next);
+    setSelectedId(next[0]?.id ?? "");
+  }, []);
+
+  useEffect(() => {
+    if (!saveNameDirty) setSaveName(value.display_name);
+  }, [saveNameDirty, value.display_name]);
+
+  function refresh(next: SavedPersona[]) {
+    setSaved(next);
+    setSelectedId((current) => {
+      if (next.some((item) => item.id === current)) return current;
+      return next[0]?.id ?? "";
+    });
+  }
+
+  function saveCurrent() {
+    const trimmedName = saveName.trim();
+    if (!trimmedName) {
+      setStatus("Name required");
+      return;
+    }
+    const sameName = (item: SavedPersona) =>
+      item.name.toLowerCase() === trimmedName.toLowerCase();
+    const previousEntry = saved.find(sameName);
+    const personaJson = JSON.stringify(value);
+    const next = saveSavedPersona(value, trimmedName);
+    const savedEntry = next.find(sameName);
+    const savedSuccessfully = (
+      savedEntry !== undefined &&
+      JSON.stringify(savedEntry.persona) === personaJson &&
+      (!previousEntry || savedEntry.updatedAt !== previousEntry.updatedAt)
+    );
+    refresh(next);
+    setSelectedId(savedEntry?.id ?? "");
+    setStatus(savedSuccessfully ? "Saved" : "Couldn't save");
+  }
+
+  function loadSelected() {
+    const selected = saved.find((item) => item.id === selectedId);
+    if (!selected) {
+      setStatus("Pick a persona");
+      return;
+    }
+    onLoad({ ...selected.persona });
+    setSaveName(selected.name);
+    setSaveNameDirty(true);
+    setStatus("Loaded");
+  }
+
+  function deleteSelected() {
+    const id = selectedId;
+    if (!id) {
+      setStatus("Pick a persona");
+      return;
+    }
+    const wasSaved = saved.some((item) => item.id === id);
+    const next = deleteSavedPersona(id);
+    refresh(next);
+    setStatus(
+      wasSaved && !next.some((item) => item.id === id) ? "Deleted" : "Couldn't delete",
+    );
+  }
+
+  return (
+    <div className="field full">
+      <label className="field-label" htmlFor="saved-persona-name">
+        Saved personas
+      </label>
+      <input
+        id="saved-persona-name"
+        className="control"
+        value={saveName}
+        onChange={(e) => {
+          setSaveNameDirty(true);
+          setSaveName(e.target.value);
+        }}
+      />
+      <select
+        className="control"
+        aria-label="Saved persona"
+        value={selectedId}
+        disabled={saved.length === 0}
+        onChange={(e) => setSelectedId(e.target.value)}
+      >
+        {saved.length === 0 ? (
+          <option value="">No saved personas</option>
+        ) : (
+          saved.map((item) => (
+            <option key={item.id} value={item.id}>{item.name}</option>
+          ))
+        )}
+      </select>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
+        <button type="button" className="btn-apply" onClick={saveCurrent}>
+          Save
+        </button>
+        <button
+          type="button"
+          className="btn-ghost"
+          disabled={saved.length === 0}
+          onClick={loadSelected}
+        >
+          Load
+        </button>
+        <button
+          type="button"
+          className="btn-ghost"
+          disabled={saved.length === 0}
+          onClick={deleteSelected}
+        >
+          Delete
+        </button>
+        {status && (
+          <span
+            className="transition-status"
+            role="status"
+            style={{ color: "var(--text-muted)", fontSize: "13px" }}
+          >
+            {status}
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -195,6 +325,7 @@ function PersonaPanelLive() {
     <div className="drawer-section">
       <h4>Persona</h4>
       <div className="grid-2">
+        <SavedPersonaControls value={persona} onLoad={setPersona} />
         <PersonaFields value={persona} onChange={setPersona} />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>

@@ -6,7 +6,7 @@ import InterviewPanel, { InterviewFields } from "./InterviewPanel";
 import KbPanel from "./KbPanel";
 import MicPicker from "./MicPicker";
 import ModelPanel from "./ModelPanel";
-import { PersonaFields } from "./PersonaPanel";
+import { PersonaFields, SavedPersonaControls } from "./PersonaPanel";
 import PersonaPresetPicker from "./PersonaPresetPicker";
 import SegmentedToggle from "./SegmentedToggle";
 import ThemeDots from "./ThemeDots";
@@ -133,6 +133,10 @@ export default function SetupScreen({
                     <PersonaPresetPicker
                       activeDisplayName={config.persona.display_name}
                       onSelect={(preset) => onChange({ ...config, persona: preset.persona })}
+                    />
+                    <SavedPersonaControls
+                      value={config.persona}
+                      onLoad={(persona) => onChange({ ...config, persona })}
                     />
                     <PersonaFields
                       value={config.persona}
