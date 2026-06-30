@@ -1,7 +1,7 @@
 "use client";
 
 import { useRoomContext, useVoiceAssistant } from "@livekit/components-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import SegmentedToggle from "./SegmentedToggle";
 import {
@@ -36,7 +36,8 @@ export function InterviewFields({
   personaDisplayName?: string;
   disabled?: boolean;
 }) {
-  const hasSeenInterviewTarget = isInterviewMode(value);
+  const hasShownInterviewTarget = useRef(isInterviewMode(value));
+  if (isInterviewMode(value)) hasShownInterviewTarget.current = true;
 
   return (
     <>
@@ -48,7 +49,9 @@ export function InterviewFields({
           value={value.mode}
           disabled={disabled}
           onChange={(mode) =>
-            onChange(withPracticeMode(value, mode, personaDisplayName, hasSeenInterviewTarget))}
+            onChange(
+              withPracticeMode(value, mode, personaDisplayName, hasShownInterviewTarget.current),
+            )}
         />
       </div>
 
