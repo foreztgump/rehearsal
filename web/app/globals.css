@@ -392,37 +392,6 @@ body {
   box-shadow: 0 0 0 2px var(--accent);
 }
 
-/* Collapsible disclosure block. */
-.disclosure {
-  grid-column: 1 / -1;
-  border: 1px solid var(--line);
-  border-radius: var(--r-control);
-  padding: 16px 18px;
-  background: rgba(255, 255, 255, 0.02);
-}
-.disclosure-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  cursor: pointer;
-  border: none;
-  background: transparent;
-  font: inherit;
-  font-weight: 700;
-  font-size: 13.5px;
-  color: var(--accent);
-  padding: 0;
-}
-.disclosure-summary .chev {
-  color: var(--text-muted);
-  transition: transform 0.3s ease;
-}
-.disclosure-summary[aria-expanded="true"] .chev {
-  transform: rotate(180deg);
-}
-
 /* Drawer section: a labeled live-tweak group with a top divider. */
 .drawer-section {
   display: flex;
@@ -567,7 +536,7 @@ textarea.control {
   box-shadow: none;
 }
 
-/* Ghost / secondary button (topbar actions, disclosure, drawer close). */
+/* Ghost / secondary button (topbar actions, drawer close). */
 .btn-ghost {
   font: inherit;
   font-size: 13px;
@@ -876,11 +845,6 @@ textarea.control {
 /* "Jump to latest" pill in. */
 .jump-pill {
   animation: jump-pill-in 150ms ease-out;
-}
-
-/* Disclosure expand/collapse (200ms ease-out). */
-.transition-disclosure {
-  transition: grid-template-rows 200ms ease-out, opacity 200ms ease-out;
 }
 
 /* State-dot pulse (talking screen). */
