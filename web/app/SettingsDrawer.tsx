@@ -12,6 +12,7 @@ import { normalizeTranscriptSegments } from "./transcriptSegments";
 import { downloadTranscript, formatTranscript, TranscriptEntry } from "./transcriptExport";
 import { font, palette, radius, space } from "./ui/tokens";
 import { useTranscriptionSegments } from "./useTranscriptionSegments";
+import type { SessionConfig } from "./VoiceRoom";
 
 // UI-SPEC Copywriting table — verbatim destructive-confirm copy (SESS-03 End is the
 // two-step inline confirm; SESS-01 New / SESS-02 Reset use a native confirm).
@@ -53,6 +54,8 @@ export default function SettingsDrawer({
   onNew,
   onReset,
   resetMarker,
+  config,
+  onConfigChange,
 }: {
   open: boolean;
   onClose: () => void;
@@ -63,6 +66,8 @@ export default function SettingsDrawer({
   // Wall-clock of the last Reset (0 = never). Export excludes pre-reset turns so a
   // "cleared" session never leaks back out (matches the on-screen Transcript).
   resetMarker: number;
+  config: SessionConfig;
+  onConfigChange: (config: SessionConfig) => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -240,11 +245,21 @@ export default function SettingsDrawer({
           <ThemeDots />
         </div>
 
-        {/* Hosted live-tweak panels — UNCONTROLLED mode (no props) so each keeps its
-            existing performRpc/sendFile apply logic against the running agent. */}
-        <PersonaPanel />
-        <InterviewPanel />
-        <ModelPanel />
+        {/* Hosted live-tweak panels keep their existing Apply/RPC controls, seeded
+            from the running session config instead of panel-local defaults. */}
+        <PersonaPanel
+          value={config.persona}
+          onApplied={(persona) => onConfigChange({ ...config, persona })}
+        />
+        <InterviewPanel
+          value={config.mode}
+          personaDisplayName={config.persona.display_name}
+          onApplied={(mode) => onConfigChange({ ...config, mode })}
+        />
+        <ModelPanel
+          value={config.model}
+          onApplied={(model) => onConfigChange({ ...config, model })}
+        />
         <KbPanel />
 
         {/* SESS-04 transcript export — pure client-side Blob download, no server

@@ -8,6 +8,7 @@ import SettingsDrawer from "./SettingsDrawer";
 import SttDebugWindow from "./SttDebugWindow";
 import Transcript from "./Transcript";
 import Visualizer from "./Visualizer";
+import type { SessionConfig } from "./VoiceRoom";
 import WhoName from "./WhoName";
 
 const AVATAR_OPTIONS = [
@@ -36,6 +37,8 @@ export default function TalkingScreen({
   onToggleAvatarView,
   avatar,
   agentName,
+  config,
+  onConfigChange,
 }: {
   avatarOn: boolean;
   onToggleAvatar: (on: boolean) => void;
@@ -54,6 +57,8 @@ export default function TalkingScreen({
   // ssr:false contract); rendered here in the stage only when avatarOn.
   avatar?: ReactNode;
   agentName: string;
+  config: SessionConfig;
+  onConfigChange: (config: SessionConfig) => void;
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Full-screen avatar: the avatar fills the stage and the transcript is hidden.
@@ -176,6 +181,8 @@ export default function TalkingScreen({
         onNew={onNew}
         onReset={onReset}
         resetMarker={resetMarker}
+        config={config}
+        onConfigChange={onConfigChange}
       />
       <SttDebugWindow />
     </div>

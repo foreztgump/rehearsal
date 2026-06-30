@@ -1,7 +1,7 @@
 "use client";
 
 import { useRoomContext, useVoiceAssistant } from "@livekit/components-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ApplyState, STATUS_COLOR, STATUS_LABEL } from "./ui/apply";
 
@@ -80,11 +80,22 @@ export function ModelFields({
  * over the `model.update` RPC; the native RPC return IS the ack. Must render
  * inside <LiveKitRoom> for room context.
  */
-function ModelPanelLive() {
+function ModelPanelLive({
+  initialChoice = DEFAULT_MODEL,
+  onApplied,
+}: {
+  initialChoice?: ModelChoice;
+  onApplied?: (choice: ModelChoice) => void;
+}) {
   const room = useRoomContext();
   const { agent } = useVoiceAssistant();
-  const [choice, setChoice] = useState<ModelChoice>(DEFAULT_MODEL);
+  const [choice, setChoice] = useState<ModelChoice>(initialChoice);
   const [status, setStatus] = useState<ApplyState>("idle");
+
+  useEffect(() => {
+    setChoice(initialChoice);
+    setStatus("idle");
+  }, [initialChoice]);
 
   async function apply() {
     setStatus("applying");
@@ -106,7 +117,12 @@ function ModelPanelLive() {
         method: "model.update",
         payload: JSON.stringify({ choice }),
       });
-      setStatus(ack === "applied" ? "applied" : "error");
+      if (ack === "applied") {
+        setStatus("applied");
+        onApplied?.(choice);
+      } else {
+        setStatus("error");
+      }
     } catch {
       setStatus("error");
     }
@@ -141,13 +157,15 @@ export default function ModelPanel({
   value,
   onChange,
   className,
+  onApplied,
 }: {
   value?: ModelChoice;
   onChange?: (c: ModelChoice) => void;
   className?: string;
+  onApplied?: (c: ModelChoice) => void;
 }) {
   if (onChange) {
     return <ModelFields value={value ?? DEFAULT_MODEL} onChange={onChange} className={className} />;
   }
-  return <ModelPanelLive />;
+  return <ModelPanelLive initialChoice={value ?? DEFAULT_MODEL} onApplied={onApplied} />;
 }

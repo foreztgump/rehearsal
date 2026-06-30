@@ -286,11 +286,22 @@ export function SavedPersonaControls({
  * Apply over the `persona.update` RPC. The "applying…→applied" window is a
  * panel-local ApplyState union. Must render inside <LiveKitRoom> for room context.
  */
-function PersonaPanelLive() {
+function PersonaPanelLive({
+  initialPersona = DEFAULT_PERSONA,
+  onApplied,
+}: {
+  initialPersona?: Persona;
+  onApplied?: (persona: Persona) => void;
+}) {
   const room = useRoomContext();
   const { agent } = useVoiceAssistant();
-  const [persona, setPersona] = useState<Persona>(DEFAULT_PERSONA);
+  const [persona, setPersona] = useState<Persona>(initialPersona);
   const [status, setStatus] = useState<ApplyState>("idle");
+
+  useEffect(() => {
+    setPersona(initialPersona);
+    setStatus("idle");
+  }, [initialPersona]);
 
   function setLocalPersona(next: Persona) {
     setPersona(next);
@@ -319,6 +330,7 @@ function PersonaPanelLive() {
         payload: JSON.stringify(persona),
       });
       setStatus("applied");
+      onApplied?.(persona);
     } catch {
       setStatus("error");
     }
@@ -355,12 +367,14 @@ function PersonaPanelLive() {
 export default function PersonaPanel({
   value,
   onChange,
+  onApplied,
 }: {
   value?: Persona;
   onChange?: (p: Persona) => void;
+  onApplied?: (p: Persona) => void;
 }) {
   if (onChange) {
     return <PersonaFields value={value ?? DEFAULT_PERSONA} onChange={onChange} />;
   }
-  return <PersonaPanelLive />;
+  return <PersonaPanelLive initialPersona={value ?? DEFAULT_PERSONA} onApplied={onApplied} />;
 }

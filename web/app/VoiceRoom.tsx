@@ -203,6 +203,8 @@ export default function VoiceRoom() {
         // the shell; TalkingScreen only places it in the 360px region when avatarOn.
         avatar={<AvatarStage persona={sessionConfig.persona.display_name} view={avatarView} />}
         agentName={sessionConfig.persona.display_name}
+        config={sessionConfig}
+        onConfigChange={setSessionConfig}
       />
     </LiveKitRoom>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRoomContext, useVoiceAssistant } from "@livekit/components-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   DEFAULT_INTERVIEW,
@@ -76,11 +76,24 @@ export function InterviewFields({
  * {mode, role_key} snapshot on Apply over the `mode.update` RPC; the native RPC
  * return IS the ack. Must render inside <LiveKitRoom> for room context.
  */
-function InterviewPanelLive() {
+function InterviewPanelLive({
+  initialInterview = DEFAULT_INTERVIEW,
+  personaDisplayName = "",
+  onApplied,
+}: {
+  initialInterview?: InterviewMode;
+  personaDisplayName?: string;
+  onApplied?: (interview: InterviewMode) => void;
+}) {
   const room = useRoomContext();
   const { agent } = useVoiceAssistant();
-  const [interview, setInterview] = useState<InterviewMode>(DEFAULT_INTERVIEW);
+  const [interview, setInterview] = useState<InterviewMode>(initialInterview);
   const [status, setStatus] = useState<ApplyState>("idle");
+
+  useEffect(() => {
+    setInterview(initialInterview);
+    setStatus("idle");
+  }, [initialInterview]);
 
   async function apply() {
     setStatus("applying");
@@ -102,7 +115,12 @@ function InterviewPanelLive() {
         method: "mode.update",
         payload: JSON.stringify(interview),
       });
-      setStatus(ack === "applied" ? "applied" : "error");
+      if (ack === "applied") {
+        setStatus("applied");
+        onApplied?.(interview);
+      } else {
+        setStatus("error");
+      }
     } catch {
       setStatus("error");
     }
@@ -136,12 +154,22 @@ function InterviewPanelLive() {
 export default function InterviewPanel({
   value,
   onChange,
+  personaDisplayName,
+  onApplied,
 }: {
   value?: InterviewMode;
   onChange?: (m: InterviewMode) => void;
+  personaDisplayName?: string;
+  onApplied?: (m: InterviewMode) => void;
 }) {
   if (onChange) {
     return <InterviewFields value={value ?? DEFAULT_INTERVIEW} onChange={onChange} />;
   }
-  return <InterviewPanelLive />;
+  return (
+    <InterviewPanelLive
+      initialInterview={value ?? DEFAULT_INTERVIEW}
+      personaDisplayName={personaDisplayName}
+      onApplied={onApplied}
+    />
+  );
 }
