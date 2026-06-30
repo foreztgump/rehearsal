@@ -1,7 +1,7 @@
 "use client";
 
 import { useRoomContext, useVoiceAssistant } from "@livekit/components-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ApplyState, STATUS_COLOR, STATUS_LABEL } from "./ui/apply";
 import {
@@ -308,16 +308,11 @@ function PersonaPanelLive({
   const { agent } = useVoiceAssistant();
   const [persona, setPersona] = useState<Persona>(initialPersona);
   const [status, setStatus] = useState<ApplyState>("idle");
-  const mounted = useRef(true);
 
   useEffect(() => {
     setPersona(initialPersona);
     setStatus((current) => current === "applied" ? current : "idle");
   }, [initialPersona]);
-
-  useEffect(() => () => {
-    mounted.current = false;
-  }, []);
 
   function setLocalPersona(next: Persona) {
     setPersona(next);
@@ -345,7 +340,6 @@ function PersonaPanelLive({
         method: "persona.update",
         payload: JSON.stringify(persona),
       });
-      if (!mounted.current) return;
       if (ack === "applied") {
         setStatus("applied");
         onApplied?.(persona);
@@ -353,7 +347,6 @@ function PersonaPanelLive({
         setStatus("error");
       }
     } catch {
-      if (!mounted.current) return;
       setStatus("error");
     }
   }

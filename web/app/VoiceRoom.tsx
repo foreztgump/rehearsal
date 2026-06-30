@@ -2,7 +2,7 @@
 
 import { LiveKitRoom, RoomAudioRenderer, StartAudio } from "@livekit/components-react";
 import dynamic from "next/dynamic";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ApplyAvatarMode from "./ApplyAvatarMode";
 import ApplySetupOnConnect from "./ApplySetupOnConnect";
 import { DEFAULT_INTERVIEW, InterviewMode } from "./InterviewPanel";
@@ -75,6 +75,8 @@ const CONNECT_ERROR_MESSAGE =
 export default function VoiceRoom() {
   const [sessionConfig, setSessionConfig] = useState<SessionConfig>(DEFAULT_SESSION_CONFIG);
   const [token, setToken] = useState<string | null>(null);
+  const [sessionEpoch, setSessionEpoch] = useState(0);
+  const sessionEpochRef = useRef(sessionEpoch);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // SESS-02 transcript reset marker: a wall-clock timestamp bumped on Reset so the
@@ -84,6 +86,24 @@ export default function VoiceRoom() {
   // Avatar framing preference (AVTR-10). Default to the upper (head-and-shoulders)
   // frame — full body reads unnatural without body motion; the user opts into full.
   const [avatarView, setAvatarView] = useState<"upper" | "full">("upper");
+
+  useEffect(() => {
+    sessionEpochRef.current = sessionEpoch;
+  }, [sessionEpoch]);
+
+  function advanceSessionEpoch() {
+    const next = sessionEpochRef.current + 1;
+    sessionEpochRef.current = next;
+    setSessionEpoch(next);
+  }
+
+  function updateLiveSessionConfig(
+    epoch: number,
+    update: (current: SessionConfig) => SessionConfig,
+  ) {
+    if (epoch !== sessionEpochRef.current) return;
+    setSessionConfig(update);
+  }
 
   async function probeMicPermission(): Promise<boolean> {
     // REL-01: fail loudly + actionably if the mic is blocked, instead of connecting
@@ -109,6 +129,7 @@ export default function VoiceRoom() {
       const res = await fetch("/api/token");
       if (!res.ok) throw new Error(`token fetch failed (${res.status})`);
       const data = await res.json();
+      advanceSessionEpoch();
       setToken(data.token);
     } catch (err) {
       // Surface a friendly message; log the technical cause for the operator.
@@ -123,6 +144,7 @@ export default function VoiceRoom() {
   // history, and the per-connection STT cache all die); resetting the config clears KB
   // files, model, persona, and avatarOn in the UI.
   function endSession() {
+    advanceSessionEpoch();
     setToken(null);
     setSessionConfig(DEFAULT_SESSION_CONFIG);
     setError(null);
@@ -136,6 +158,7 @@ export default function VoiceRoom() {
   // SESS-01 New: fresh room/token, KEEP the user's setup choices. Drop the token so
   // <LiveKitRoom> fully unmounts, then re-Start on the next tick.
   function newSession() {
+    advanceSessionEpoch();
     setToken(null);
     setResetMarker(0);
     setTimeout(() => {
@@ -204,7 +227,8 @@ export default function VoiceRoom() {
         avatar={<AvatarStage persona={sessionConfig.persona.display_name} view={avatarView} />}
         agentName={sessionConfig.persona.display_name}
         config={sessionConfig}
-        onConfigChange={setSessionConfig}
+        sessionEpoch={sessionEpoch}
+        onConfigChange={updateLiveSessionConfig}
       />
     </LiveKitRoom>
   );

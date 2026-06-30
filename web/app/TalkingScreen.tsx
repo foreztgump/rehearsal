@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Dispatch, ReactNode, SetStateAction } from "react";
+import type { ReactNode } from "react";
 
 import AgentStatePill from "./AgentStatePill";
 import SegmentedToggle from "./SegmentedToggle";
@@ -39,6 +39,7 @@ export default function TalkingScreen({
   avatar,
   agentName,
   config,
+  sessionEpoch,
   onConfigChange,
 }: {
   avatarOn: boolean;
@@ -59,7 +60,11 @@ export default function TalkingScreen({
   avatar?: ReactNode;
   agentName: string;
   config: SessionConfig;
-  onConfigChange: Dispatch<SetStateAction<SessionConfig>>;
+  sessionEpoch: number;
+  onConfigChange: (
+    sessionEpoch: number,
+    update: (current: SessionConfig) => SessionConfig,
+  ) => void;
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Full-screen avatar: the avatar fills the stage and the transcript is hidden.
@@ -183,6 +188,7 @@ export default function TalkingScreen({
         onReset={onReset}
         resetMarker={resetMarker}
         config={config}
+        sessionEpoch={sessionEpoch}
         onConfigChange={onConfigChange}
       />
       <SttDebugWindow />

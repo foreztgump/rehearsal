@@ -1,7 +1,7 @@
 "use client";
 
 import { useRoomContext, useVoiceAssistant } from "@livekit/components-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   DEFAULT_INTERVIEW,
@@ -92,16 +92,11 @@ function InterviewPanelLive({
   const { agent } = useVoiceAssistant();
   const [interview, setInterview] = useState<InterviewMode>(initialInterview);
   const [status, setStatus] = useState<ApplyState>("idle");
-  const mounted = useRef(true);
 
   useEffect(() => {
     setInterview(initialInterview);
     setStatus((current) => current === "applied" ? current : "idle");
   }, [initialInterview]);
-
-  useEffect(() => () => {
-    mounted.current = false;
-  }, []);
 
   async function apply() {
     setStatus("applying");
@@ -123,7 +118,6 @@ function InterviewPanelLive({
         method: "mode.update",
         payload: JSON.stringify(interview),
       });
-      if (!mounted.current) return;
       if (ack === "applied") {
         setStatus("applied");
         onApplied?.(interview);
@@ -131,7 +125,6 @@ function InterviewPanelLive({
         setStatus("error");
       }
     } catch {
-      if (!mounted.current) return;
       setStatus("error");
     }
   }

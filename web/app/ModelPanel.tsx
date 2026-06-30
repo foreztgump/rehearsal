@@ -1,7 +1,7 @@
 "use client";
 
 import { useRoomContext, useVoiceAssistant } from "@livekit/components-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ApplyState, STATUS_COLOR, STATUS_LABEL } from "./ui/apply";
 
@@ -95,16 +95,11 @@ function ModelPanelLive({
   const { agent } = useVoiceAssistant();
   const [choice, setChoice] = useState<ModelChoice>(initialChoice);
   const [status, setStatus] = useState<ApplyState>("idle");
-  const mounted = useRef(true);
 
   useEffect(() => {
     setChoice(initialChoice);
     setStatus((current) => current === "applied" ? current : "idle");
   }, [initialChoice]);
-
-  useEffect(() => () => {
-    mounted.current = false;
-  }, []);
 
   async function apply() {
     setStatus("applying");
@@ -126,7 +121,6 @@ function ModelPanelLive({
         method: "model.update",
         payload: JSON.stringify({ choice }),
       });
-      if (!mounted.current) return;
       if (ack === "applied") {
         setStatus("applied");
         onApplied?.(choice);
@@ -134,7 +128,6 @@ function ModelPanelLive({
         setStatus("error");
       }
     } catch {
-      if (!mounted.current) return;
       setStatus("error");
     }
   }

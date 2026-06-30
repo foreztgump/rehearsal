@@ -2,7 +2,6 @@
 
 import { useRoomContext, useVoiceAssistant } from "@livekit/components-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Dispatch, SetStateAction } from "react";
 
 import InterviewPanel from "./InterviewPanel";
 import KbPanel from "./KbPanel";
@@ -56,6 +55,7 @@ export default function SettingsDrawer({
   onReset,
   resetMarker,
   config,
+  sessionEpoch,
   onConfigChange,
 }: {
   open: boolean;
@@ -68,7 +68,11 @@ export default function SettingsDrawer({
   // "cleared" session never leaks back out (matches the on-screen Transcript).
   resetMarker: number;
   config: SessionConfig;
-  onConfigChange: Dispatch<SetStateAction<SessionConfig>>;
+  sessionEpoch: number;
+  onConfigChange: (
+    sessionEpoch: number,
+    update: (current: SessionConfig) => SessionConfig,
+  ) => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -250,16 +254,22 @@ export default function SettingsDrawer({
             from the running session config instead of panel-local defaults. */}
         <PersonaPanel
           value={config.persona}
-          onApplied={(persona) => onConfigChange((current) => ({ ...current, persona }))}
+          onApplied={(persona) =>
+            onConfigChange(sessionEpoch, (current) => ({ ...current, persona }))
+          }
         />
         <InterviewPanel
           value={config.mode}
           personaDisplayName={config.persona.display_name}
-          onApplied={(mode) => onConfigChange((current) => ({ ...current, mode }))}
+          onApplied={(mode) =>
+            onConfigChange(sessionEpoch, (current) => ({ ...current, mode }))
+          }
         />
         <ModelPanel
           value={config.model}
-          onApplied={(model) => onConfigChange((current) => ({ ...current, model }))}
+          onApplied={(model) =>
+            onConfigChange(sessionEpoch, (current) => ({ ...current, model }))
+          }
         />
         <KbPanel />
 
