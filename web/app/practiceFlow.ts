@@ -1,3 +1,6 @@
+// These mode and role keys must mirror agent/interview.py. There is no frontend
+// schema handshake for mode.update, so drift stays silent until the agent rejects
+// the RPC payload at runtime.
 export const MODE_LEARN = "learn";
 export const MODE_DRILL = "drill";
 export const MODE_ROLEPLAY = "roleplay";
