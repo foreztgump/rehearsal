@@ -15,6 +15,8 @@ support.
   cloud/DevOps, product, sales, customer success, leadership, healthcare
   communication, finance/business, GRC/policy, climate/energy, and language
   conversation practice.
+- Added browser-local saved personas so custom persona setups can be saved,
+  loaded, and deleted from setup or in-session settings.
 - Added Drill and Roleplay practice modes alongside Learn and Interview.
 - `install.sh` / `install.ps1` — two native installers (bash + PowerShell)
   with offer-to-install prerequisites, a model-selection prompt, and
