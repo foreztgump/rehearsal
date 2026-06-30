@@ -1,8 +1,6 @@
 "use client";
 
-import { useState } from "react";
-
-import InterviewPanel, { InterviewFields } from "./InterviewPanel";
+import { InterviewFields } from "./InterviewPanel";
 import KbPanel from "./KbPanel";
 import MicPicker from "./MicPicker";
 import ModelPanel from "./ModelPanel";
@@ -30,10 +28,9 @@ const AVATAR_OPTIONS = [
  * edits through `onChange` and invoking `onStart` on the single CTA click.
  *
  * Visual contract: the design-mockups/v4 unified card — logo + wordmark, a
- * two-column field grid, a sliding segmented Avatar toggle, the dashed KB
- * dropzone, and a collapsed "Customize" disclosure (theme picker + persona +
- * interview), capped by the gradient Start CTA. The CTA is NEVER disabled by
- * missing choices — defaults pre-fill every group.
+ * scenario-first two-column field grid, primary persona controls, a sliding
+ * segmented Avatar toggle, the dashed KB dropzone, and the gradient Start CTA.
+ * The CTA is NEVER disabled by missing choices — defaults pre-fill every group.
  */
 export default function SetupScreen({
   config,
@@ -48,7 +45,13 @@ export default function SetupScreen({
   connecting?: boolean;
   error?: string | null;
 }) {
-  const [customizeOpen, setCustomizeOpen] = useState(false);
+  function updatePersona(persona: SessionConfig["persona"]) {
+    onChange({ ...config, persona });
+  }
+
+  function updateMode(mode: SessionConfig["mode"]) {
+    onChange({ ...config, mode });
+  }
 
   return (
     <div
@@ -77,7 +80,21 @@ export default function SetupScreen({
         <p className="card-sub" style={{ margin: "11px 0 28px" }}>{TAGLINE}</p>
 
         <div className="grid-2">
-          {/* Always-visible essentials: model, microphone, avatar, knowledge base. */}
+          <InterviewFields
+            value={config.mode}
+            onChange={updateMode}
+            personaDisplayName={config.persona.display_name}
+          />
+
+          <PersonaPresetPicker
+            activeDisplayName={config.persona.display_name}
+            onSelect={(preset) => updatePersona(preset.persona)}
+          />
+
+          <SavedPersonaControls value={config.persona} onLoad={updatePersona} />
+
+          <PersonaFields value={config.persona} onChange={updatePersona} />
+
           <ModelPanel value={config.model} onChange={(model) => onChange({ ...config, model })} />
 
           <MicPicker
@@ -95,59 +112,11 @@ export default function SetupScreen({
             />
           </div>
 
-          <InterviewFields
-            value={config.mode}
-            onChange={(mode) => onChange({ ...config, mode })}
-            personaDisplayName={config.persona.display_name}
-          />
-
           <KbPanel
             files={config.kbFiles}
             onFilesChange={(kbFiles) => onChange({ ...config, kbFiles })}
             className="full"
           />
-
-          {/* Customize disclosure: theme + advanced persona, collapsed by default
-              with a summary line of the current defaults. */}
-          <div className="disclosure">
-            <button
-              type="button"
-              className="disclosure-summary"
-              aria-expanded={customizeOpen}
-              onClick={() => setCustomizeOpen((o) => !o)}
-            >
-              <span>
-                {customizeOpen
-                  ? "Customize — persona"
-                  : `Customize — ${config.persona.display_name} · ${config.persona.difficulty}`}
-              </span>
-              <span className="chev" aria-hidden="true">▾</span>
-            </button>
-
-            <div
-              className="transition-disclosure"
-              style={{ display: "grid", gridTemplateRows: customizeOpen ? "1fr" : "0fr" }}
-            >
-              <div style={{ overflow: "hidden" }}>
-                <div style={{ paddingTop: customizeOpen ? "18px" : 0 }}>
-                  <div className="grid-2">
-                    <PersonaPresetPicker
-                      activeDisplayName={config.persona.display_name}
-                      onSelect={(preset) => onChange({ ...config, persona: preset.persona })}
-                    />
-                    <SavedPersonaControls
-                      value={config.persona}
-                      onLoad={(persona) => onChange({ ...config, persona })}
-                    />
-                    <PersonaFields
-                      value={config.persona}
-                      onChange={(persona) => onChange({ ...config, persona })}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
 
           {/* Primary CTA — gradient, never disabled by missing choices. */}
           <button
