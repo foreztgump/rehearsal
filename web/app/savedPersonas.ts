@@ -85,14 +85,22 @@ export function saveSavedPersona(
   name: string,
   storage?: StorageLike | null,
 ): SavedPersona[] {
+  return saveSavedPersonaResult(persona, name, storage).personas;
+}
+
+export function saveSavedPersonaResult(
+  persona: Persona,
+  name: string,
+  storage?: StorageLike | null,
+): SavedPersonaMutationResult {
   const target = resolveStorage(storage);
-  if (!target) return [];
+  if (!target) return { ok: false, personas: [] };
 
   const current = readSavedPersonasForMutation(target);
-  if (!current) return [];
+  if (!current) return { ok: false, personas: [] };
 
   const trimmedName = name.trim();
-  if (!trimmedName || !isPersona(persona)) return current;
+  if (!trimmedName || !isPersona(persona)) return { ok: false, personas: current };
 
   const now = new Date().toISOString();
   const match = current.findIndex((item) => sameName(item.name, trimmedName));
@@ -103,7 +111,9 @@ export function saveSavedPersona(
     next.push({ id: newId(), name: trimmedName, persona, createdAt: now, updatedAt: now });
   }
 
-  return writeSavedPersonas(target, next) ? next : current;
+  return writeSavedPersonas(target, next)
+    ? { ok: true, personas: next }
+    : { ok: false, personas: current };
 }
 
 export function deleteSavedPersona(id: string, storage?: StorageLike | null): SavedPersona[] {
@@ -258,6 +268,9 @@ export function selfCheck() {
   };
   saveSavedPersona(persona, "Unsafe Write", failingReadStorage);
   assert(writes === 0, "save wrote after storage read failed");
+  const saveResult = saveSavedPersonaResult(persona, "Unsafe Write", failingReadStorage);
+  assert(saveResult.ok === false, "save reported success after storage read failed");
+  assert(writes === 0, "save result wrote after storage read failed");
   const deleteResult = deleteSavedPersonaResult("x", failingReadStorage);
   assert(deleteResult.ok === false, "delete reported success after storage read failed");
   assert(writes === 0, "delete wrote after storage read failed");

@@ -11,7 +11,7 @@ import {
   PERSONA_VOICE_IDS,
   deleteSavedPersonaResult,
   readSavedPersonas,
-  saveSavedPersona,
+  saveSavedPersonaResult,
   type Persona,
   type SavedPersona,
 } from "./savedPersonas";
@@ -179,18 +179,15 @@ export function SavedPersonaControls({
     }
     const sameName = (item: SavedPersona) =>
       item.name.toLowerCase() === trimmedName.toLowerCase();
-    const previousEntry = saved.find(sameName);
-    const personaJson = JSON.stringify(value);
-    const next = saveSavedPersona(value, trimmedName);
-    const savedEntry = next.find(sameName);
-    const savedSuccessfully = (
-      savedEntry !== undefined &&
-      JSON.stringify(savedEntry.persona) === personaJson &&
-      (!previousEntry || savedEntry.updatedAt !== previousEntry.updatedAt)
-    );
-    refresh(next);
+    const result = saveSavedPersonaResult(value, trimmedName);
+    if (!result.ok) {
+      setStatus("Couldn't save");
+      return;
+    }
+    const savedEntry = result.personas.find(sameName);
+    refresh(result.personas);
     setSelectedId(savedEntry?.id ?? "");
-    setStatus(savedSuccessfully ? "Saved" : "Couldn't save");
+    setStatus("Saved");
   }
 
   function loadSelected() {
