@@ -61,8 +61,13 @@ export const ROLE_LABEL: Record<InterviewRoleKey, string> = {
 const PERSONA_TARGET_BY_DISPLAY_NAME: Record<string, InterviewRoleKey> = {
   "Software Engineering Mentor": "software_engineer",
   "AI/ML Coach": "ai_ml_practitioner",
+  "Data Analyst Coach": "data_analyst",
+  "Cloud/DevOps Coach": "cloud_devops",
   "Cybersecurity Trainer": "cybersecurity",
   "Product Manager Coach": "product_manager",
+  "Sales Roleplay Partner": "sales_customer_success",
+  "Customer Success Coach": "sales_customer_success",
+  "Leadership Coach": "leadership",
   "GRC / Policy Advisor": "grc_policy",
 };
 

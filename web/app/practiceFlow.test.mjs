@@ -18,8 +18,13 @@ test("practice flow self-check passes", () => {
 test("obvious persona names seed matching interview targets", () => {
   assert.equal(interviewTargetForPersona("Software Engineering Mentor"), "software_engineer");
   assert.equal(interviewTargetForPersona("AI/ML Coach"), "ai_ml_practitioner");
+  assert.equal(interviewTargetForPersona("Data Analyst Coach"), "data_analyst");
+  assert.equal(interviewTargetForPersona("Cloud/DevOps Coach"), "cloud_devops");
   assert.equal(interviewTargetForPersona("Cybersecurity Trainer"), "cybersecurity");
   assert.equal(interviewTargetForPersona("Product Manager Coach"), "product_manager");
+  assert.equal(interviewTargetForPersona("Sales Roleplay Partner"), "sales_customer_success");
+  assert.equal(interviewTargetForPersona("Customer Success Coach"), "sales_customer_success");
+  assert.equal(interviewTargetForPersona("Leadership Coach"), "leadership");
   assert.equal(interviewTargetForPersona("GRC / Policy Advisor"), "grc_policy");
 });
 
