@@ -536,9 +536,10 @@ async def entrypoint(ctx: JobContext) -> None:
     # update_instructions(compose_instructions()), no AgentSession/Agent teardown. The
     # toggle is the single sanctioned re-prefill (same cost model as a persona edit),
     # NEVER a per-turn render (Pitfall 7). The native RPC return ("applied") IS the
-    # applying->applied ack. ONLY on entering Interview mode do we fire one ask-Q1
-    # generate_reply (MODE-04 ask boundary — mirrors the greeting/KB-priming calls);
-    # toggling back to Learn just re-prefills and lets the normal loop resume.
+    # applying->applied ack. ONLY on entering Interview mode or changing the interview
+    # target do we fire one ask-Q1 generate_reply (MODE-04 ask boundary — mirrors the
+    # greeting/KB-priming calls); toggling back to Learn just re-prefills and lets the
+    # normal loop resume.
     async def handle_mode_update(data):
         # mode.update is the UNTRUSTED RPC boundary. VALIDATE before committing the
         # shared holders: compose_instructions() (also used by handle_persona_update /
@@ -558,9 +559,10 @@ async def entrypoint(ctx: JobContext) -> None:
             logger.warning("mode.update rejected: unknown role_key %r", new_role)
             return "error"
         previous_mode = current_mode[0]
-        entering_interview = (
-            previous_mode != interview.MODE_INTERVIEW
-            and new_mode == interview.MODE_INTERVIEW
+        previous_role = current_role[0]
+        role_changed = new_role != previous_role
+        should_ask_first_question = new_mode == interview.MODE_INTERVIEW and (
+            previous_mode != interview.MODE_INTERVIEW or role_changed
         )
         current_mode[0] = new_mode
         current_role[0] = new_role
@@ -571,7 +573,7 @@ async def entrypoint(ctx: JobContext) -> None:
         session.update_options(
             endpointing_opts=endpointing.endpointing_for_mode(current_mode[0])
         )
-        if entering_interview:
+        if should_ask_first_question:
             await session.generate_reply(
                 instructions=(
                     "(internal) ask the first interview question for the current role, "
