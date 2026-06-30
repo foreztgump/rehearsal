@@ -9,14 +9,34 @@ import { ApplyState, STATUS_COLOR, STATUS_LABEL } from "./ui/apply";
 // mirror agent/interview.py (MODE_LEARN, MODE_INTERVIEW, ROLES). There is no
 // mode.get RPC in the MVP, so drift here is silent — keep in sync by hand.
 const MODE_LEARN = "learn";
+const MODE_DRILL = "drill";
+const MODE_ROLEPLAY = "roleplay";
 const MODE_INTERVIEW = "interview";
-const ROLES = ["soc_analyst", "security_engineer", "grc"] as const;
+const ROLES = [
+  "general_professional",
+  "software_engineer",
+  "ai_ml_practitioner",
+  "data_analyst",
+  "cloud_devops",
+  "cybersecurity",
+  "product_manager",
+  "sales_customer_success",
+  "leadership",
+  "grc_policy",
+] as const;
 
 // Human-readable labels for the role <select> (UI only — the RPC carries the key).
 const ROLE_LABEL: Record<(typeof ROLES)[number], string> = {
-  soc_analyst: "SOC Analyst",
-  security_engineer: "Security Engineer",
-  grc: "GRC Specialist",
+  general_professional: "General Professional",
+  software_engineer: "Software Engineer",
+  ai_ml_practitioner: "AI / ML Practitioner",
+  data_analyst: "Data Analyst",
+  cloud_devops: "Cloud / DevOps",
+  cybersecurity: "Cybersecurity",
+  product_manager: "Product Manager",
+  sales_customer_success: "Sales / Customer Success",
+  leadership: "Leadership",
+  grc_policy: "GRC / Policy",
 };
 
 // Shared interview-mode shape — imported by SetupScreen + ApplySetupOnConnect so
@@ -51,7 +71,7 @@ export function InterviewFields({
     <>
       <div className="field">
         <label className="field-label" htmlFor="mode-select">
-          Interview mode
+          Practice mode
         </label>
         <select
           id="mode-select"
@@ -59,14 +79,16 @@ export function InterviewFields({
           value={value.mode}
           onChange={(e) => onChange({ ...value, mode: e.target.value })}
         >
-          <option value={MODE_LEARN}>Learn / Converse</option>
+          <option value={MODE_LEARN}>Learn</option>
+          <option value={MODE_DRILL}>Drill</option>
+          <option value={MODE_ROLEPLAY}>Roleplay</option>
           <option value={MODE_INTERVIEW}>Interview</option>
         </select>
       </div>
 
       <div className="field">
         <label className="field-label" htmlFor="role-select">
-          Target role
+          Interview target
         </label>
         <select
           id="role-select"
@@ -124,7 +146,7 @@ function InterviewPanelLive() {
 
   return (
     <div className="drawer-section">
-      <h4>Interview mode</h4>
+      <h4>Practice mode</h4>
       <InterviewFields value={interview} onChange={setInterview} />
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
         <button className="btn-apply" disabled={status === "applying"} onClick={apply}>
