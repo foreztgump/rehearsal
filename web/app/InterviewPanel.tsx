@@ -36,6 +36,8 @@ export function InterviewFields({
   personaDisplayName?: string;
   disabled?: boolean;
 }) {
+  const hasSeenInterviewTarget = isInterviewMode(value);
+
   return (
     <>
       <div className="field full">
@@ -45,7 +47,8 @@ export function InterviewFields({
           options={PRACTICE_SCENARIOS}
           value={value.mode}
           disabled={disabled}
-          onChange={(mode) => onChange(withPracticeMode(value, mode, personaDisplayName))}
+          onChange={(mode) =>
+            onChange(withPracticeMode(value, mode, personaDisplayName, hasSeenInterviewTarget))}
         />
       </div>
 

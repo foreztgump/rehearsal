@@ -61,3 +61,15 @@ test("re-entering interview keeps a user's explicit interview target", () => {
 
   assert.deepEqual(next, { mode: MODE_INTERVIEW, role_key: "cybersecurity" });
 });
+
+test("re-entering interview keeps explicit general professional target", () => {
+  const leftInterview = withPracticeMode(
+    { mode: MODE_INTERVIEW, role_key: "general_professional" },
+    MODE_DRILL,
+    "AI/ML Coach",
+    true,
+  );
+  const reentered = withPracticeMode(leftInterview, MODE_INTERVIEW, "AI/ML Coach", true);
+
+  assert.deepEqual(reentered, { mode: MODE_INTERVIEW, role_key: "general_professional" });
+});
