@@ -554,9 +554,14 @@ async def entrypoint(ctx: JobContext) -> None:
         if new_mode not in interview.MODES:
             logger.warning("mode.update rejected: unknown mode %r", new_mode)
             return "error"
-        if new_role not in interview.ROLES:
+        if not isinstance(new_role, str) or new_role not in interview.ROLES:
             logger.warning("mode.update rejected: unknown role_key %r", new_role)
             return "error"
+        previous_mode = current_mode[0]
+        entering_interview = (
+            previous_mode != interview.MODE_INTERVIEW
+            and new_mode == interview.MODE_INTERVIEW
+        )
         current_mode[0] = new_mode
         current_role[0] = new_role
         await agent.update_instructions(compose_instructions())
@@ -566,7 +571,7 @@ async def entrypoint(ctx: JobContext) -> None:
         session.update_options(
             endpointing_opts=endpointing.endpointing_for_mode(current_mode[0])
         )
-        if current_mode[0] == interview.MODE_INTERVIEW:
+        if entering_interview:
             await session.generate_reply(
                 instructions=(
                     "(internal) ask the first interview question for the current role, "

@@ -1,6 +1,8 @@
-"""Pure, livekit-free Interview-mode prompt module for Adept (Plan 06-01).
+"""Pure, livekit-free historical mode-prompt module for Adept.
 
-Owns the Interview system-block RENDER as a pure function of a ``role_key: str``.
+This file started as the Interview prompt module and now owns the Learn/Drill/
+Roleplay/Interview prompt fragments. Interview still renders a role-specific
+system block as a pure function of a ``role_key: str``.
 The EFFECT (``update_instructions``, ``generate_reply``, the ``mode.update`` RPC)
 lives in ``agent/main.py``, never here — exactly how ``history.py`` owns the
 windowing decision while ``HistoryWindowAgent`` owns the effect, and how
@@ -15,7 +17,7 @@ Design rules (mirror ``agent/persona.py``; the #1 constraint is byte-stability):
     no volatile data (clocks / counters / ids) — this protects the frozen-prefix KB
     cache the toggle re-prefills into (Pitfall 7).
   * ``MODE_LEARN`` is the default mode (MODE-01), exactly as ``DEFAULT_PERSONA`` is
-    the default-on-load persona.
+    the default-on-load persona. Drill and Roleplay add compact fixed fragments.
 
 This slice is Layer 1 (prompt-only, RESEARCH §4 / §9 q3): the Interview prompt
 itself encodes the ``ask ONE question -> wait -> critique -> strong model answer ->
@@ -40,8 +42,8 @@ MODES: tuple[str, ...] = (MODE_LEARN, MODE_DRILL, MODE_ROLEPLAY, MODE_INTERVIEW)
 # Role key -> fixed role descriptor (enum->fixed-string, like persona.DIFFICULTY).
 # Hand-authored prose, no interpolated values; identical bytes per key. Each value
 # frames the interview target (kind of role, seniority, and the topic areas the
-# questions should cover) so render_interview_prompt can compose the role into the
-# Interview system block.
+# questions should cover) so render_interview_prompt can compose the role into
+# Interview mode.
 ROLES: dict[str, str] = {
     "general_professional": (
         "The target is a general professional interview. Draw questions from clear "
@@ -96,7 +98,7 @@ ROLES: dict[str, str] = {
 DEFAULT_ROLE: str = "general_professional"
 
 # Frozen framing constants (multiline prose like kb/distill.DISTILL_INSTRUCTION).
-# Opening framing for the Interview system block.
+# Opening framing for the Interview mode block.
 INTERVIEW_FRAMING: str = (
     "You are conducting a realistic spoken mock interview for the role described "
     "below. Play the part of an experienced, professional interviewer who probes "
