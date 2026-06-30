@@ -98,6 +98,7 @@ export default function SetupScreen({
           <InterviewFields
             value={config.mode}
             onChange={(mode) => onChange({ ...config, mode })}
+            personaDisplayName={config.persona.display_name}
           />
 
           <KbPanel

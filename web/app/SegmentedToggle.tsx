@@ -14,11 +14,13 @@ export default function SegmentedToggle<T extends string>({
   value,
   onChange,
   ariaLabel,
+  disabled,
 }: {
   options: readonly SegOption<T>[];
   value: T;
   onChange: (value: T) => void;
   ariaLabel: string;
+  disabled?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const btnRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -62,6 +64,7 @@ export default function SegmentedToggle<T extends string>({
             type="button"
             className={active ? "on" : undefined}
             aria-pressed={active}
+            disabled={disabled}
             onClick={() => onChange(opt.value)}
           >
             {opt.label}

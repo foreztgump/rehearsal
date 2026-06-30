@@ -80,7 +80,9 @@ export function withPracticeMode(
   personaDisplayName: string,
 ): InterviewMode {
   if (mode !== MODE_INTERVIEW) return { ...current, mode };
-  if (current.mode === MODE_INTERVIEW) return { ...current, mode };
+  if (current.mode === MODE_INTERVIEW || current.role_key !== DEFAULT_ROLE) {
+    return { ...current, mode };
+  }
   return {
     mode,
     role_key: interviewTargetForPersona(personaDisplayName),

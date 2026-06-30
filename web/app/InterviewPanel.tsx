@@ -44,6 +44,7 @@ export function InterviewFields({
           ariaLabel="Practice scenario"
           options={PRACTICE_SCENARIOS}
           value={value.mode}
+          disabled={disabled}
           onChange={(mode) => onChange(withPracticeMode(value, mode, personaDisplayName))}
         />
       </div>
