@@ -79,7 +79,7 @@ export function PersonaFields({
         <textarea
           id="persona-role"
           className="control"
-          placeholder="Leave blank to use the default Cybersecurity Trainer role."
+          placeholder="Leave blank to use the default Voice Fluency Coach role."
           value={value.role_text}
           onChange={(e) => set("role_text", e.target.value)}
         />

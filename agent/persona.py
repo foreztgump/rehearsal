@@ -14,9 +14,9 @@ Design rules (mirror ``agent/metrics.py``; the #1 constraint is byte-stability):
     no volatile data (clocks / turn counters / unique-ids / current-timestamp).
   * The KB slot is an EMPTY trailing segment — the Phase-4 frozen-prefix seam
     (persona -> KB -> history -> turn order frozen NOW). Do not reorder or fill it.
-  * ``DEFAULT_PERSONA`` reproduces today's Cybersecurity Trainer behavior
-    (``gentle`` correction = PERS-01, ``af_bella`` voice) so default-on-load is
-    unchanged. PERS-07's correction-aggressiveness IS the ``CORRECTION`` enum.
+  * ``DEFAULT_PERSONA`` is the Voice Fluency Coach baseline
+    (``gentle`` correction = PERS-01, ``af_bella`` voice). PERS-07's
+    correction-aggressiveness IS the ``CORRECTION`` enum.
 """
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ CORRECTION: dict[str, str] = {
     ),
 }
 
-# The frozen Cybersecurity Trainer role block (from the old main.py:62-69), WITHOUT
+# The frozen Voice Fluency Coach role block, WITHOUT
 # the correction sentence and WITHOUT the spoken-style footer — those are separate
 # segments so the knobs and footer can vary/freeze independently.
 ROLE_PREAMBLE: str = (
@@ -77,7 +77,7 @@ SPOKEN_STYLE_FOOTER: str = (
 KB_SLOT: str = ""
 
 # Cite-nudge prepended to the KB segment ONLY when a non-empty brief is present
-# (04-04 GAP-2b). UAT found the Cybersecurity-Trainer persona's Socratic style made
+# (04-04 GAP-2b). UAT found the persona's Socratic style made
 # the model DEFLECT ("what's the codename?") instead of citing facts that ARE in the
 # brief. This frozen, hand-authored constant tips it toward referencing supplied
 # material. It is NEVER rendered for the empty-KB case, so the golden prefix stays
@@ -149,7 +149,7 @@ def render_persona(p: Persona) -> str:
     return render_prompt(p, "")
 
 
-# Default persona (PERS-01 / DEPLOY-03): reproduces today's Cybersecurity Trainer.
+# Default persona (PERS-01 / DEPLOY-03): the Voice Fluency Coach baseline.
 DEFAULT_PERSONA = Persona(
     role_text=ROLE_PREAMBLE,
     display_name="Voice Fluency Coach",
@@ -160,10 +160,9 @@ DEFAULT_PERSONA = Persona(
 )
 
 # Golden string: the literal expected ``render_persona(DEFAULT_PERSONA)`` output.
-# Behaviorally equivalent to the old static PERSONA_INSTRUCTIONS (security-domain
-# trainer, pull-into-articulating, gentle correction, spoken-friendly footer), now
-# with the intermediate/balanced knob fragments interleaved. The trailing space is
-# the join with the empty KB_SLOT seam.
+# Voice Fluency Coach default with pull-into-articulating, gentle correction,
+# spoken-friendly footer, and the intermediate/balanced knob fragments interleaved.
+# The trailing space is the join with the empty KB_SLOT seam.
 EXPECTED_DEFAULT: str = (
     "You are a Voice Fluency Coach: a practical spoken-practice partner who helps "
     "learners explain ideas clearly, confidently, and precisely. You can coach across "
@@ -220,7 +219,7 @@ def _self_check() -> None:
         for key in table:
             kwargs = {
                 "role_text": ROLE_PREAMBLE,
-                "display_name": "Cybersecurity Trainer",
+                "display_name": "Voice Fluency Coach",
                 "difficulty": "intermediate",
                 "verbosity": "balanced",
                 "correction": "gentle",
