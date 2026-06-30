@@ -392,7 +392,7 @@ body {
   box-shadow: 0 0 0 2px var(--accent);
 }
 
-/* Collapsible "Customize" disclosure block. */
+/* Collapsible disclosure block. */
 .disclosure {
   grid-column: 1 / -1;
   border: 1px solid var(--line);
@@ -878,7 +878,7 @@ textarea.control {
   animation: jump-pill-in 150ms ease-out;
 }
 
-/* "Customize" disclosure expand/collapse (200ms ease-out). */
+/* Disclosure expand/collapse (200ms ease-out). */
 .transition-disclosure {
   transition: grid-template-rows 200ms ease-out, opacity 200ms ease-out;
 }
