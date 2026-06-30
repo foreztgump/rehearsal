@@ -11,6 +11,11 @@ Windows, with install-time model selection and best-effort Windows-AMD
 support.
 
 ### Added
+- Added broad voice-practice persona presets across AI/ML, data, software,
+  cloud/DevOps, product, sales, customer success, leadership, healthcare
+  communication, finance/business, GRC/policy, climate/energy, and language
+  conversation practice.
+- Added Drill and Roleplay practice modes alongside Learn and Interview.
 - `install.sh` / `install.ps1` — two native installers (bash + PowerShell)
   with offer-to-install prerequisites, a model-selection prompt, and
   per-model user-chosen aliases. Aliases are baked into the web build so
@@ -36,6 +41,8 @@ support.
   malicious package signals, with JSON reports under `security/reports/guarddog/`.
 
 ### Changed
+- Default persona changed to Voice Fluency Coach, with Cybersecurity Trainer
+  moved into the preset library.
 - `docker-compose.yml` — web service build args pass the baked model
   choice/label env to the Next.js build.
 - `install.sh` `write_model_env` now runs after `pull-and-pin.sh` succeeds
