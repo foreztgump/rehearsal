@@ -40,10 +40,12 @@ export function ModelFields({
   value,
   onChange,
   className,
+  disabled,
 }: {
   value: ModelChoice;
   onChange: (c: ModelChoice) => void;
   className?: string;
+  disabled?: boolean;
 }) {
   return (
     <div className={className ? `field ${className}` : "field"}>
@@ -57,12 +59,14 @@ export function ModelFields({
           value={CHOICE_LABEL[CHOICES[0]] ?? CHOICES[0] ?? ""}
           readOnly
           aria-readonly="true"
+          disabled={disabled}
         />
       ) : (
         <select
           id="model-select"
           className="control"
           value={value}
+          disabled={disabled}
           onChange={(e) => onChange(e.target.value as ModelChoice)}
         >
           {CHOICES.map((c) => (
@@ -131,7 +135,7 @@ function ModelPanelLive({
   return (
     <div className="drawer-section">
       <h4>Response model</h4>
-      <ModelFields value={choice} onChange={setChoice} />
+      <ModelFields value={choice} onChange={setChoice} disabled={status === "applying"} />
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
         <button className="btn-apply" disabled={status === "applying"} onClick={apply}>
           Apply
@@ -165,7 +169,9 @@ export default function ModelPanel({
   onApplied?: (c: ModelChoice) => void;
 }) {
   if (onChange) {
-    return <ModelFields value={value ?? DEFAULT_MODEL} onChange={onChange} className={className} />;
+    return (
+      <ModelFields value={value ?? DEFAULT_MODEL} onChange={onChange} className={className} />
+    );
   }
   return <ModelPanelLive initialChoice={value ?? DEFAULT_MODEL} onApplied={onApplied} />;
 }

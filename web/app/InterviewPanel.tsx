@@ -27,9 +27,11 @@ export { DEFAULT_INTERVIEW, MODE_INTERVIEW, type InterviewMode } from "./practic
 export function InterviewFields({
   value,
   onChange,
+  disabled,
 }: {
   value: InterviewMode;
   onChange: (m: InterviewMode) => void;
+  disabled?: boolean;
 }) {
   return (
     <>
@@ -41,6 +43,7 @@ export function InterviewFields({
           id="mode-select"
           className="control"
           value={value.mode}
+          disabled={disabled}
           onChange={(e) => onChange({ ...value, mode: e.target.value })}
         >
           <option value={MODE_LEARN}>Learn</option>
@@ -58,7 +61,7 @@ export function InterviewFields({
           id="role-select"
           className="control"
           value={value.role_key}
-          disabled={value.mode !== MODE_INTERVIEW}
+          disabled={disabled || value.mode !== MODE_INTERVIEW}
           onChange={(e) => onChange({ ...value, role_key: e.target.value })}
         >
           {ROLES.map((r) => (
@@ -129,7 +132,11 @@ function InterviewPanelLive({
   return (
     <div className="drawer-section">
       <h4>Practice mode</h4>
-      <InterviewFields value={interview} onChange={setInterview} />
+      <InterviewFields
+        value={interview}
+        onChange={setInterview}
+        disabled={status === "applying"}
+      />
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
         <button className="btn-apply" disabled={status === "applying"} onClick={apply}>
           Apply

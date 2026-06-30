@@ -38,9 +38,11 @@ export const DEFAULT_PERSONA: Persona = {
 export function PersonaFields({
   value,
   onChange,
+  disabled,
 }: {
   value: Persona;
   onChange: (p: Persona) => void;
+  disabled?: boolean;
 }) {
   function set<K extends keyof Persona>(key: K, fieldValue: string) {
     onChange({ ...value, [key]: fieldValue });
@@ -56,6 +58,7 @@ export function PersonaFields({
           id="persona-name"
           className="control"
           value={value.display_name}
+          disabled={disabled}
           onChange={(e) => set("display_name", e.target.value)}
         />
       </div>
@@ -69,6 +72,7 @@ export function PersonaFields({
           className="control"
           placeholder="Leave blank to use the default Voice Fluency Coach role."
           value={value.role_text}
+          disabled={disabled}
           onChange={(e) => set("role_text", e.target.value)}
         />
       </div>
@@ -81,6 +85,7 @@ export function PersonaFields({
           id="persona-difficulty"
           className="control"
           value={value.difficulty}
+          disabled={disabled}
           onChange={(e) => set("difficulty", e.target.value)}
         >
           {PERSONA_DIFFICULTY.map((d) => (
@@ -97,6 +102,7 @@ export function PersonaFields({
           id="persona-verbosity"
           className="control"
           value={value.verbosity}
+          disabled={disabled}
           onChange={(e) => set("verbosity", e.target.value)}
         >
           {PERSONA_VERBOSITY.map((v) => (
@@ -113,6 +119,7 @@ export function PersonaFields({
           id="persona-correction"
           className="control"
           value={value.correction}
+          disabled={disabled}
           onChange={(e) => set("correction", e.target.value)}
         >
           {PERSONA_CORRECTION.map((c) => (
@@ -129,6 +136,7 @@ export function PersonaFields({
           id="persona-voice"
           className="control"
           value={value.voice_id}
+          disabled={disabled}
           onChange={(e) => set("voice_id", e.target.value)}
         >
           {PERSONA_VOICE_IDS.map((v) => (
@@ -143,9 +151,11 @@ export function PersonaFields({
 export function SavedPersonaControls({
   value,
   onLoad,
+  disabled,
 }: {
   value: Persona;
   onLoad: (persona: Persona) => void;
+  disabled?: boolean;
 }) {
   const [saved, setSaved] = useState<SavedPersona[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -226,6 +236,7 @@ export function SavedPersonaControls({
         id="saved-persona-name"
         className="control"
         value={saveName}
+        disabled={disabled}
         onChange={(e) => {
           setSaveNameDirty(true);
           setSaveName(e.target.value);
@@ -235,7 +246,7 @@ export function SavedPersonaControls({
         className="control"
         aria-label="Saved persona"
         value={selectedId}
-        disabled={saved.length === 0}
+        disabled={disabled || saved.length === 0}
         onChange={(e) => setSelectedId(e.target.value)}
       >
         {saved.length === 0 ? (
@@ -247,13 +258,13 @@ export function SavedPersonaControls({
         )}
       </select>
       <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
-        <button type="button" className="btn-apply" onClick={saveCurrent}>
+        <button type="button" className="btn-apply" disabled={disabled} onClick={saveCurrent}>
           Save
         </button>
         <button
           type="button"
           className="btn-ghost"
-          disabled={saved.length === 0}
+          disabled={disabled || saved.length === 0}
           onClick={loadSelected}
         >
           Load
@@ -261,7 +272,7 @@ export function SavedPersonaControls({
         <button
           type="button"
           className="btn-ghost"
-          disabled={saved.length === 0}
+          disabled={disabled || saved.length === 0}
           onClick={deleteSelected}
         >
           Delete
@@ -344,8 +355,16 @@ function PersonaPanelLive({
     <div className="drawer-section">
       <h4>Persona</h4>
       <div className="grid-2">
-        <SavedPersonaControls value={persona} onLoad={setLocalPersona} />
-        <PersonaFields value={persona} onChange={setLocalPersona} />
+        <SavedPersonaControls
+          value={persona}
+          onLoad={setLocalPersona}
+          disabled={status === "applying"}
+        />
+        <PersonaFields
+          value={persona}
+          onChange={setLocalPersona}
+          disabled={status === "applying"}
+        />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
         <button className="btn-apply" disabled={status === "applying"} onClick={apply}>
