@@ -39,6 +39,13 @@ services:
     # the startup warmup, emits the one real metric, and registers as a worker.
     build: ./agent
     env_file: .env
+    # The agent worker registers with the local LiveKit server over the internal
+    # compose network. livekit-agents reads LIVEKIT_URL (API key/secret come from
+    # .env); without it the worker aborts with "ws_url is required, or set
+    # LIVEKIT_URL". The browser uses NEXT_PUBLIC_LIVEKIT_URL (ws://localhost:7880);
+    # the agent must use the in-network service DNS name instead of localhost.
+    environment:
+      - LIVEKIT_URL=${LIVEKIT_URL:-ws://livekit-server:7880}
     # STT_ENGINE already reaches the agent via env_file; this label exposes the active
     # engine config to `docker inspect` without grepping the container environment.
     labels:

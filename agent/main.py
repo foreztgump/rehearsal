@@ -790,4 +790,15 @@ async def entrypoint(ctx: JobContext) -> None:
 
 
 if __name__ == "__main__":
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, prewarm_fnc=prewarm))
+    # prewarm() does a REAL LLM warmup — it cold-loads the model into VRAM and runs
+    # one inference. On modest / low-VRAM GPUs that can exceed livekit-agents' 10s
+    # default process-init timeout, which then SIGUSR1-kills the worker process and
+    # retries forever — cancelling the model load each time so it never goes
+    # resident (a permanent crash loop, not a slow start). Give the cold warmup
+    # room; env-tunable for fast hosts that want the tighter default back.
+    init_timeout = float(os.environ.get("AGENT_INIT_TIMEOUT_S", "300"))
+    cli.run_app(WorkerOptions(
+        entrypoint_fnc=entrypoint,
+        prewarm_fnc=prewarm,
+        initialize_process_timeout=init_timeout,
+    ))

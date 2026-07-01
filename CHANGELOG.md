@@ -30,6 +30,10 @@ All notable changes to Rehearsal are documented here. The format follows
   polluting `Require-Docker`'s boolean return via `Write-Output`).
 - `agent` now receives `LIVEKIT_URL` (compose), so the worker registers instead
   of crash-looping with "ws_url is required, or set LIVEKIT_URL".
+- The agent worker's `initialize_process_timeout` is now raised (env-tunable via
+  `AGENT_INIT_TIMEOUT_S`, default 300s) so the prewarm LLM warmup can cold-load
+  the model on modest/low-VRAM GPUs; the 10s default SIGUSR1-killed the process
+  and looped forever, never letting the model go resident.
 
 ## [0.2.0] - 2026-06-30
 
