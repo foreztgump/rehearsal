@@ -46,7 +46,7 @@ function Detect-GpuVendor {
 # --- Step 1: Docker Desktop running + daemon responds -------------------------
 function Check-DockerDaemon {
   if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-    Advise "`docker` not found — Docker Desktop is not installed or not on PATH."
+    Advise "'docker' not found — Docker Desktop is not installed or not on PATH."
     Write-Output "  Fix: install Docker Desktop (winget install -e --id Docker.DockerDesktop)."
     return
   }
@@ -70,12 +70,12 @@ function Check-Wsl2Backend {
     if ($info -match "WSL") {
       Ok "WSL2 backend detected (Docker info mentions WSL)."
     } else {
-      Advise "Could not confirm WSL2 backend from `docker info`."
+      Advise "Could not confirm WSL2 backend from 'docker info'."
       Write-Output "  Fix: Docker Desktop -> Settings -> General -> 'Use the WSL 2 based engine'."
       Write-Output "       GPU support on Windows is WSL2-backend-only."
     }
   } catch {
-    Advise "Could not query `docker info` for the WSL2 backend."
+    Advise "Could not query 'docker info' for the WSL2 backend."
   }
 }
 
@@ -89,9 +89,9 @@ function Check-NvidiaSmi {
     $null = nvidia-smi 2>$null
     if ($LASTEXITCODE -ne 0) { throw "smi failed" }
   } catch {
-    Advise "`nvidia-smi` is installed but the driver did not respond."
+    Advise "'nvidia-smi' is installed but the driver did not respond."
     Write-Output "  Fix: reinstall the NVIDIA Windows driver (includes WSL2 GPU Paravirtualization),"
-    Write-Output "       run `wsl --update`, and reboot."
+    Write-Output "       run 'wsl --update', and reboot."
     return
   }
   Ok "nvidia-smi present and the driver responds."
@@ -108,7 +108,7 @@ function Check-Toolkit {
   if ($probe -match "could not select device driver") {
     Advise "GPU not reachable from a container — NVIDIA Container Toolkit missing."
   } else {
-    Advise "GPU not reachable from a container (`docker run --gpus all` failed)."
+    Advise "GPU not reachable from a container ('docker run --gpus all' failed)."
   }
   Write-Output "  Fix: install the NVIDIA Container Toolkit inside the WSL2 distro:"
   Write-Output "       sudo apt-get install -y nvidia-docker2 && sudo systemctl restart docker"

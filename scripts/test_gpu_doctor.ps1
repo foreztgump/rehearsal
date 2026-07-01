@@ -31,6 +31,19 @@ if ($doctorSource -match 'CUDA\(\?: UMD\)\? Version') {
   Bad "gpu-doctor.ps1 missing CUDA UMD Version fallback"
 }
 
+# Guard the backtick-escape bug class: a backtick inside a double-quoted message
+# is a PowerShell escape, not decoration — e.g. "`nvidia-smi`" renders as a
+# newline followed by "vidia-smi" (the leading char is eaten). Scan the Advise /
+# Write-Output message strings and fail if any double-quoted string contains a
+# backtick. Use single quotes for command emphasis instead.
+$msgLines = $doctorSource -split "`n" | Where-Object { $_ -match '^\s*(Advise|Write-Output)\s+"' }
+$badMsgs  = $msgLines | Where-Object { $_ -match '"[^"]*`[^"]*"' }
+if ($badMsgs) {
+  Bad "gpu-doctor.ps1 has backtick escapes in message strings: $(($badMsgs | ForEach-Object { $_.Trim() }) -join ' | ')"
+} else {
+  Ok "gpu-doctor.ps1 message strings have no backtick-escape artifacts"
+}
+
 # The doctor's ordered checks need a real Windows + Docker + GPU host; the parse
 # gate + structural mirror of test_gpu_doctor.sh covers the contract here.
 $hasNvidia = Get-Command nvidia-smi -ErrorAction SilentlyContinue
