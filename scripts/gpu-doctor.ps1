@@ -11,7 +11,8 @@
 #   2. WSL2 backend selected (GPU support is WSL2-only on Windows)
 #   3. nvidia-smi present + driver responds (NVIDIA only)
 #   4. NVIDIA Container GPU probe (docker run --gpus all)
-#   5. VRAM floor >= 16384 MB
+#   5. CUDA/driver floor >= 12.8 (Blackwell / kokoro cu128)
+#   6. VRAM floor >= 16384 MB
 #
 # Run directly:        .\scripts\gpu-doctor.ps1
 # Run via the wrapper: .\up.ps1           (runs this first, then docker compose up)
@@ -26,7 +27,7 @@ $ErrorActionPreference = "Continue"   # advise-only: never stop on errors
 Set-Location $PSScriptRoot\..
 
 $VRAM_FLOOR_MB = if ($env:VRAM_FLOOR_MB) { [int]$env:VRAM_FLOOR_MB } else { 16384 }
-$CUDA_FLOOR    = if ($env:CUDA_FLOOR) { [double]$env:CUDA_FLOOR } else { 12.8 }
+$CUDA_FLOOR    = if ($env:CUDA_FLOOR) { "$env:CUDA_FLOOR" } else { "12.8" }
 $TOOLKIT_PROBE_IMAGE = if ($env:TOOLKIT_PROBE_IMAGE) { $env:TOOLKIT_PROBE_IMAGE } else { "nvidia/cuda:12.4.0-base-ubuntu22.04" }
 
 $Degraded = $false
@@ -113,7 +114,36 @@ function Check-Toolkit {
   Write-Output "       sudo apt-get install -y nvidia-docker2 && sudo systemctl restart docker"
 }
 
-# --- Step 5: VRAM floor -------------------------------------------------------
+# --- Step 5: CUDA/driver floor (mirror gpu-doctor.sh check_cuda_floor) ---------
+# nvidia-smi's header reports the MAX CUDA the installed driver supports. kokoro's
+# ...-cu128 image needs CUDA >= 12.8; a lower driver fails `up` with a cryptic runc
+# "unsatisfied condition: cuda>=12.8" — advise the driver update up front instead.
+function Check-CudaFloor {
+  if ($script:GpuVendor -ne "nvidia") { return }
+  $cuda = (nvidia-smi --query-gpu=cuda_version --format=csv,noheader 2>$null | Select-Object -First 1)
+  if ($cuda) { $cuda = $cuda.Trim() }
+  # Older drivers reject/omit the cuda_version query field — fall back to the header.
+  if (-not $cuda -or $cuda -notmatch '^[0-9]+(\.[0-9]+)?$') {
+    $m = (nvidia-smi 2>$null | Select-String -Pattern 'CUDA Version:\s*([0-9]+\.[0-9]+)')
+    if ($m) { $cuda = $m.Matches[0].Groups[1].Value } else { $cuda = $null }
+  }
+  if (-not $cuda) {
+    Advise "Could not read the driver's CUDA version (need >= $CUDA_FLOOR)."
+    Write-Output "  Fix: update your NVIDIA driver; kokoro needs CUDA >= $CUDA_FLOOR (Blackwell)."
+    return
+  }
+  # [version] compares major.minor numerically (so 12.10 > 12.8, unlike string sort).
+  $have  = [version]($(if ($cuda -match '\.') { $cuda } else { "$cuda.0" }))
+  $floor = [version]($(if ($CUDA_FLOOR -match '\.') { $CUDA_FLOOR } else { "$CUDA_FLOOR.0" }))
+  if ($have -ge $floor) {
+    Ok "Driver supports CUDA $cuda (>= $CUDA_FLOOR)."
+  } else {
+    Advise "Driver supports CUDA $cuda, but kokoro needs CUDA >= $CUDA_FLOOR (Blackwell/sm_120)."
+    Write-Output "  Fix: update your NVIDIA driver to one that advertises CUDA >= $CUDA_FLOOR."
+  }
+}
+
+# --- Step 6: VRAM floor -------------------------------------------------------
 function Check-VramFloor {
   if ($script:GpuVendor -ne "nvidia") { return }
   $vram = (nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>$null | Select-Object -First 1)
@@ -141,6 +171,8 @@ Hr
 Check-NvidiaSmi
 Hr
 Check-Toolkit
+Hr
+Check-CudaFloor
 Hr
 Check-VramFloor
 Hr
