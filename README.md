@@ -69,6 +69,10 @@ The installer checks Docker, detects the GPU profile, creates `.env`, generates 
 `LIVEKIT_API_SECRET`, asks which response models to install, builds the images,
 and pulls the selected models.
 
+Windows troubleshooting and the known gotchas (Docker Desktop PATH/first-run,
+NVIDIA driver + WSL2 GPU re-sync, stale port-proxies, CUDA 12.8 floor) are
+documented in [docs/windows-install-field-report.md](docs/windows-install-field-report.md).
+
 Already installed:
 
 ```bash
