@@ -15,21 +15,73 @@ param(
   [switch]$SkipDoctor
 )
 $ErrorActionPreference = "Stop"
-Set-Location $PSScriptRoot
-
-if ($Yes) { $env:ASSUME_YES = "1" }
-$AssumeYes = ($env:ASSUME_YES -eq "1")
 
 function Log($msg)  { Write-Output $msg }
 function Err($msg)  { Write-Host "ERROR: $msg" -ForegroundColor Red }
 
+# --- 0. curl|iex bootstrap (mirrors install.sh bootstrap_checkout) ------------
+# Makes `irm .../install.ps1 | iex` work: when run outside a checkout there is no
+# repo on disk (and no $PSScriptRoot), so clone into %USERPROFILE%\rehearsal and
+# re-invoke the cloned installer as a file. Idempotent + safe-clone, like install.sh.
+$RepoUrl    = if ($env:REHEARSAL_REPO_URL)    { $env:REHEARSAL_REPO_URL }    else { "https://github.com/foreztgump/rehearsal.git" }
+$InstallDir = if ($env:REHEARSAL_INSTALL_DIR) { $env:REHEARSAL_INSTALL_DIR } else { Join-Path ([Environment]::GetFolderPath('UserProfile')) "rehearsal" }
+
+function Test-InCheckout($dir) {
+  return (Test-Path (Join-Path $dir "docker-compose.yml")) -and
+         (Test-Path (Join-Path $dir ".env.example")) -and
+         (Test-Path (Join-Path $dir "ollama/pull-and-pin.sh"))
+}
+
+# Run as a file → $PSScriptRoot is the checkout. Piped via iex → empty, use CWD.
+$CheckoutDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+
+if (-not (Test-InCheckout $CheckoutDir)) {
+  if ($env:REHEARSAL_BOOTSTRAPPED -eq "1") {
+    Err "Installer checkout is incomplete: $CheckoutDir"
+    exit 1
+  }
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Err "git is required for the one-line install."
+    Log "Install Git for Windows (winget install -e --id Git.Git), or run:"
+    Log "  git clone $RepoUrl `"$InstallDir`""
+    exit 1
+  }
+  if ((Test-Path $InstallDir) -and -not (Test-InCheckout $InstallDir)) {
+    Err "Install directory already exists but is not a complete Rehearsal checkout:"
+    Log "  $InstallDir"
+    exit 1
+  }
+  if (-not (Test-Path $InstallDir)) {
+    Log "Cloning Rehearsal into $InstallDir..."
+    $parent = Split-Path $InstallDir -Parent
+    if ($parent -and -not (Test-Path $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+    git clone $RepoUrl $InstallDir
+    if ($LASTEXITCODE -ne 0) { Err "git clone failed."; exit 1 }
+  }
+  # Forward the bound switches explicitly ($args is empty under [CmdletBinding()]).
+  $fwd = @()
+  if ($Yes)        { $fwd += "-Yes" }
+  if ($SkipDoctor) { $fwd += "-SkipDoctor" }
+  $env:REHEARSAL_BOOTSTRAPPED = "1"
+  & (Join-Path $InstallDir "install.ps1") @fwd
+  exit $LASTEXITCODE
+}
+
+Set-Location $CheckoutDir
+
+if ($Yes) { $env:ASSUME_YES = "1" }
+$AssumeYes = ($env:ASSUME_YES -eq "1")
+
 # --- 1. Prerequisites: offer to install via winget, else guide ----------------
+# Returns a plain boolean. Guidance goes through Write-Host (NOT Log/Write-Output):
+# Write-Output inside a function is appended to the return value, which would turn
+# $dockerOk into an array and silently defeat the `if (-not $dockerOk)` gate.
 function Require-Docker {
   $dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
   if (-not $dockerCmd) {
     Err "Docker Desktop is not installed."
-    Log "Install Docker Desktop, then re-run .\install.ps1:"
-    Log "  winget install -e --id Docker.DockerDesktop"
+    Write-Host "Install Docker Desktop, then re-run .\install.ps1:"
+    Write-Host "  winget install -e --id Docker.DockerDesktop"
     return $false
   }
   try {
@@ -37,7 +89,7 @@ function Require-Docker {
     if ($LASTEXITCODE -ne 0) { throw "no compose" }
   } catch {
     Err "Docker Compose v2 not found (need the 'docker compose' subcommand)."
-    Log "  Ensure Docker Desktop is running with the WSL2 backend."
+    Write-Host "  Ensure Docker Desktop is running with the WSL2 backend."
     return $false
   }
   return $true
@@ -159,20 +211,51 @@ function Confirm {
   return ($reply -match '^[yY]')
 }
 
+# Locate Git Bash, preferring it over the System32 WSL launcher (see Build-AndPull).
+function Find-GitBash {
+  foreach ($p in @(
+      "$env:ProgramFiles\Git\bin\bash.exe",
+      "${env:ProgramFiles(x86)}\Git\bin\bash.exe",
+      "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe")) {
+    if (Test-Path $p) { return $p }
+  }
+  # Fall back to a PATH bash only if it is NOT the WSL launcher.
+  $cmd = Get-Command bash -ErrorAction SilentlyContinue
+  if ($cmd -and $cmd.Source -notlike "*\System32\bash.exe") { return $cmd.Source }
+  return $null
+}
+
 # --- 5. Build + first-run model pull + boot ----------------------------------
 function Build-AndPull {
   Log "Building images (first run pulls several GB + bakes the STT model)…"
+  # PowerShell does NOT throw on a native command's non-zero exit (even under
+  # ErrorActionPreference=Stop), so every docker step must be gated on $LASTEXITCODE
+  # explicitly — otherwise a failed build sails through to "the stack is up".
   docker compose build
+  if ($LASTEXITCODE -ne 0) { Err "Image build failed (docker compose build)."; exit 1 }
   Log "Starting ollama to pull + pin the selected models…"
   docker compose up -d ollama
+  if ($LASTEXITCODE -ne 0) { Err "Failed to start the ollama service."; exit 1 }
   $env:INSTALL_MODELS = $script:InstallModels
   $env:REHEARSAL_DEFAULT_MODEL = ($script:InstallModels -split ",")[0].Trim()
-  & ./ollama/pull-and-pin.sh
+  # pull-and-pin is a bash script that drives `docker compose exec`. Run it under
+  # Git Bash (native Windows; its `docker` is Docker Desktop's CLI). Avoid the WSL
+  # launcher at System32\bash.exe, which runs inside a WSL distro with a different
+  # cwd/paths and needs Docker Desktop WSL integration enabled.
+  $bash = Find-GitBash
+  if (-not $bash) {
+    Err "Git Bash not found — required to run ollama/pull-and-pin.sh."
+    Log "Install Git for Windows (winget install -e --id Git.Git), then re-run .\install.ps1."
+    exit 1
+  }
+  & $bash ./ollama/pull-and-pin.sh
+  if ($LASTEXITCODE -ne 0) { Err "Model pull/pin failed."; exit 1 }
   # Write the model-choices env ONLY after pull-and-pin succeeds — so .env never
   # claims a model is installed before its tag is confirmed resident.
   Write-ModelEnv
   Log "Starting the full stack…"
   docker compose up -d
+  if ($LASTEXITCODE -ne 0) { Err "Failed to start the full stack (docker compose up -d)."; exit 1 }
 }
 
 # --- main --------------------------------------------------------------------
@@ -184,7 +267,7 @@ if (-not $dockerOk) {
   if (-not $dockerOk) { exit 1 }
 }
 if ($Gpu -eq "nvidia" -and -not $SkipDoctor) {
-  & "$PSScriptRoot\scripts\gpu-doctor.ps1" 2>$null  # advise-only; never blocks
+  & (Join-Path $CheckoutDir "scripts\gpu-doctor.ps1") 2>$null  # advise-only; never blocks
 }
 Scaffold-Env
 Prompt-Models -Gpu $Gpu

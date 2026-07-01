@@ -54,6 +54,32 @@ bootstrap_checkout() {
 
 bootstrap_checkout "$@"
 
+# --- 0b. Windows: hand off to the native PowerShell installer ----------------
+# When this runs in Git Bash / MSYS / Cygwin (e.g. `curl … install.sh | bash` on
+# Windows), the Linux prerequisite path (apt/dnf/pacman) is meaningless. Delegate
+# to install.ps1, which uses the winget-based Docker Desktop path. The checkout is
+# guaranteed to exist here (bootstrap_checkout ran), so install.ps1 is on disk.
+delegate_windows() {
+  case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*) : ;;
+    *) return 0 ;;
+  esac
+  ps=""
+  for cand in pwsh powershell; do
+    if command -v "$cand" >/dev/null 2>&1; then ps="$cand"; break; fi
+  done
+  if [ -z "$ps" ]; then
+    err "Windows detected but no PowerShell found (pwsh/powershell)."
+    log "Run the native installer manually:  ./install.ps1"
+    exit 1
+  fi
+  log "Windows detected — handing off to the native PowerShell installer (install.ps1)…"
+  set -- -ExecutionPolicy Bypass -File ./install.ps1
+  [ "$ASSUME_YES" = "1" ] && set -- "$@" -Yes
+  exec "$ps" "$@"
+}
+delegate_windows
+
 # --- 1. Prerequisites: guide, do not auto-install ---------------------------
 require_docker() {
   if ! command -v docker >/dev/null 2>&1; then

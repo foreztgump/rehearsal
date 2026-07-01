@@ -4,6 +4,33 @@ All notable changes to Rehearsal are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); commits use
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [Unreleased]
+
+### Added
+- Added a Windows one-line install (`irm …/install.ps1 | iex`) that clones the
+  repo and runs the native installer, mirroring the Linux curl bootstrap.
+
+### Changed
+- `curl … install.sh | bash` now detects Windows (Git Bash / MSYS / Cygwin) and
+  hands off to the PowerShell installer instead of the Linux prerequisite path.
+- `install.ps1` now runs `ollama/pull-and-pin.sh` via Git Bash (not the WSL
+  `bash.exe` shim) with a clear error when Git Bash is absent.
+- `gpu-doctor.ps1` now checks the driver's CUDA version against the 12.8 floor
+  (parity with `gpu-doctor.sh`), advising a driver update before `up` fails with
+  a cryptic `cuda>=12.8` runtime error.
+
+### Fixed
+- Added `.gitattributes` forcing LF for shell scripts. With `core.autocrlf=true`
+  (the Git-for-Windows default) they were checked out CRLF, and `bash` inside the
+  Docker build failed on `set -o pipefail` — breaking `docker compose build` for
+  every Windows one-line install.
+- `install.ps1` now checks `$LASTEXITCODE` after each `docker compose` step; a
+  failed build previously slipped through to "the stack is up" and exited 0.
+- `install.ps1` Docker-missing gate now stops correctly (the guidance text was
+  polluting `Require-Docker`'s boolean return via `Write-Output`).
+- `agent` now receives `LIVEKIT_URL` (compose), so the worker registers instead
+  of crash-looping with "ws_url is required, or set LIVEKIT_URL".
+
 ## [0.2.0] - 2026-06-30
 
 ### Added

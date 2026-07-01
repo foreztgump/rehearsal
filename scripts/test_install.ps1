@@ -27,6 +27,29 @@ if (Test-Parse "$PSScriptRoot\..\install.ps1") { Ok "install.ps1 parses" } else 
 if (Test-Parse "$PSScriptRoot\..\up.ps1")      { Ok "up.ps1 parses" }      else { Bad "up.ps1 syntax" }
 if (Test-Parse "$PSScriptRoot\..\down.ps1")    { Ok "down.ps1 parses" }    else { Bad "down.ps1 syntax" }
 
+# --- Bootstrap: Test-InCheckout detection (real logic, extracted via AST) -----
+# Pull the real function body out of install.ps1 and exercise it against a fresh
+# empty dir (→ not a checkout, so the one-liner clones) and a stub checkout
+# (→ detected, so it runs in place). No docker/git/network needed.
+$installPath = "$PSScriptRoot\..\install.ps1"
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($installPath, [ref]$null, [ref]$null)
+$fnAst = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Test-InCheckout' }, $true) | Select-Object -First 1
+if ($fnAst) {
+  Invoke-Expression $fnAst.Extent.Text   # defines Test-InCheckout in this scope
+  $empty = Join-Path ([IO.Path]::GetTempPath()) ("rh_empty_" + [guid]::NewGuid().ToString("N"))
+  $stub  = Join-Path ([IO.Path]::GetTempPath()) ("rh_stub_"  + [guid]::NewGuid().ToString("N"))
+  New-Item -ItemType Directory -Force -Path $empty | Out-Null
+  New-Item -ItemType Directory -Force -Path (Join-Path $stub "ollama") | Out-Null
+  Set-Content (Join-Path $stub "docker-compose.yml") ""
+  Set-Content (Join-Path $stub ".env.example") ""
+  Set-Content (Join-Path $stub "ollama/pull-and-pin.sh") ""
+  if (-not (Test-InCheckout $empty)) { Ok "Test-InCheckout: empty dir → not a checkout" } else { Bad "Test-InCheckout: false positive on empty dir" }
+  if (Test-InCheckout $stub)         { Ok "Test-InCheckout: stub checkout → detected" }     else { Bad "Test-InCheckout: false negative on stub checkout" }
+  Remove-Item -Recurse -Force $empty, $stub -ErrorAction SilentlyContinue
+} else {
+  Bad "Test-InCheckout function not found in install.ps1"
+}
+
 # --- Scenario A: Docker missing → guidance (mocked) -------------------------
 # Mock docker as a missing command by shadowing it in a clean session.
 # ponytail: full PATH-shim isolation is awkward in PS; the parse check above +

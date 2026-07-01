@@ -41,7 +41,25 @@ Already cloned:
 ./install.sh
 ```
 
-Windows PowerShell:
+Windows one-line install (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/foreztgump/rehearsal/master/install.ps1 | iex
+```
+
+That clones Rehearsal into `%USERPROFILE%\rehearsal` and runs the local installer,
+offering to install Docker Desktop + Ollama via winget. To accept the plan
+non-interactively, or choose another location, use the script-block form:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/foreztgump/rehearsal/master/install.ps1))) -Yes
+$env:REHEARSAL_INSTALL_DIR = "D:\apps\rehearsal"; irm https://raw.githubusercontent.com/foreztgump/rehearsal/master/install.ps1 | iex
+```
+
+The `curl … install.sh | bash` command above also works on Windows from Git Bash —
+it detects Windows and hands off to the same PowerShell installer.
+
+Already cloned (Windows):
 
 ```powershell
 .\install.ps1

@@ -31,7 +31,7 @@ bash -n down.sh    && ok "down.sh parses"    || bad "down.sh syntax"
 
 # Build a throwaway working copy so we never touch the real .env / run real docker.
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
-cp install.sh down.sh "$WORK"/
+cp install.sh down.sh install.ps1 "$WORK"/
 cp .env.example "$WORK"/
 : > "$WORK/docker-compose.yml"
 mkdir -p "$WORK/scripts" "$WORK/ollama"
@@ -122,6 +122,24 @@ if [ "${rcd:-1}" -eq 0 ] \
 else
   bad "Scenario D: curl-style bootstrap incomplete (rc=$rcd)"
   printf -- '------ install output ------\n%s\n----------------------------\n' "$(cat "$WORK/pipe/d.out")"
+fi
+
+# --- Scenario E: Windows (MINGW) delegates to the PowerShell installer -------
+# Mock uname → a Windows value and provide a pwsh stub. install.sh must hand off
+# to install.ps1 (exec pwsh -File ./install.ps1 -Yes) and never reach the Linux
+# prerequisite / plan path. No docker stub needed: delegation happens first.
+BIN_E="$WORK/bin_e"; build_path "$BIN_E"
+make_shim "$BIN_E" uname 'echo MINGW64_NT-10.0-26100'
+make_shim "$BIN_E" pwsh  'echo "pwsh $*" > "$PWD/pwsh.log"; exit 0'
+( cd "$WORK" && env -i PATH="$BIN_E" ASSUME_YES=1 bash install.sh -y >e.out 2>&1 ) && rce=0 || rce=$?
+if [ "${rce:-1}" -eq 0 ] \
+   && grep -q -- '-File ./install.ps1' "$WORK/pwsh.log" 2>/dev/null \
+   && grep -q -- '-Yes' "$WORK/pwsh.log" 2>/dev/null \
+   && ! grep -qi 'setup plan' "$WORK/e.out"; then
+  ok "Scenario E: Windows delegates to install.ps1 (skips the Linux path)"
+else
+  bad "Scenario E: Windows delegation incomplete (rc=$rce)"
+  printf -- '------ install output ------\n%s\n----------------------------\n' "$(cat "$WORK/e.out")"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
