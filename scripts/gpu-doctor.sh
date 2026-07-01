@@ -145,7 +145,10 @@ check_cuda_floor() {
   # older drivers lack the field entirely. Accept the value ONLY if it looks like a
   # version number; otherwise fall back to parsing nvidia-smi's textual header.
   case "${cuda}" in
-    ''|*[!0-9.]*) cuda="$(nvidia-smi 2>/dev/null | sed -n 's/.*CUDA Version: \([0-9][0-9.]*\).*/\1/p' | head -1 || true)" ;;
+    ''|*[!0-9.]*)
+      cuda="$(nvidia-smi 2>/dev/null \
+        | sed -n 's/.*CUDA Version: \([0-9][0-9.]*\).*/\1/p; s/.*CUDA UMD Version: \([0-9][0-9.]*\).*/\1/p' \
+        | head -1 || true)" ;;
   esac
   if [ -z "${cuda}" ]; then
     advise "Could not read the driver's CUDA version (need >= ${CUDA_FLOOR})."
@@ -241,7 +244,7 @@ print_amd_advice() {
   printf '  STT_BUFFERED_DEVICE=cpu\n'
   printf '  STT_FORCE_CPU=1\n\n'
   printf 'Caution: first ROCm boot may spend time in MIOpen warmup/compilation.\n'
-  printf 'Verify with docs/r6-amd-rocm-verify.md.\n'
+  printf 'See INSTALLATION.md for AMD platform notes.\n'
   hr
 }
 

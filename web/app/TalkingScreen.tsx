@@ -6,7 +6,6 @@ import type { ReactNode } from "react";
 import AgentStatePill from "./AgentStatePill";
 import SegmentedToggle from "./SegmentedToggle";
 import SettingsDrawer from "./SettingsDrawer";
-import SttDebugWindow from "./SttDebugWindow";
 import Transcript from "./Transcript";
 import Visualizer from "./Visualizer";
 import type { LiveConfigField, SessionConfig } from "./VoiceRoom";
@@ -199,7 +198,6 @@ export default function TalkingScreen({
         onInvalidateConfigApplies={onInvalidateConfigApplies}
         onConfigChange={onConfigChange}
       />
-      <SttDebugWindow />
     </div>
   );
 }

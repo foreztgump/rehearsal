@@ -26,9 +26,9 @@ cat > "${SHIM_DIR}/nvidia-smi" <<'SMI'
 #!/usr/bin/env bash
 [ "${FAKE_SMI:-ok}" = "broken" ] && exit 1
 case "$*" in
-  *cuda_version*)  echo "${FAKE_SMI_CUDA:-12.8}" ;;
+  *cuda_version*)  [ "${FAKE_SMI_QUERY_FAIL:-0}" = "1" ] && { echo "Field 'cuda_version' is not a valid field to query"; exit 1; }; echo "${FAKE_SMI_CUDA:-12.8}" ;;
   *memory.total*)  echo "${FAKE_SMI_VRAM:-32607}" ;;
-  *)               echo "fake nvidia-smi: GPU 0: NVIDIA (CUDA Version: ${FAKE_SMI_CUDA:-12.8})" ;;
+  *)               echo "fake nvidia-smi: GPU 0: NVIDIA (${FAKE_SMI_HEADER_LABEL:-CUDA Version}: ${FAKE_SMI_CUDA:-12.8})" ;;
 esac
 exit 0
 SMI
@@ -85,6 +85,7 @@ run_doctor() {
   done
   DOCTOR_OUT="$(env -i PATH="${tmpdir}" \
     FAKE_SMI="${FAKE_SMI:-}" FAKE_SMI_CUDA="${FAKE_SMI_CUDA:-}" FAKE_SMI_VRAM="${FAKE_SMI_VRAM:-}" \
+    FAKE_SMI_QUERY_FAIL="${FAKE_SMI_QUERY_FAIL:-}" FAKE_SMI_HEADER_LABEL="${FAKE_SMI_HEADER_LABEL:-}" \
     FAKE_DOCKER="${FAKE_DOCKER:-}" AMD_DEVICE_ROOT="${AMD_DEVICE_ROOT}" \
     "${BASH}" "${DOCTOR}" 2>&1)"
   DOCTOR_RC=$?
@@ -177,6 +178,14 @@ assert_scenario "vram-sub-spec" "will not co-reside" "degraded"
 reset_fake_amd_devices
 FAKE_SMI_CUDA="12.8" FAKE_SMI_VRAM="32607" FAKE_DOCKER="ok" run_doctor ""
 assert_scenario "all-ok" "OK: GPU ready." "gpu"
+
+# 5a. Newer Windows drivers can reject the cuda_version query field and print
+# "CUDA UMD Version" in the header. The fallback parser must accept that label.
+reset_fake_amd_devices
+FAKE_SMI_CUDA="13.3" FAKE_SMI_VRAM="32607" FAKE_DOCKER="ok" \
+  FAKE_SMI_QUERY_FAIL="1" FAKE_SMI_HEADER_LABEL="CUDA UMD Version" run_doctor ""
+assert_scenario "cuda-umd-header-fallback" "Driver supports CUDA 13.3" "gpu"
+FAKE_SMI_QUERY_FAIL="" FAKE_SMI_HEADER_LABEL=""
 
 # --- R3: STT engine recommendation per detected VRAM (advise-only) ---------------
 reset_fake_amd_devices

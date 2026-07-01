@@ -123,8 +123,9 @@ function Check-CudaFloor {
   $cuda = (nvidia-smi --query-gpu=cuda_version --format=csv,noheader 2>$null | Select-Object -First 1)
   if ($cuda) { $cuda = $cuda.Trim() }
   # Older drivers reject/omit the cuda_version query field — fall back to the header.
+  # Newer Windows drivers can label it "CUDA UMD Version" instead.
   if (-not $cuda -or $cuda -notmatch '^[0-9]+(\.[0-9]+)?$') {
-    $m = (nvidia-smi 2>$null | Select-String -Pattern 'CUDA Version:\s*([0-9]+\.[0-9]+)')
+    $m = (nvidia-smi 2>$null | Select-String -Pattern 'CUDA(?: UMD)? Version:\s*([0-9]+\.[0-9]+)')
     if ($m) { $cuda = $m.Matches[0].Groups[1].Value } else { $cuda = $null }
   }
   if (-not $cuda) {

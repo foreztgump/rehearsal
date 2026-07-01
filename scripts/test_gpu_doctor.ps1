@@ -24,6 +24,13 @@ function Test-Parse($path) {
 
 if (Test-Parse "$PSScriptRoot\gpu-doctor.ps1") { Ok "gpu-doctor.ps1 parses" } else { Bad "gpu-doctor.ps1 syntax" }
 
+$doctorSource = Get-Content "$PSScriptRoot\gpu-doctor.ps1" -Raw
+if ($doctorSource -match 'CUDA\(\?: UMD\)\? Version') {
+  Ok "gpu-doctor.ps1 accepts CUDA UMD Version header"
+} else {
+  Bad "gpu-doctor.ps1 missing CUDA UMD Version fallback"
+}
+
 # The doctor's ordered checks need a real Windows + Docker + GPU host; the parse
 # gate + structural mirror of test_gpu_doctor.sh covers the contract here.
 $hasNvidia = Get-Command nvidia-smi -ErrorAction SilentlyContinue

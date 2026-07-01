@@ -196,6 +196,7 @@ function Print-Plan {
   Log "          (+ nemo-stt on GPU, opt-in via --profile stt-gpu)"
   Log "GPU vendor detected: $Gpu"
   Log "Models to install: $Models"
+  Log "Install guide: INSTALLATION.md (prereqs, platform notes, download sizes)"
   if ($Gpu -eq "nvidia") {
     Log "STT placement: CPU-ONNX by default (STT_FORCE_CPU=1, VRAM-safe). GPU STT is"
     Log "  opt-in after the co-residency matrix passes (docker compose --profile stt-gpu)."
@@ -283,3 +284,4 @@ Log "  Start:  .\up.ps1 -d        (preflight + docker compose up -d)"
 Log "  Stop:   .\down.ps1         (docker compose down)"
 Log "  Logs:   docker compose logs -f agent"
 Log "Open the web UI at the NEXT_PUBLIC_LIVEKIT_URL host configured in .env."
+Log "Install guide: INSTALLATION.md"

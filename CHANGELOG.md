@@ -9,6 +9,8 @@ All notable changes to Rehearsal are documented here. The format follows
 ### Added
 - Added a Windows one-line install (`irm …/install.ps1 | iex`) that clones the
   repo and runs the native installer, mirroring the Linux curl bootstrap.
+- Added `INSTALLATION.md` with platform prerequisites, first-run download
+  size expectations, troubleshooting, and an AI-agent install prompt.
 
 ### Changed
 - `curl … install.sh | bash` now detects Windows (Git Bash / MSYS / Cygwin) and
@@ -18,6 +20,7 @@ All notable changes to Rehearsal are documented here. The format follows
 - `gpu-doctor.ps1` now checks the driver's CUDA version against the 12.8 floor
   (parity with `gpu-doctor.sh`), advising a driver update before `up` fails with
   a cryptic `cuda>=12.8` runtime error.
+- README is shorter and points detailed install guidance to `INSTALLATION.md`.
 
 ### Fixed
 - Added `.gitattributes` forcing LF for shell scripts. With `core.autocrlf=true`
@@ -34,6 +37,9 @@ All notable changes to Rehearsal are documented here. The format follows
   `AGENT_INIT_TIMEOUT_S`, default 300s) so the prewarm LLM warmup can cold-load
   the model on modest/low-VRAM GPUs; the 10s default SIGUSR1-killed the process
   and looped forever, never letting the model go resident.
+- GPU doctor CUDA parsing now accepts the newer `CUDA UMD Version` header when
+  `nvidia-smi --query-gpu=cuda_version` is unavailable.
+- The STT debug window no longer mounts in the main talking UI.
 
 ## [0.2.0] - 2026-06-30
 
