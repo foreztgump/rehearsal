@@ -47,6 +47,7 @@ from models import MODEL_CHOICES, default_model_choice, resolved_model_tag
 from placement import resolve_stt_placement
 from kb import KB_AGGREGATE_MAX_TOKENS, KB_MAX_RAW_BYTES, DistillError, KbParseError, ParsedDoc
 from kb import distill as kb_distill
+from kb import kb_aggregate_is_full
 from kb import parse as kb_parse
 from persona import (
     CORRECTION,
@@ -750,6 +751,18 @@ async def entrypoint(ctx: JobContext) -> None:
             # uploads from a multi-file pick apply atomically in arrival order instead of
             # interleaving at their await points.
             async with ingest_lock:
+                # O3: pre-parse aggregate short-circuit. If the session is already at
+                # KB_AGGREGATE_MAX_TOKENS, EVERY accepted doc adds >= 1 token, so the
+                # post-parse M2 guard below is guaranteed to reject this upload — skip the
+                # CPU-heavy PyMuPDF/docx parse (which runs under this lock and would block
+                # the next upload) and surface the same "KB is full" error directly.
+                if kb_aggregate_is_full(sum(d.token_estimate for d in session_kb.docs)):
+                    await set_kb_state(
+                        status="error",
+                        docs=len(session_kb.docs),
+                        error="KB is full — remove material or upload less to add more",
+                    )
+                    return
                 await set_kb_state(status="parsing", docs=len(session_kb.docs))
                 # Offload the synchronous, CPU-heavy PyMuPDF / python-docx parse to a worker
                 # thread (H3): running it inline on the agent's single event-loop thread would

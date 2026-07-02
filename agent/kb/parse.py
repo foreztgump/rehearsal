@@ -60,6 +60,19 @@ KB_MAX_TOKENS: int = 24000      # over → reject this doc with a clear error (R
 # is already allowed to be (coupled to OLLAMA_CONTEXT_LENGTH the same way).
 KB_AGGREGATE_MAX_TOKENS: int = KB_MAX_TOKENS
 
+
+def kb_aggregate_is_full(current_total: int) -> bool:
+    """PURE (O3): True when a session already holding `current_total` estimated tokens
+    cannot accept ANY further doc, so ingest_kb can skip the CPU-heavy parse entirely.
+
+    Every doc that clears the extraction gate has >= MIN_USEFUL_CHARS chars, i.e.
+    token_estimate >= 1, so once the running total reaches KB_AGGREGATE_MAX_TOKENS the
+    post-parse M2 guard (`current_total + new > KB_AGGREGATE_MAX_TOKENS`) is guaranteed
+    to reject. Short-circuiting here only skips a GUARANTEED-rejected parse — it never
+    changes which docs are accepted (the exact accept/reject call still belongs to the
+    post-parse guard, which knows the real token_estimate)."""
+    return current_total >= KB_AGGREGATE_MAX_TOKENS
+
 # RESOURCE ceilings enforced BEFORE the (memory-heavy) extraction step, so a large
 # or maliciously-crafted upload cannot OOM-kill the worker before the token guard
 # (which only measures EXTRACTED text) ever runs.
