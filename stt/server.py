@@ -473,14 +473,22 @@ async def _stream_loop(websocket: WebSocket, state: dict) -> None:
 
 
 def _raw_endpoint_ready(state: dict, pcm: bytes) -> bool:
-    """Track real incoming silence so endpointing is not quantized to decode chunks."""
-    if not _PRIMARY_STREAMS:
-        return False
+    """Track real incoming silence so endpointing is not quantized to decode chunks.
+
+    O7: this now serves BOTH primary modes. The raw-silence accumulator measures the
+    ACTUAL incoming audio, so end-of-utterance fires the moment real silence crosses
+    ENDPOINT_SILENCE_MS instead of on the next decode-chunk boundary (up to ~STREAM_
+    CHUNK_MS late). The only difference per mode is the "has spoken" gate:
+      * streaming — _final_pending (a non-empty transcript exists to finalize);
+      * buffered  — _voiced (acoustic energy has been seen this turn; there is no
+        growing transcript to gate on). _emit_buffered still owns the chunk-grid
+        fallback, so a missed raw frame can't strand the turn."""
     if rms_int16(pcm) >= ENERGY_SILENCE_RMS:
         state["_raw_silence_ms"] = 0
         return False
+    has_spoken = state.get("_final_pending") if _PRIMARY_STREAMS else state.get("_voiced")
     state["_raw_silence_ms"] = state.get("_raw_silence_ms", 0) + _pcm_duration_ms(pcm)
-    return bool(state.get("_final_pending")) and state["_raw_silence_ms"] >= ENDPOINT_SILENCE_MS
+    return bool(has_spoken) and state["_raw_silence_ms"] >= ENDPOINT_SILENCE_MS
 
 
 def _pcm_duration_ms(pcm: bytes) -> int:
@@ -488,9 +496,15 @@ def _pcm_duration_ms(pcm: bytes) -> int:
 
 
 async def _finish_on_raw_silence(websocket: WebSocket, state: dict, buf: bytearray) -> bytearray:
-    """Drain a partial decode chunk, then finalize if the stream is still pending."""
+    """Drain a partial decode chunk, then finalize the turn (O7: both primary modes).
+
+    Streaming finalizes when a transcript is pending (_final_pending). Buffered has no
+    interim transcript, so it finalizes when the turn has gone voiced — matching the
+    chunk-grid EOU in _emit_buffered, just fired on real silence instead of on the next
+    decode-chunk boundary."""
     buf = await _drain_buffer(websocket, state, buf)
-    if state.get("_final_pending"):
+    finalize = state.get("_final_pending") if _PRIMARY_STREAMS else state.get("_voiced")
+    if finalize:
         await _run_finalize(websocket, state, timed=_ACCUMULATE_PCM)
     return buf
 

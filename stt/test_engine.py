@@ -1057,6 +1057,43 @@ def _assert_raw_silence_endpoint_is_not_chunk_quantized() -> None:
     assert final is not None, f"raw 700 ms silence must emit final, got {ws.sent!r}"
 
 
+def _assert_buffered_raw_silence_endpoint_is_not_chunk_quantized() -> None:
+    """O7: the buffered path must end a turn on raw incoming silence at ENDPOINT_SILENCE_MS,
+    not quantized to the decode-chunk grid. Feed voiced audio, then SUB-CHUNK silence
+    frames that sum to exactly the endpoint window but never fill a full decode chunk —
+    the old buffered path (which counts only full silence chunks) would never finalize,
+    while the raw tracker fires as soon as the real silence crosses the window."""
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub, _FakeWebSocket, _run_async
+
+    stub = types.ModuleType("backend_parakeet")
+    stub.STREAMS = False
+    stub.load_model = lambda: {}
+    stub.new_stream_state = lambda m: {"_turn_pcm": bytearray()}
+    stub.decode_chunk = lambda m, s, pcm: ""
+    stub.finalize = lambda m, s: f"buffered:{len(s['_turn_pcm'])}"
+    stub.reset_turn_state = lambda s: s.update(_turn_pcm=bytearray())
+    sys.modules["backend_parakeet"] = stub
+    _install_fastapi_stub()
+    os.environ["STT_ENGINE"] = "buffered"; os.environ["STT_RUNTIME"] = "cpu"
+    os.environ["STT_ONNX_MODEL"] = "x"; os.environ["STT_PARAKEET_MODEL"] = "x"
+    os.environ["STT_STREAM_CHUNK_MS"] = "560"; os.environ["STT_ENDPOINT_SILENCE_MS"] = "700"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    chunk = server._STREAM_CHUNK_BYTES
+    voiced = b"\x40\x10" * (chunk // 2)   # one loud decode chunk → marks _voiced
+    raw_silence = b"\x00\x00" * 320       # 20 ms sub-chunk silence (never a full chunk)
+    # 700 ms window / 20 ms = 35 sub-chunk frames of silence; add a couple for the ceil.
+    frames = [{"bytes": voiced}] + [{"bytes": raw_silence} for _ in range(37)] + \
+             [{"type": "websocket.disconnect"}]
+    ws = _FakeWebSocket(frames)
+    _run_async(server.ws_stream(ws))
+    final = next((m for m in ws.sent if m.get("type") == "final"), None)
+    assert final is not None, (
+        f"buffered raw 700 ms sub-chunk silence must emit a final, got {ws.sent!r}")
+    assert final["text"].startswith("buffered:"), "final must come from the buffered backend"
+
+
 def _self_check() -> None:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     _assert_parakeet_imports_without_ort()
@@ -1088,7 +1125,8 @@ def _self_check() -> None:
     _assert_max_connections_guard()
     _assert_config_handshake_is_guarded()
     _assert_raw_silence_endpoint_is_not_chunk_quantized()
-    print("engine _self_check OK — seam, GPU buffered Parakeet, hybrid, voiced-stall EOU, trimmed PCM, debug WAV, I1 finalize-boundary, M2 reset-pcm, F2 streaming-dur-ms, raw-silence EOU, F7 buffered-silence-trim, F8 offline-lock+size+wav-validation",
+    _assert_buffered_raw_silence_endpoint_is_not_chunk_quantized()
+    print("engine _self_check OK — seam, GPU buffered Parakeet, hybrid, voiced-stall EOU, trimmed PCM, debug WAV, I1 finalize-boundary, M2 reset-pcm, F2 streaming-dur-ms, raw-silence EOU, O7 buffered-raw-silence EOU, F7 buffered-silence-trim, F8 offline-lock+size+wav-validation",
           file=sys.stderr)
 
 
