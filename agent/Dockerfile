@@ -5,7 +5,11 @@
 # + MultilingualModel turn-detector weights into the image at build time with
 # `download-files`, so the container starts fully offline-capable (no weight
 # download at runtime, no network egress — PERF-03 / DEPLOY-02).
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+# F34: digest-pin the base (was the moving ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+# tag, which floats uv + the python patch). The tag is kept in the comment for
+# readability; the @sha256 is the reproducible reference. Re-resolve with
+# `docker buildx imagetools inspect ghcr.io/astral-sh/uv:python3.12-bookworm-slim`.
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58
 
 WORKDIR /app
 
@@ -39,6 +43,21 @@ COPY nemo_stt.py placement.py captioned_tts.py ./
 COPY endpointing.py captioned_gate.py transcript_gate.py transcript_debug.py ./
 # The KB parser package (Plan 04-01) — pure, livekit-free; copied as a directory.
 COPY kb/ ./kb/
+
+# F34: run as a non-root user. The agent parses UNTRUSTED uploads with native-code
+# parsers (PyMuPDF, python-docx — both have CVE history); doing that as container
+# root widens the blast radius of a parser exploit. Create an unprivileged user and
+# own /app (the baked venv + weights) so it can read them. --system: no login/home.
+RUN groupadd --system app && useradd --system --gid app --no-create-home app \
+    && chown -R app:app /app
+USER app
+
+# F34: liveness probe. The worker has no HTTP port (it dials livekit-server
+# outbound), so probe that the interpreter + the heavy import graph still resolve
+# — a crash-looping import (a bad dep bump) then surfaces as unhealthy instead of a
+# silently dead worker. Python urllib/import only (no curl in the slim base).
+HEALTHCHECK --start-period=60s --interval=30s --timeout=10s --retries=3 \
+    CMD ["python", "-c", "import livekit.agents, main"]
 
 # Run the LiveKit worker. `start` connects to livekit-server, runs the startup
 # warmup, emits the one real metric, and registers — no live voice turn yet.

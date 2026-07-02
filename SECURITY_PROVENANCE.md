@@ -34,7 +34,7 @@ provenance scrutiny before public access.
 | `ghcr.io/remsky/kokoro-fastapi-gpu:v0.5.0-cu128` | `docker-compose.yml` | https://github.com/remsky/Kokoro-FastAPI | tag-pinned | NVIDIA CUDA 12.8 TTS image. |
 | `ghcr.io/remsky/kokoro-fastapi-cpu:v0.5.0` | `docker-compose.cpu-tts.yml` | https://github.com/remsky/Kokoro-FastAPI | tag-pinned | CPU TTS override. |
 | `ghcr.io/remsky/kokoro-fastapi-rocm:v0.5.0` | `docker-compose.amd.yml` | https://github.com/remsky/Kokoro-FastAPI | tag-pinned | AMD ROCm TTS override. |
-| `ghcr.io/astral-sh/uv:python3.12-bookworm-slim` | `agent/Dockerfile` | https://github.com/astral-sh/uv | tag-pinned | Agent base image. |
+| `ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587…` | `agent/Dockerfile` | https://github.com/astral-sh/uv | digest-pinned | Agent base image (F34: pinned by @sha256 — the bare tag floats uv + the python patch). |
 | `nvcr.io/nvidia/nemo:25.11` | `stt/Dockerfile`, `stt/Dockerfile.cpu` export stage | https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo | tag-pinned | NeMo/STT build and GPU runtime base. |
 | `python:3.11-slim` | `stt/Dockerfile.cpu` runtime stage | https://hub.docker.com/_/python | tag-pinned | CPU STT runtime base. |
 | `node:24-bookworm-slim` | `web/Dockerfile` | https://hub.docker.com/_/node | tag-pinned | Next.js build/runtime base. |
