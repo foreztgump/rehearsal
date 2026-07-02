@@ -941,6 +941,29 @@ def _run_handshake(mode: str):
     return ws, raised
 
 
+def _assert_debug_hybrid_exposure_warning() -> None:
+    """F37: STT_DEBUG_HYBRID=1 serves recent raw mic audio + transcripts unauthenticated
+    on the published port. It is default-off, but when enabled the server must emit a
+    loud startup warning so the operator knows the exposure is live. The decision is a
+    pure helper: a non-empty warning iff the flag is on."""
+    import importlib
+    from test_dispatch import _install_fastapi_stub
+
+    _install_fastapi_stub()
+    for flag, want_warning in (("1", True), ("0", False)):
+        os.environ["STT_ENGINE"] = "buffered"; os.environ["STT_RUNTIME"] = "cpu"
+        os.environ["STT_ONNX_MODEL"] = "x"; os.environ["STT_DEBUG_HYBRID"] = flag
+        sys.modules.pop("server", None)
+        server = importlib.import_module("server")
+        warning = server._debug_hybrid_warning()
+        if want_warning:
+            assert warning, "STT_DEBUG_HYBRID=1 must produce a startup exposure warning"
+            assert "STT_DEBUG_HYBRID" in warning and "audio" in warning.lower(), warning
+        else:
+            assert warning == "", f"default-off flag must produce no warning, got {warning!r}"
+    os.environ["STT_DEBUG_HYBRID"] = "0"
+
+
 def _assert_config_handshake_is_guarded() -> None:
     """F25: the config handshake was outside any guard and unbounded. Assert all three
     failure modes are now handled cleanly: no exception leaks out of ws_stream, no
@@ -1011,6 +1034,7 @@ def _self_check() -> None:
     _assert_reset_turn_pcm_safe()
     _assert_streaming_eou_dur_ms()
     _assert_no_spurious_empty_delta_after_final()
+    _assert_debug_hybrid_exposure_warning()
     _assert_config_handshake_is_guarded()
     _assert_raw_silence_endpoint_is_not_chunk_quantized()
     print("engine _self_check OK — seam, GPU buffered Parakeet, hybrid, voiced-stall EOU, trimmed PCM, debug WAV, I1 finalize-boundary, M2 reset-pcm, F2 streaming-dur-ms, raw-silence EOU, F7 buffered-silence-trim, F8 offline-lock+size+wav-validation",

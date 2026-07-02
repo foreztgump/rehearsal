@@ -101,16 +101,3 @@ export function avatarForPersona(name: string | null | undefined): AvatarSpec {
   }
   return DEFAULT_AVATAR;
 }
-
-// Responsive framing (AVTR-10). The default GLB is a half-body model; frame tighter
-// on small viewports so the face stays readable. TalkingHead views: head < upper <
-// mid < full. Mobile → head; tablet → upper (head-and-shoulders); desktop → full
-// (half-body). Pure helper so the breakpoints are named, not magic.
-export const AVATAR_VIEW_MOBILE_MAX_PX = 600;
-export const AVATAR_VIEW_TABLET_MAX_PX = 1024;
-
-export function viewForWidth(width: number): "head" | "upper" | "full" {
-  if (width <= AVATAR_VIEW_MOBILE_MAX_PX) return "head";
-  if (width <= AVATAR_VIEW_TABLET_MAX_PX) return "upper";
-  return "full";
-}

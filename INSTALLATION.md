@@ -212,7 +212,6 @@ agent restart loop is not.
 | Browser cannot connect after WSL restart | Docker port proxies are stale. | Run `docker compose down`, then `docker compose up -d`. |
 | Agent crash-loops with `ws_url is required` | Missing `LIVEKIT_URL`. | PR #1 fixes this in compose; rebuild from the latest branch. |
 | Agent loops during prewarm | Cold model load exceeded worker init timeout. | PR #1 raises `AGENT_INIT_TIMEOUT_S` default to 300s. |
-| `/api/stt-debug` 502 | GPU STT debug endpoint is not running in default CPU-STT mode. | Harmless; the frontend debug window is disabled. |
 
 ## AI-Agent Install Prompt
 

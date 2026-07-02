@@ -153,10 +153,30 @@ _ready: bool = False
 _gpu_lock = asyncio.Lock()
 
 
+def _debug_hybrid_warning() -> str:
+    """F37: warning string for the STT_DEBUG_HYBRID exposure, or "" when off.
+
+    With the flag on, /debug/hybrid serves recent RAW MIC AUDIO + transcripts with no
+    auth on the LAN-published port (loopback is the real boundary — see docs/lan-
+    exposure.md). Default-off; when an operator turns it on, the server must say so
+    loudly at startup. Pure so the decision is unit-testable without booting uvicorn.
+    """
+    if not STT_DEBUG_HYBRID:
+        return ""
+    return (
+        "STT_DEBUG_HYBRID=1: /debug/hybrid is serving recent raw microphone audio + "
+        "transcripts UNAUTHENTICATED on the published port. Keep LAN_BIND_IP on loopback "
+        "(127.0.0.1) or disable this flag in production (see docs/lan-exposure.md)."
+    )
+
+
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Load primary (+ final, if distinct) resident at startup; keep forever."""
     global _primary_model, _final_model, _ready
+    warning = _debug_hybrid_warning()
+    if warning:
+        logger.warning(warning)
     _primary_model = await asyncio.to_thread(_primary.load_model)
     _final_model = _primary_model if _final is _primary else await asyncio.to_thread(_final.load_model)
     _ready = True
@@ -178,7 +198,12 @@ async def health() -> Response:
 
 @app.get("/debug/hybrid")
 async def debug_hybrid() -> Response:
-    """Temporary in-memory STT debug feed for comparing NeMo, Parakeet, and audio."""
+    """Temporary in-memory STT debug feed for comparing NeMo, Parakeet, and audio.
+
+    F37: when STT_DEBUG_HYBRID=1 this returns recent RAW MIC AUDIO + transcripts with
+    no auth. It is default-off and empty unless the flag is set (loopback LAN_BIND_IP
+    is the real boundary); the server logs a loud exposure warning at startup when on.
+    """
     payload = {
         "enabled": STT_DEBUG_HYBRID,
         "engine": ENGINE,
