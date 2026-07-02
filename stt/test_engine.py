@@ -327,6 +327,48 @@ def _assert_buffered_never_voiced_stays_bounded() -> None:
         f"never-voiced buffer must stay ring-bounded, grew to {len(state['_turn_pcm'])} bytes")
 
 
+def _assert_hybrid_turn_pcm_stays_bounded() -> None:
+    """F23: hybrid/streaming _turn_pcm had no cap. Continuous above-threshold NON-speech
+    noise (fan/music) decodes to empty text, so _final_pending never flips and no EOU
+    fires — the buffer grew ~1.9 MB/min per connection forever. Drives _emit_streaming
+    directly with noise that never decodes; _turn_pcm must stay bounded by the cap."""
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub, _FakeWebSocket, _run_async
+
+    prim = types.ModuleType("backend_nemo"); prim.STREAMS = True
+    prim.load_model = lambda: {}
+    prim.new_stream_state = lambda m: {"text": ""}
+    prim.decode_chunk = lambda m, s, pcm: ""      # noise never decodes to text
+    prim.finalize = lambda m, s: ""
+    prim.reset_turn_state = lambda s: s.update(text="")
+    fin = types.ModuleType("backend_parakeet"); fin.STREAMS = False
+    fin.load_model = lambda: {}
+    fin.new_stream_state = lambda m: {"_turn_pcm": bytearray()}
+    fin.decode_chunk = lambda m, s, pcm: ""
+    fin.finalize = lambda m, s: f"P:{len(s.get('_turn_pcm', b''))}"
+    fin.reset_turn_state = lambda s: s.update(_turn_pcm=bytearray())
+    sys.modules["backend_nemo"] = prim; sys.modules["backend_parakeet"] = fin
+    _install_fastapi_stub()
+    os.environ["STT_ENGINE"] = "hybrid"; os.environ["STT_RUNTIME"] = "gpu"
+    os.environ["STT_MODEL"] = "x"; os.environ["STT_PARAKEET_MODEL"] = "x"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    chunk = server._STREAM_CHUNK_BYTES
+    noise = b"\x40\x10" * (chunk // 2)   # RMS 4160 >= ENERGY_SILENCE_RMS: above threshold, non-silent
+    n = server._MAX_BUFFER_BYTES // chunk + 5
+    ws = _FakeWebSocket([])
+    state = server._primary.new_stream_state(None)
+    state.setdefault("_turn_pcm", bytearray())
+
+    async def _drive():
+        for _ in range(n):
+            await server._emit_streaming(ws, state, noise)
+
+    _run_async(_drive())
+    assert len(state["_turn_pcm"]) <= server._MAX_BUFFER_BYTES, (
+        f"F23: hybrid _turn_pcm must stay <= _MAX_BUFFER_BYTES, grew to {len(state['_turn_pcm'])} bytes")
+
+
 def _run_hybrid_exchange():
     """Streaming stub primary (emits growing deltas + stalls) + buffered stub final.
     Deltas must come from primary; the final must come from the buffered final over
@@ -855,6 +897,7 @@ def _self_check() -> None:
     _assert_offline_rejects_wrong_wav_params()
     _assert_offline_decode_holds_gpu_lock()
     _assert_hybrid()
+    _assert_hybrid_turn_pcm_stays_bounded()
     _assert_hybrid_stall_waits_for_silence()
     _assert_hybrid_skips_leading_silence_for_final_pcm()
     _assert_debug_sample_wav()

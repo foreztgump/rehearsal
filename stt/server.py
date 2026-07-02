@@ -490,6 +490,18 @@ async def _emit_streaming(websocket: WebSocket, state: dict, pcm: bytes) -> None
             turn_pcm.extend(pcm)
         else:
             turn_pcm.clear()
+        if len(turn_pcm) >= _MAX_BUFFER_BYTES:
+            # F23: bound the hybrid turn buffer like the buffered path (:532). A real
+            # turn with a pending transcript that overran the cap → finalize what we
+            # have. A noise-only overrun (above-threshold non-speech that never decodes
+            # to text, so _final_pending stays False and no EOU can fire) → trim to the
+            # lead-in ring so continuous fan/music can't grow memory unbounded, without
+            # a spurious empty final.
+            if state.get("_final_pending"):
+                await _run_finalize(websocket, state, timed=_ACCUMULATE_PCM)
+            else:
+                del turn_pcm[:-_BUFFERED_LEADIN_BYTES]
+            return
     grew = cumulative != state.get("_last_delta_text")
     if grew:
         state["_last_delta_text"] = cumulative
