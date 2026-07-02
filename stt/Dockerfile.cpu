@@ -5,14 +5,32 @@
 # bundle. NeMo + torch are needed ONLY at EXPORT time for the legacy streaming ONNX
 # fallback, never at serve time.
 
-# --- Stage 1: export builder (heavy — NeMo + torch; OPERATOR-GATED, multi-GB) ------
-# Runs export_onnx.py to produce the four artifacts backend_onnx loads
-# (encoder.onnx, decoder_joint.onnx, filterbank.bin, tokenizer.model) from the
-# original .nemo (STT_MODEL), then the slim final stage COPYs only those artifacts —
-# none of NeMo/torch reaches the runtime image. The .onnx is NEVER committed; it is
-# baked here at build. (Alternative path: `hf download` a prebuilt ONNX bundle keyed
-# by STT_ONNX_MODEL — it yields the SAME four artifacts.)
-FROM nvcr.io/nvidia/nemo:25.11 AS export-builder
+# O6: GLOBAL build ARG (declared before the first FROM so it is usable in a FROM stage
+# selector). Gates the multi-GB legacy-ONNX export; default 0 = OFF. See Stage 1.
+ARG STT_INCLUDE_LEGACY_ONNX=0
+
+# --- Stage 1: legacy-ONNX export builder — ARG-GATED (O6) --------------------------
+# The four artifacts backend_onnx loads (encoder.onnx, decoder_joint.onnx,
+# filterbank.bin, tokenizer.model) are needed ONLY for the LEGACY STREAMING engine.
+# The shipped default (STT_ENGINE=buffered) never loads them — it uses the sherpa-onnx
+# Parakeet bundle baked by fetch_parakeet_onnx.sh below. So the heavy multi-GB
+# `nvcr.io/nvidia/nemo` export was pure dead weight in the default build.
+#
+# O6: gate it behind STT_INCLUDE_LEGACY_ONNX (default 0 = OFF) using the BuildKit
+# selected-stage idiom. `export-builder` is an ALIAS chosen by the ARG:
+#   * 0 (default) → export-builder-0, a cheap python:3.11-slim stub that just makes an
+#     empty /build/onnx. No NeMo pull; BuildKit prunes the heavy stage as unreferenced.
+#   * 1 (opt-in)  → export-builder-1, the real NeMo exporter, for CPU streaming builds.
+# The runtime stage COPYs /build/onnx from `export-builder` either way, so the Dockerfile
+# stays single-COPY and the artifacts still never let NeMo/torch reach the runtime image.
+
+# Default (buffered) build: no heavy pull, empty legacy-ONNX dir.
+FROM python:3.11-slim AS export-builder-0
+WORKDIR /build
+RUN mkdir -p /build/onnx
+
+# Opt-in (STT_ENGINE=streaming on CPU): the real exporter. Only built when selected.
+FROM nvcr.io/nvidia/nemo:25.11 AS export-builder-1
 WORKDIR /build
 # Single-sourced tags (no hardcoded literal in this Dockerfile body — Compose
 # build.args supply them from env). STT_MODEL = source .nemo; STT_ONNX_MODEL = export
@@ -34,6 +52,12 @@ RUN pip install --no-cache-dir "onnxruntime~=1.20"
 # then run the export OFFLINE so export_onnx.py's from_pretrained can't re-resolve main.
 RUN python -c "from huggingface_hub import snapshot_download; p=snapshot_download(repo_id='${STT_MODEL}', revision='${STT_MODEL_REVISION}'); print('cpu export baked snapshot commit dir:', p)"
 RUN HF_HUB_OFFLINE=1 python export_onnx.py
+
+# ARG-selected alias: 0 → stub, 1 → real exporter. The runtime COPY reads THIS. The
+# global ARG (top of file) is re-declared here so the ${...} interpolation in this FROM
+# resolves (a global ARG is otherwise out of scope at the FROM line).
+ARG STT_INCLUDE_LEGACY_ONNX
+FROM export-builder-${STT_INCLUDE_LEGACY_ONNX} AS export-builder
 
 # --- Stage 2: lean CPU runtime (python:3.11-slim — no CUDA/NeMo/torch) --------------
 FROM python:3.11-slim

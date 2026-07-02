@@ -244,6 +244,10 @@ services:
         STT_MODEL_REVISION: ${STT_MODEL_REVISION:-main}
         STT_ONNX_MODEL: ${STT_ONNX_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b-onnx}
         STT_QUANT: ${STT_QUANT:-int8-dynamic}
+        # O6: the legacy-streaming ONNX export pulls a multi-GB nvcr NeMo image. The
+        # shipped default (STT_ENGINE=buffered) uses the sherpa bundle and never needs
+        # it, so it is OFF by default; set to 1 only for a CPU STT_ENGINE=streaming build.
+        STT_INCLUDE_LEGACY_ONNX: ${STT_INCLUDE_LEGACY_ONNX:-0}
     # No env_file (M3): takes its model/params via build-ARG + env; needs none of .env
     # and must not carry the LiveKit secret.
     environment:
