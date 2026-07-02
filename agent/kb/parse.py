@@ -229,6 +229,34 @@ def _extract_pdf(raw: bytes) -> str:
         doc.close()
 
 
+def _docx_has_xml_entities(raw: bytes) -> bool:
+    """PURE: True iff any XML member of the .docx zip declares a DTD or internal entity.
+
+    Split out so the DTD/entity decision is unit-testable without python-docx (a lazy,
+    sandbox-absent dep) — mirrors the _pdf_pages_over_cap shape. Scans only the .xml/.rels
+    members (case-insensitive), byte-matching '<!doctype' or '<!entity' so no XML parser
+    is invoked on the untrusted document. A non-zip input returns False (python-docx then
+    raises the real error). Valid OOXML never contains either token, so this is a clean
+    defense-in-depth gate against billion-laughs / XXE (F39).
+    """
+    import zipfile  # stdlib
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+            for zi in zf.infolist():
+                if not zi.filename.lower().endswith((".xml", ".rels")):
+                    continue
+                # A DTD lives in the XML prolog (before the root element); scan a bounded
+                # 64 KB head — generous for any legitimate prolog, cheap vs. the member's
+                # full inflated size (already capped above).
+                head = zf.read(zi)[:65536].lower()
+                if b"<!doctype" in head or b"<!entity" in head:
+                    return True
+    except zipfile.BadZipFile:
+        return False
+    return False
+
+
 def _extract_docx(raw: bytes) -> str:
     """DOCX → text via python-docx (NOT pymupdf4llm — Office needs paid PyMuPDF Pro).
 
@@ -250,6 +278,14 @@ def _extract_docx(raw: bytes) -> str:
         uncompressed = 0  # not a valid zip → let python-docx raise the real error below
     if uncompressed > DOCX_MAX_UNCOMPRESSED_BYTES:
         raise _OversizeExtraction(uncompressed)
+
+    # XML entity-expansion guard (F39, defense-in-depth): valid OOXML never carries a
+    # DTD or internal entities, so any <!DOCTYPE / <!ENTITY in a zip member is a
+    # billion-laughs / XXE attempt (or malformed enough to be 'corrupt' anyway). Reject
+    # on stdlib zipfile BEFORE python-docx / lxml parses. Modern libxml2 blunts the
+    # exponential case, but not parsing the declaration at all is the cheaper certainty.
+    if _docx_has_xml_entities(raw):
+        raise ValueError("DOCX contains an XML DTD/entity declaration (rejected: F39)")
 
     from docx import Document  # python-docx; lazy import
 
