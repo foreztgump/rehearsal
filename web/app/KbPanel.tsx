@@ -112,6 +112,14 @@ function KbQueueFields({
             inputRef.current?.click();
           }
         }}
+        // F14: without these, a dropped file triggers the browser default
+        // (navigate to the file), unmounting the app. preventDefault on both,
+        // then route the drop through the same size-gated queue() path.
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          if (e.dataTransfer.files.length > 0) queue(e.dataTransfer.files);
+        }}
       >
         Drop a PDF, TXT, MD or DOCX
       </div>
@@ -248,6 +256,14 @@ function KbPanelLive() {
             e.preventDefault();
             inputRef.current?.click();
           }
+        }}
+        // F14: a dropped file with no handler navigates away and tears down
+        // <LiveKitRoom>, ending the session. preventDefault + route through the
+        // existing size-gated upload() path (per-file sendFile).
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          if (e.dataTransfer.files.length > 0) upload(e.dataTransfer.files);
         }}
       >
         Drop a PDF, TXT, MD or DOCX
