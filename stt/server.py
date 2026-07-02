@@ -48,7 +48,7 @@ import time
 import wave
 from typing import Any
 
-from fastapi import FastAPI, Response, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Response, UploadFile, WebSocket, WebSocketDisconnect
 from backend_common import BUFFERED_MAX_S, ENERGY_SILENCE_RMS, rms_int16
 
 logger = logging.getLogger("nemo-stt")
@@ -126,6 +126,12 @@ _MAX_BUFFER_BYTES = SAMPLE_RATE * BUFFERED_MAX_S * _BYTES_PER_SAMPLE
 # turn (plus a small lead-in for the attack transient), NOT at every inter-turn
 # silence chunk since the last final. One streaming chunk of lead-in is plenty.
 _BUFFERED_LEADIN_BYTES = _STREAM_CHUNK_BYTES
+# Offline /v1/audio/transcriptions request-size ceiling (F8). The endpoint is
+# published per LAN_BIND_IP, so an unbounded file.read() lets an unauthenticated
+# multi-GB POST OOM the container. Bound the read to a generous but finite size —
+# BUFFERED_MAX_S of 16 kHz mono int16 plus WAV header slack — the same audio
+# horizon the live buffered turn already caps at.
+_OFFLINE_MAX_BYTES = _MAX_BUFFER_BYTES + 4096
 STT_DEBUG_HYBRID = os.environ.get("STT_DEBUG_HYBRID") == "1"
 _DEBUG_SAMPLE_LIMIT = max(1, int(os.environ.get("STT_DEBUG_SAMPLE_LIMIT", "5")))
 _debug_samples: list[dict[str, Any]] = []
@@ -539,21 +545,63 @@ async def _emit_buffered(websocket: WebSocket, state: dict, pcm: bytes) -> None:
 
 @app.post("/v1/audio/transcriptions")
 async def transcribe_file(file: UploadFile) -> dict:
-    """Optional whole-file OpenAI-compat path (mirrors warm_whisper) for VERIFY."""
-    raw = await file.read()
-    text = await asyncio.to_thread(_transcribe_wav, raw)
+    """Optional whole-file OpenAI-compat path (mirrors warm_whisper) for VERIFY.
+
+    F8: this endpoint is published per LAN_BIND_IP and is unauthenticated, so it
+    (a) bounds the read to _OFFLINE_MAX_BYTES (an unbounded read lets a multi-GB POST
+    OOM the container), (b) validates the WAV is 16 kHz mono int16 (a 44.1 kHz stereo
+    file would otherwise be decoded as 16 kHz mono garbage), and (c) decodes under
+    _gpu_lock (below) so it can't run the model concurrently with the WS path.
+    """
+    # Read one byte past the cap so we can distinguish "exactly at cap" from "over".
+    raw = await file.read(_OFFLINE_MAX_BYTES + 1)
+    if len(raw) > _OFFLINE_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="audio file too large")
+    _validate_wav_params(raw)
+    text = await _transcribe_wav(raw)
     return {"text": text}
 
 
-def _transcribe_wav(raw: bytes) -> str:
+def _validate_wav_params(raw: bytes) -> None:
+    """Reject non-16 kHz / non-mono / non-int16 WAVs with HTTP 400 (F8).
+
+    The decode loop assumes 16 kHz mono int16 PCM; feeding it anything else silently
+    produces garbage (wrong rate) or misframed samples (wrong width/channels).
+    """
+    try:
+        with wave.open(io.BytesIO(raw), "rb") as wav:
+            framerate = wav.getframerate()
+            nchannels = wav.getnchannels()
+            sampwidth = wav.getsampwidth()
+    except (wave.Error, EOFError) as exc:
+        raise HTTPException(status_code=400, detail=f"not a valid WAV: {exc}") from exc
+    if (framerate, nchannels, sampwidth) != (SAMPLE_RATE, 1, _BYTES_PER_SAMPLE):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"WAV must be {SAMPLE_RATE} Hz mono int16, got "
+                f"{framerate} Hz, {nchannels} ch, {sampwidth * 8}-bit"
+            ),
+        )
+
+
+async def _transcribe_wav(raw: bytes) -> str:
     """Decode a 16 kHz mono int16 WAV through the same per-chunk decode loop.
 
     The file PCM is sliced into fixed OFFLINE_CHUNK_MS windows and fed through the
     backend's decode_chunk one at a time — the SAME cache-aware per-chunk path the
-    live websocket loop uses — instead of one multi-second step.
+    live websocket loop uses — instead of one multi-second step. Decode + finalize
+    run under _gpu_lock (F8/F11) so an offline call can't run the model concurrently
+    with a WS decode (which would arm the _quiet_nemo process-global stream race).
     """
     with wave.open(io.BytesIO(raw), "rb") as wav:
         pcm = wav.readframes(wav.getnframes())
+    async with _gpu_lock:
+        return await asyncio.to_thread(_decode_wav_pcm, pcm)
+
+
+def _decode_wav_pcm(pcm: bytes) -> str:
+    """Blocking per-chunk decode of whole-file PCM; call only under _gpu_lock."""
     state = _primary.new_stream_state(_primary_model)
     step = (SAMPLE_RATE * OFFLINE_CHUNK_MS // 1000) * _BYTES_PER_SAMPLE
     for start in range(0, len(pcm), step):

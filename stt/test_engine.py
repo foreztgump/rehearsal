@@ -520,6 +520,130 @@ def _assert_buffered_debug_sample_is_retained() -> None:
     assert server._debug_samples[-1]["parakeet_transcript"] == "buffered words"
 
 
+def _load_server_with_buffered_stub(finalize=None):
+    """Import server with a buffered backend_parakeet stub for offline-route tests (F8)."""
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub
+
+    stub = types.ModuleType("backend_parakeet")
+    stub.STREAMS = False
+    stub.load_model = lambda: {}
+    stub.new_stream_state = lambda m: {"_turn_pcm": bytearray()}
+    stub.decode_chunk = lambda m, s, pcm: ""  # server owns _turn_pcm via _ACCUMULATE_PCM
+    stub.finalize = finalize or (lambda m, s: f"buffered:{len(s['_turn_pcm'])}")
+    stub.reset_turn_state = lambda s: s.update(_turn_pcm=bytearray())
+    sys.modules["backend_parakeet"] = stub
+    _install_fastapi_stub()
+    os.environ["STT_ENGINE"] = "buffered"; os.environ["STT_RUNTIME"] = "cpu"
+    os.environ["STT_ONNX_MODEL"] = "x"; os.environ["STT_PARAKEET_MODEL"] = "x"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    server._primary_model = server._primary.load_model()
+    server._final_model = server._primary_model
+    return server
+
+
+def _wav_bytes(*, framerate=16000, nchannels=1, sampwidth=2, frames=1600) -> bytes:
+    """Build a small in-memory WAV with the given parameters."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav:
+        wav.setnchannels(nchannels)
+        wav.setsampwidth(sampwidth)
+        wav.setframerate(framerate)
+        wav.writeframes(b"\x00\x01" * (frames * nchannels * (sampwidth // 2)))
+    return buf.getvalue()
+
+
+def _assert_offline_valid_wav_transcribes() -> None:
+    server = _load_server_with_buffered_stub()
+
+    class _Upload:
+        def __init__(self, data): self._data = data
+        async def read(self, *a): return self._data
+
+    result = _run_async_return(lambda: server.transcribe_file(_Upload(_wav_bytes())))
+    assert result["text"].startswith("buffered:"), f"valid WAV must transcribe, got {result!r}"
+
+
+def _assert_offline_rejects_oversize_upload() -> None:
+    server = _load_server_with_buffered_stub()
+    fastapi = sys.modules["fastapi"]
+
+    class _Upload:
+        # read(limit) returns limit+1 bytes so the route sees it exceeded the cap
+        async def read(self, *a):
+            return b"\x00" * (server._OFFLINE_MAX_BYTES + 1)
+
+    raised = None
+    try:
+        _run_async_return(lambda: server.transcribe_file(_Upload()))
+    except fastapi.HTTPException as exc:
+        raised = exc
+    assert raised is not None and raised.status_code == 413, (
+        f"oversize upload must raise HTTP 413, got {raised!r}")
+
+
+def _assert_offline_rejects_wrong_wav_params() -> None:
+    server = _load_server_with_buffered_stub()
+    fastapi = sys.modules["fastapi"]
+
+    class _Upload:
+        def __init__(self, data): self._data = data
+        async def read(self, *a): return self._data
+
+    for label, wav in (
+        ("44.1kHz", _wav_bytes(framerate=44100)),
+        ("stereo", _wav_bytes(nchannels=2)),
+        ("8-bit", _wav_bytes(sampwidth=1)),
+    ):
+        raised = None
+        try:
+            _run_async_return(lambda: server.transcribe_file(_Upload(wav)))
+        except fastapi.HTTPException as exc:
+            raised = exc
+        assert raised is not None and raised.status_code == 400, (
+            f"{label} WAV must raise HTTP 400, got {raised!r}")
+
+
+def _assert_offline_decode_holds_gpu_lock() -> None:
+    """F8/F11: the offline decode must run under _gpu_lock, like the WS path — otherwise
+    an offline+WS overlap runs the model from two threads and arms the _quiet_nemo race."""
+    observed = {"locked_during_finalize": None}
+
+    def _finalize(m, s):
+        observed["locked_during_finalize"] = server._gpu_lock.locked()
+        return "ok"
+
+    server = _load_server_with_buffered_stub(finalize=_finalize)
+
+    class _Upload:
+        def __init__(self, data): self._data = data
+        async def read(self, *a): return self._data
+
+    _run_async_return(lambda: server.transcribe_file(_Upload(_wav_bytes())))
+    assert observed["locked_during_finalize"] is True, (
+        "offline finalize must run while _gpu_lock is held")
+
+
+def _run_async_return(make_coro):
+    """Like test_dispatch._run_async but returns the coroutine result."""
+    import asyncio
+    loop = asyncio.new_event_loop()
+    original_to_thread = asyncio.to_thread
+
+    async def inline_to_thread(func, /, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    try:
+        asyncio.to_thread = inline_to_thread
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(make_coro())
+    finally:
+        asyncio.to_thread = original_to_thread
+        asyncio.set_event_loop(None)
+        loop.close()
+
+
 def _run_finalize_error_exchange():
     """I1 proof: stub finalize RAISES → ws_stream must emit both error + final (turn unblocks)."""
     import importlib, types
@@ -690,6 +814,10 @@ def _self_check() -> None:
     _assert_buffered_eou()
     _assert_buffered_trims_leading_silence()
     _assert_buffered_never_voiced_stays_bounded()
+    _assert_offline_valid_wav_transcribes()
+    _assert_offline_rejects_oversize_upload()
+    _assert_offline_rejects_wrong_wav_params()
+    _assert_offline_decode_holds_gpu_lock()
     _assert_hybrid()
     _assert_hybrid_stall_waits_for_silence()
     _assert_hybrid_skips_leading_silence_for_final_pcm()
@@ -699,7 +827,7 @@ def _self_check() -> None:
     _assert_reset_turn_pcm_safe()
     _assert_streaming_eou_dur_ms()
     _assert_raw_silence_endpoint_is_not_chunk_quantized()
-    print("engine _self_check OK — seam, GPU buffered Parakeet, hybrid, voiced-stall EOU, trimmed PCM, debug WAV, I1 finalize-boundary, M2 reset-pcm, F2 streaming-dur-ms, raw-silence EOU, F7 buffered-silence-trim",
+    print("engine _self_check OK — seam, GPU buffered Parakeet, hybrid, voiced-stall EOU, trimmed PCM, debug WAV, I1 finalize-boundary, M2 reset-pcm, F2 streaming-dur-ms, raw-silence EOU, F7 buffered-silence-trim, F8 offline-lock+size+wav-validation",
           file=sys.stderr)
 
 
