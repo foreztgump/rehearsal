@@ -50,7 +50,7 @@ jobs:
           python stt/test_dispatch.py
 
   web:
-    name: web (node --test)
+    name: web (node --test + tsc strict)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,6 +61,14 @@ jobs:
         # Node 22 type-strips the .ts imports; the suite needs no node_modules.
         working-directory: web
         run: node --test app/*.test.mjs
+      - name: Typecheck (G6 — tsconfig strict is now on)
+        # Install deps for real type resolution, then generate Next's ambient types
+        # (next-env.d.ts, gitignored) so the CSS side-effect import resolves before tsc.
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          printf '/// <reference types="next" />\n/// <reference types="next/image-types/global" />\n' > next-env.d.ts
+          npm run typecheck
 
   shell:
     name: shell (harnesses + shellcheck)
