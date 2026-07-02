@@ -716,7 +716,7 @@ async def entrypoint(ctx: JobContext) -> None:
             # thread (H3): running it inline on the agent's single event-loop thread would
             # block audio, turn detection, and RPCs for the full parse duration — defeating
             # the "off hot path, voice loop keeps running" guarantee (REL-03).
-            result = await asyncio.to_thread(kb_parse, info.name, info.mimeType, raw)
+            result = await asyncio.to_thread(kb_parse, info.name, info.mime_type, raw)
             if isinstance(result, KbParseError):
                 await set_kb_state(status="error", docs=len(session_kb.docs), error=result.message)
                 return
