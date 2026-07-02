@@ -20,8 +20,11 @@ ENV VIRTUAL_ENV=/app/.venv
 ENV PATH="/app/.venv/bin:${PATH}"
 
 COPY requirements.txt ./
+# O10: --no-cache drops uv's wheel/download cache. In a single-shot image build the
+# cache is never reused, so keeping it only bloats the layer — smaller image, faster
+# pulls, zero functional change.
 RUN uv venv /app/.venv \
-    && uv pip install --python /app/.venv/bin/python -r requirements.txt
+    && uv pip install --no-cache --python /app/.venv/bin/python -r requirements.txt
 
 # Pre-fetch VAD + turn-detector weights into the image (offline-capable).
 RUN python -m livekit.agents download-files
