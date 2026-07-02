@@ -51,11 +51,13 @@ THREAD_PRED_OUT = os.environ.get("STT_THREAD_PRED_OUT", "0") == "1"
 # context attention window — the hard end-of-speech cutoff otherwise leaves the
 # trailing right-context frames without the future frames they were trained with, so
 # the RNNT can emit blanks for the last words. Default OFF (GPU-measured, unofficial
-# workaround). FINALIZE_PAD_MS defaults to 560 ms = one STREAM_CHUNK_MS step — the exact
-# chunk size the cache-aware encoder already processes live, so the drain never feeds an
-# oversized step the streaming caches were not sized for. 560 ms covers up to a [70,6]
-# right context (6 encoder frames x 80 ms = 480 ms); the shipped att_context_size is
-# [70,1] (80 ms) so this is generous — tune down via STT_FINALIZE_PAD_MS if desired.
+# workaround). FINALIZE_PAD_MS defaults to 560 ms, sized to cover the right-context
+# lookahead: up to a [70,6] right context (6 encoder frames x 80 ms = 480 ms), so
+# 560 ms drains it fully. NB (F28): 560 ms is LARGER than one live STREAM_CHUNK_MS
+# step (default 320 ms — compose), so this is a single oversized drain frame appended
+# once at finalize, NOT a live-sized step; that is fine because it is fed only on the
+# trailing-silence drain, not into the steady cache-aware stream. The shipped
+# att_context_size is [70,1] (80 ms) so 560 ms is generous — tune via STT_FINALIZE_PAD_MS.
 FINALIZE_PAD = os.environ.get("STT_FINALIZE_PAD", "0") == "1"
 FINALIZE_PAD_MS = int(os.environ.get("STT_FINALIZE_PAD_MS", "560"))
 

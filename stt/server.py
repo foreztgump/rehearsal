@@ -89,8 +89,11 @@ _final = _primary if _FINAL_BACKEND == _PRIMARY_BACKEND else importlib.import_mo
 PORT = 8000
 SAMPLE_RATE = 16000
 # Offline-path window: feed whole-file PCM through the per-chunk decode loop in
-# fixed ~560 ms slices (the live cache-aware step size) rather than one giant
-# step, so the VERIFY offline path exercises the same code path as live.
+# fixed ~560 ms slices rather than one giant step, so the VERIFY offline path
+# exercises the same per-chunk decode LOOP as live. NB (F28): 560 ms is NOT the
+# live step — the live cache-aware stream steps at STREAM_CHUNK_MS (default 320 ms,
+# below). The offline path deliberately uses a larger slice for throughput; it
+# shares the decode loop, not the exact step size. Override via STT_OFFLINE_CHUNK_MS.
 OFFLINE_CHUNK_MS = int(os.environ.get("STT_OFFLINE_CHUNK_MS", "560"))
 _BYTES_PER_SAMPLE = 2  # int16 mono
 _AUDIO_STATS_FRAME_MS = 10
