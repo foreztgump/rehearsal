@@ -131,8 +131,7 @@ Windows AMD is best effort. Run native Windows Ollama for the LLM, then use the
 Windows AMD plus CPU TTS overrides:
 
 ```powershell
-$env:COMPOSE_FILE = "docker-compose.yml:docker-compose.windows-amd.yml:docker-compose.cpu-tts.yml"
-docker compose up -d
+docker compose -f docker-compose.yml -f docker-compose.windows-amd.yml -f docker-compose.cpu-tts.yml up -d
 ```
 
 The Docker stack reaches native Ollama through `host.docker.internal:11434`.

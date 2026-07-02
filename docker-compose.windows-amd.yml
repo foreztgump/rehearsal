@@ -1,6 +1,6 @@
 # Rehearsal Windows AMD override — native Ollama off-stack, CPU services in Docker.
 # Use with:
-#   COMPOSE_FILE=docker-compose.yml:docker-compose.windows-amd.yml:docker-compose.cpu-tts.yml docker compose up -d
+#   docker compose -f docker-compose.yml -f docker-compose.windows-amd.yml -f docker-compose.cpu-tts.yml up -d
 #
 # Native Ollama serves the LLM on localhost:11434 (host). Docker services reach it
 # through host.docker.internal:11434. The in-stack ollama service is reduced to a
