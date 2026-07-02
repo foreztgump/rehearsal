@@ -29,17 +29,35 @@ in_checkout() {
     && [ -f ollama/pull-and-pin.sh ]
 }
 
+# True iff <dir> already looks like a complete Rehearsal checkout (F19: mirrors
+# install.ps1's Test-InCheckout so the two installers agree on "is this a checkout?").
+dir_is_checkout() {
+  [ -f "$1/install.sh" ] && [ -f "$1/docker-compose.yml" ] \
+    && [ -f "$1/.env.example" ] && [ -f "$1/ollama/pull-and-pin.sh" ]
+}
+
 bootstrap_checkout() {
   in_checkout && return 0
   if [ "${REHEARSAL_BOOTSTRAPPED:-0}" = "1" ]; then
     err "Installer checkout is incomplete: $PWD"
     exit 1
   fi
+  # F19 idempotency: if the install dir is ALREADY a valid checkout (a repeat of the
+  # documented curl|bash one-liner after a successful install), just re-run it there
+  # instead of hard-erroring. install.ps1's Test-InCheckout already does this; the two
+  # installers used to diverge (bash errored with a factually wrong "not a complete
+  # checkout" message on a dir that WAS one).
+  if dir_is_checkout "$REHEARSAL_INSTALL_DIR"; then
+    log "Existing Rehearsal checkout found at ${REHEARSAL_INSTALL_DIR} — re-running it there…"
+    cd "$REHEARSAL_INSTALL_DIR"
+    REHEARSAL_BOOTSTRAPPED=1 exec ./install.sh "$@"
+  fi
   if ! command -v git >/dev/null 2>&1; then
     err "git is required for curl-style install."
     log "Install git, or run: git clone ${REHEARSAL_REPO_URL} ${REHEARSAL_INSTALL_DIR}"
     exit 1
   fi
+  # A non-empty dir that is NOT a checkout is a real conflict — do not clobber it.
   if [ -e "$REHEARSAL_INSTALL_DIR" ]; then
     err "Install directory already exists but is not a complete Rehearsal checkout:"
     log "  ${REHEARSAL_INSTALL_DIR}"
@@ -182,6 +200,26 @@ write_model_env() {
   fi
 }
 
+# --- 1e. CPU override layering for AMD / no-GPU Linux hosts (F19) ------------
+# The base compose reserves an nvidia device for ollama (and kokoro), so on a host
+# with no NVIDIA GPU `docker compose up` dead-ends at ollama with "could not select
+# device driver 'nvidia'". Persist a COMPOSE_FILE in .env that layers the cpu-llm +
+# cpu-tts overrides (which !reset those reservations) so EVERY later `docker compose`
+# / up.sh / down.sh honors it — not just this install run. Idempotent: only written
+# when absent, and only on GPU=amd|none (an NVIDIA host keeps the plain base compose).
+layer_cpu_overrides() {
+  gpu="$1"
+  [ "$gpu" = "amd" ] || [ "$gpu" = "none" ] || return 0
+  # ':'-separated per Compose's COMPOSE_FILE contract; base first, overrides after.
+  cpu_stack="docker-compose.yml:docker-compose.cpu-llm.yml:docker-compose.cpu-tts.yml"
+  if grep -q '^COMPOSE_FILE=' .env 2>/dev/null; then
+    log "COMPOSE_FILE already set in .env — leaving it untouched."
+  else
+    printf 'COMPOSE_FILE=%s\n' "${cpu_stack}" >> .env
+    log "No NVIDIA GPU — layered CPU overrides via COMPOSE_FILE in .env (ollama + kokoro on CPU)."
+  fi
+}
+
 # --- 2. .env scaffold with a generated secret -------------------------------
 gen_secret() {
   if command -v openssl >/dev/null 2>&1; then
@@ -222,8 +260,9 @@ print_plan() {
     log "  opt-in after the co-residency matrix passes (docker compose --profile stt-gpu)."
     log "VRAM budget: 16 GB target — ollama + kokoro resident (scripts/vram-validate.sh)."
   else
-    log "No NVIDIA GPU detected. STT runs on CPU-ONNX. The LLM + TTS still expect a GPU"
-    log "  for real-time latency; without one the stack runs but will not hit P50<1.0s."
+    log "No NVIDIA GPU detected (${gpu}). The installer will layer the CPU overrides"
+    log "  (docker-compose.cpu-llm.yml + cpu-tts.yml) so ollama + kokoro run on CPU and"
+    log "  the stack BOOTS — but CPU inference will NOT hit the P50<1.0s latency target."
   fi
   log "================================================="
 }
@@ -267,6 +306,7 @@ if [ "$GPU" = "nvidia" ] && [ "${SKIP_DOCTOR:-0}" != "1" ]; then
   ./scripts/gpu-doctor.sh || true   # advise-only; never blocks
 fi
 scaffold_env
+layer_cpu_overrides "$GPU"
 prompt_models "$GPU"
 print_plan "$GPU" "$INSTALL_MODELS"
 confirm

@@ -1,0 +1,23 @@
+# Rehearsal CPU LLM override — run Ollama with NO GPU reservation (F19 / G7).
+# Use with:
+#   docker compose -f docker-compose.yml -f docker-compose.cpu-llm.yml up -d
+#
+# The base compose gives ollama an nvidia device reservation (deploy.resources), so
+# on an AMD or GPU-less Linux host `docker compose up` fails at the ollama service
+# with "could not select device driver 'nvidia' with capabilities: [[gpu]]" and the
+# LLM never starts. This override RESETS that reservation (same mechanism as
+# docker-compose.cpu-tts.yml does for kokoro) so ollama runs on CPU — same image,
+# same 127.0.0.1:11434 publish, same OLLAMA_BASE_URL contract. The installer layers
+# it automatically on GPU=amd|none (via COMPOSE_FILE in .env).
+#
+# CAVEAT: CPU inference is FAR slower than GPU — the voice-to-voice P50<1.0s target
+# is a GPU figure and will NOT be met on CPU. This override exists so the stack BOOTS
+# and is usable for setup/testing on non-NVIDIA hardware, not to hit the latency SLO.
+# Pair with docker-compose.cpu-tts.yml so kokoro (TTS) is CPU too:
+#   docker compose -f docker-compose.yml -f docker-compose.cpu-llm.yml -f docker-compose.cpu-tts.yml up -d
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices: !reset []

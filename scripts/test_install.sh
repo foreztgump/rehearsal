@@ -142,5 +142,59 @@ else
   printf -- '------ install output ------\n%s\n----------------------------\n' "$(cat "$WORK/e.out")"
 fi
 
+# --- Scenario F: GPU=none layers the CPU overrides via COMPOSE_FILE (F19) ----
+# No nvidia-smi/rocm-smi → GPU=none. The installer must persist a COMPOSE_FILE in
+# .env that layers docker-compose.cpu-llm.yml + docker-compose.cpu-tts.yml so
+# `docker compose up` does not dead-end on ollama's nvidia reservation.
+BIN_F="$WORK/bin_f"; build_path "$BIN_F"
+make_shim "$BIN_F" docker 'echo "docker $*" >> "$PWD/docker.log"; exit 0'
+make_shim "$BIN_F" openssl 'echo deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
+# The installer references these override files; provide empty placeholders so any
+# existence check passes in the sandbox copy.
+: > "$WORK/docker-compose.cpu-llm.yml"; : > "$WORK/docker-compose.cpu-tts.yml"
+rm -f "$WORK/.env"
+( cd "$WORK" && env -i PATH="$BIN_F" ASSUME_YES=1 bash install.sh -y >f.out 2>&1 ) && rcf=0 || rcf=$?
+if [ "${rcf:-1}" -eq 0 ] \
+   && grep -q '^COMPOSE_FILE=' "$WORK/.env" \
+   && grep -q 'docker-compose.cpu-llm.yml' "$WORK/.env" \
+   && grep -q 'docker-compose.cpu-tts.yml' "$WORK/.env"; then
+  ok "Scenario F: GPU=none persists COMPOSE_FILE with the cpu-llm + cpu-tts overrides"
+else
+  bad "Scenario F: no-GPU CPU override layering missing (rc=$rcf)"
+  printf -- '------ .env COMPOSE_FILE ------\n%s\n------ install output ------\n%s\n' \
+    "$(grep '^COMPOSE_FILE=' "$WORK/.env" 2>/dev/null)" "$(cat "$WORK/f.out")"
+fi
+
+# --- Scenario G: re-running inside an existing valid checkout is idempotent (F19) --
+# bootstrap_checkout must NOT hard-error when REHEARSAL_INSTALL_DIR already IS a
+# complete checkout — it should just proceed (mirrors install.ps1 Test-InCheckout).
+# Simulate the curl|bash entry (piped stdin, not in a checkout cwd) with the install
+# dir pre-populated as a valid checkout.
+mkdir -p "$WORK/pipe_g"
+CLONED_G="$WORK/cloned_g"
+mkdir -p "$CLONED_G/scripts" "$CLONED_G/ollama"
+cp "$REPO/install.sh" "$CLONED_G/install.sh"
+cp "$REPO/.env.example" "$CLONED_G/.env.example"
+: > "$CLONED_G/docker-compose.yml"
+: > "$CLONED_G/docker-compose.cpu-llm.yml"; : > "$CLONED_G/docker-compose.cpu-tts.yml"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$CLONED_G/scripts/gpu-doctor.sh"
+printf '#!/usr/bin/env bash\necho ok\n' > "$CLONED_G/ollama/pull-and-pin.sh"
+chmod +x "$CLONED_G/scripts/gpu-doctor.sh" "$CLONED_G/ollama/pull-and-pin.sh"
+BIN_G="$WORK/bin_g"; build_path "$BIN_G"
+make_shim "$BIN_G" docker 'echo "docker $*" >> "$PWD/docker.log"; exit 0'
+make_shim "$BIN_G" openssl 'echo deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
+# A git shim that FAILS if invoked — re-running in a valid checkout must never clone.
+make_shim "$BIN_G" git 'echo "git UNEXPECTEDLY called: $*" > "$PWD/git_called.log"; exit 1'
+( cd "$WORK/pipe_g" && env -i PATH="$BIN_G" ASSUME_YES=1 REHEARSAL_INSTALL_DIR="$CLONED_G" \
+    bash -s -- -y < "$REPO/install.sh" >g.out 2>&1 ) && rcg=0 || rcg=$?
+if [ "${rcg:-1}" -eq 0 ] \
+   && [ ! -f "$WORK/pipe_g/git_called.log" ] \
+   && grep -q 'compose build' "$CLONED_G/docker.log" 2>/dev/null; then
+  ok "Scenario G: re-run in an existing valid checkout proceeds (no re-clone, no error)"
+else
+  bad "Scenario G: existing-checkout re-run not idempotent (rc=$rcg)"
+  printf -- '------ install output ------\n%s\n' "$(cat "$WORK/pipe_g/g.out")"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

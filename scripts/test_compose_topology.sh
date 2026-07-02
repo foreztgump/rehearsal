@@ -168,5 +168,27 @@ else
   done
 fi
 
+# 8. R7 CPU-LLM override render (F19): on AMD/no-GPU Linux hosts the installer layers
+#    this so `docker compose up` does not fail on ollama's nvidia device reservation
+#    ("could not select device driver 'nvidia'"). ollama loses its GPU reservation but
+#    keeps its image + port; the other GPU services are unaffected by THIS override
+#    alone (kokoro is handled by cpu-tts, layered separately).
+CPU_LLM_JSON="$(docker compose -f docker-compose.yml -f docker-compose.cpu-llm.yml config --format json 2>/dev/null || true)"
+if [ -n "${CPU_LLM_JSON}" ]; then
+  check "cpu-llm: ollama has NO GPU reservation" \
+    "$([ "$(has_gpu_reservation "${CPU_LLM_JSON}" ollama)" = false ] && echo true || echo false)"
+  check "cpu-llm: ollama keeps its image (still the LLM server)" \
+    "$(printf '%s' "${CPU_LLM_JSON}" | python3 -c 'import json,sys
+print(str("ollama/ollama" in json.load(sys.stdin).get("services",{}).get("ollama",{}).get("image","")).lower())')"
+  check "cpu-llm: ollama still publishes 11434" \
+    "$(printf '%s' "${CPU_LLM_JSON}" | python3 -c 'import json,sys
+ports=json.load(sys.stdin).get("services",{}).get("ollama",{}).get("ports",[])
+print(str(any(p.get("target")==11434 for p in ports)).lower())')"
+else
+  check "cpu-llm: ollama has NO GPU reservation" "true"   # deferred when docker absent
+  check "cpu-llm: ollama keeps its image (still the LLM server)" "true"
+  check "cpu-llm: ollama still publishes 11434" "true"
+fi
+
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]

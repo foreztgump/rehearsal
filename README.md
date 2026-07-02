@@ -49,6 +49,11 @@ AI-agent install prompt are in [INSTALLATION.md](INSTALLATION.md).
 | Windows AMD | Best effort: native Windows Ollama plus Docker CPU services. |
 | No supported GPU | Best effort only; not expected to hit live voice latency targets. |
 
+On AMD / no-GPU Linux hosts the installer automatically layers the CPU compose
+overrides (`docker-compose.cpu-llm.yml` + `docker-compose.cpu-tts.yml` via
+`COMPOSE_FILE` in `.env`) so ollama + kokoro run on CPU and the stack boots — CPU
+inference will not meet the live-voice latency target.
+
 Default published ports bind to `127.0.0.1`. Do not expose them to the WAN. For
 another LAN device, use the optional TLS setup in [certs/README.md](certs/README.md)
 and keep firewall rules LAN-only.
