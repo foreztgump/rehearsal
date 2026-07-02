@@ -45,7 +45,7 @@ type StorageLike = {
   removeItem: (key: string) => void;
 };
 
-const PERSONA_FIELDS = [
+export const PERSONA_FIELDS = [
   "role_text",
   "display_name",
   "difficulty",
@@ -59,10 +59,27 @@ export function parseSavedPersonas(raw: string | null): SavedPersona[] {
 
   try {
     const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter(isSavedPersona) : [];
+    if (!Array.isArray(parsed)) return [];
+    // F31: pick EXACTLY the known persona fields on load. A stale / hand-edited
+    // record can carry extra keys; the agent applies the snapshot via exact-keys
+    // Persona(**snapshot) and rejects unknown keys, so a persona apply would fail
+    // silently (the setup path swallows the rejection). Normalize here so the
+    // persisted record and the agent's Persona contract stay byte-aligned.
+    return parsed.filter(isSavedPersona).map((record) => ({
+      ...record,
+      persona: pickPersonaFields(record.persona),
+    }));
   } catch {
     return [];
   }
+}
+
+// Reduce an already-validated persona to exactly PERSONA_FIELDS (drops extras).
+function pickPersonaFields(persona: Persona): Persona {
+  return PERSONA_FIELDS.reduce((acc, field) => {
+    acc[field] = persona[field];
+    return acc;
+  }, {} as Persona);
 }
 
 export function readSavedPersonas(storage?: StorageLike | null): SavedPersona[] {
