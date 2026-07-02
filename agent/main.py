@@ -45,7 +45,7 @@ from captioned_tts import CaptionedTTS
 from nemo_stt import NemoSTT
 from models import MODEL_CHOICES, default_model_choice, resolved_model_tag
 from placement import resolve_stt_placement
-from kb import KB_AGGREGATE_MAX_TOKENS, DistillError, KbParseError, ParsedDoc
+from kb import KB_AGGREGATE_MAX_TOKENS, KB_MAX_RAW_BYTES, DistillError, KbParseError, ParsedDoc
 from kb import distill as kb_distill
 from kb import parse as kb_parse
 from persona import (
@@ -712,9 +712,27 @@ async def entrypoint(ctx: JobContext) -> None:
         # Exception, so cooperative cancellation still propagates untouched.
         try:
             info = reader.info
-            raw = bytes()
+            # F6: accumulate into a bytearray (amortized O(n), vs O(n²) for `raw += chunk`
+            # on immutable bytes) AND enforce the raw-byte ceiling INSIDE the loop. The
+            # KB_MAX_RAW_BYTES guard inside kb_parse only fires AFTER the whole stream is
+            # buffered, so a non-browser room participant could stream unbounded bytes on
+            # the KB topic and OOM the agent before rejection. Abort as soon as the cap is
+            # crossed, surface the oversize error immediately, and stop reading.
+            raw = bytearray()
+            oversize = False
             async for chunk in reader:
                 raw += chunk
+                if len(raw) > KB_MAX_RAW_BYTES:
+                    oversize = True
+                    break
+            if oversize:
+                await set_kb_state(
+                    status="error",
+                    docs=len(session_kb.docs),
+                    error="Too large for inline KB — trimmed/skipped",
+                )
+                return
+            raw = bytes(raw)
             # Serialize the whole parse→distill→inject critical section (M3) so overlapping
             # uploads from a multi-file pick apply atomically in arrival order instead of
             # interleaving at their await points.

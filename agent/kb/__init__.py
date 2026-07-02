@@ -9,6 +9,7 @@ pure core stays sandbox-verifiable. 04-02 adds the distill surface
 from kb.distill import DistillError, build_distill_prompt, distill
 from kb.parse import (
     KB_AGGREGATE_MAX_TOKENS,
+    KB_MAX_RAW_BYTES,
     KB_MAX_TOKENS,
     KB_WARN_TOKENS,
     KbParseError,
@@ -22,6 +23,7 @@ __all__ = [
     "KbParseError",
     "KB_WARN_TOKENS",
     "KB_MAX_TOKENS",
+    "KB_MAX_RAW_BYTES",
     "KB_AGGREGATE_MAX_TOKENS",
     "build_distill_prompt",
     "distill",
