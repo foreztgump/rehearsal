@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,7 +35,7 @@ distill = importlib.import_module("kb.distill")  # the MODULE, not the function
 class _FakeStream:
     """Context manager mimicking httpx client.stream(...) -> response."""
 
-    def __init__(self, lines: list[str]) -> None:
+    def __init__(self, lines: Iterable[str]) -> None:
         self._lines = lines
 
     def __enter__(self) -> "_FakeStream":
@@ -53,7 +54,7 @@ class _FakeStream:
 class _FakeClient:
     """Context manager mimicking httpx.Client; yields a canned stream."""
 
-    def __init__(self, lines: list[str], on_iter=None) -> None:
+    def __init__(self, lines: Iterable[str], on_iter=None) -> None:
         self._lines = lines
         self._on_iter = on_iter
 
