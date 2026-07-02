@@ -120,6 +120,10 @@ _STREAM_CHUNK_BYTES = (SAMPLE_RATE * STREAM_CHUNK_MS // 1000) * _BYTES_PER_SAMPL
 # so a mid-sentence pause that fires early is recombined, not lost.
 ENDPOINT_SILENCE_MS = int(os.environ.get("STT_ENDPOINT_SILENCE_MS", "640"))
 _ENDPOINT_SILENCE_CHUNKS = max(1, -(-ENDPOINT_SILENCE_MS // STREAM_CHUNK_MS))  # ceil
+# F25: bound the config handshake so a silent/half-open client on the unauthenticated
+# LAN port cannot park a coroutine forever. Generous (a real client sends config
+# immediately after connect); override via STT_HANDSHAKE_TIMEOUT_S.
+HANDSHAKE_TIMEOUT_S = float(os.environ.get("STT_HANDSHAKE_TIMEOUT_S", "10"))
 # getattr defaults to True (streaming) for backends that pre-date the STREAMS flag.
 _ACCUMULATE_PCM = getattr(_final, "STREAMS", True) is False   # server owns _turn_pcm for buffered finals
 _PRIMARY_STREAMS = getattr(_primary, "STREAMS", True)
@@ -364,7 +368,20 @@ async def _handle_control(ws: WebSocket, state: dict, msg: dict) -> dict:
 async def ws_stream(websocket: WebSocket) -> None:
     """Primary streaming endpoint. config → ready → deltas; flush → final."""
     await websocket.accept()
-    await websocket.receive_json()  # the {"type":"config", ...} handshake
+    # F25: guard the config handshake. It sits on an unauthenticated LAN port, so it
+    # must tolerate hostile/aborted first frames without a noisy traceback or a parked
+    # coroutine: a client that drops mid-handshake (WebSocketDisconnect), sends a binary
+    # first frame (Starlette raises KeyError('text') from receive_json), or never sends
+    # anything (bounded by HANDSHAKE_TIMEOUT_S) must all just close the socket quietly.
+    try:
+        await asyncio.wait_for(websocket.receive_json(), timeout=HANDSHAKE_TIMEOUT_S)
+    except WebSocketDisconnect:
+        return
+    except (asyncio.TimeoutError, KeyError, ValueError, json.JSONDecodeError) as exc:
+        logger.info("stt handshake rejected: %s", type(exc).__name__)
+        with contextlib.suppress(Exception):
+            await websocket.close()
+        return
     await websocket.send_json({"type": "ready"})
     state = _primary.new_stream_state(_primary_model)
     if _ACCUMULATE_PCM:

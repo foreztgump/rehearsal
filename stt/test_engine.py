@@ -848,6 +848,65 @@ def _assert_no_spurious_empty_delta_after_final() -> None:
     assert any(m.get("type") == "final" for m in sent), f"EOU final still required, got {sent}"
 
 
+def _run_handshake(mode: str):
+    """Drive ws_stream's config handshake with a fake WS that fails in `mode`:
+    'disconnect' (client drops mid-handshake), 'binary' (bytes first frame ->
+    Starlette KeyError('text')), or 'hang' (silent socket). Returns (ws, raised)."""
+    import asyncio, importlib, types
+    from test_dispatch import _install_fastapi_stub, _run_async
+
+    _install_fastapi_stub()
+    disconnect_exc = sys.modules["fastapi"].WebSocketDisconnect
+    prim = types.ModuleType("backend_onnx"); prim.STREAMS = True
+    prim.load_model = lambda: {}
+    prim.new_stream_state = lambda m: {"text": ""}
+    prim.decode_chunk = lambda m, s, pcm: ""
+    prim.finalize = lambda m, s: ""
+    prim.reset_turn_state = lambda s: None
+    sys.modules["backend_onnx"] = prim
+    os.environ["STT_ENGINE"] = "streaming"; os.environ["STT_RUNTIME"] = "cpu"
+    os.environ["STT_ONNX_MODEL"] = "x"; os.environ["STT_HANDSHAKE_TIMEOUT_S"] = "0.05"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+
+    class _HandshakeWS:
+        def __init__(self) -> None:
+            self.sent: list = []
+            self.closed = False
+        async def accept(self) -> None: return None
+        async def receive_json(self):
+            if mode == "disconnect":
+                raise disconnect_exc()
+            if mode == "binary":
+                raise KeyError("text")           # Starlette raises this on a bytes first frame
+            if mode == "hang":
+                await asyncio.sleep(5)            # never returns before the 0.05 s timeout
+            return {"type": "config"}
+        async def receive(self):
+            return {"type": "websocket.disconnect"}
+        async def send_json(self, payload) -> None: self.sent.append(payload)
+        async def close(self, *a, **k) -> None: self.closed = True
+
+    ws = _HandshakeWS()
+    raised = None
+    try:
+        _run_async(server.ws_stream(ws))
+    except BaseException as exc:  # noqa: BLE001 - capture ANY leak for the assertion
+        raised = exc
+    return ws, raised
+
+
+def _assert_config_handshake_is_guarded() -> None:
+    """F25: the config handshake was outside any guard and unbounded. Assert all three
+    failure modes are now handled cleanly: no exception leaks out of ws_stream, no
+    'ready' is sent on a failed handshake, and a hanging client is bounded by timeout."""
+    for mode in ("disconnect", "binary", "hang"):
+        ws, raised = _run_handshake(mode)
+        assert raised is None, f"F25[{mode}]: handshake failure must not leak, got {type(raised).__name__}: {raised}"
+        assert not any(m.get("type") == "ready" for m in ws.sent), (
+            f"F25[{mode}]: no ready may be sent on a failed handshake, got {ws.sent}")
+
+
 def _assert_raw_silence_endpoint_is_not_chunk_quantized() -> None:
     """700 ms of raw silence must end a turn without waiting for two 560 ms decodes."""
     import importlib, types
@@ -906,6 +965,7 @@ def _self_check() -> None:
     _assert_reset_turn_pcm_safe()
     _assert_streaming_eou_dur_ms()
     _assert_no_spurious_empty_delta_after_final()
+    _assert_config_handshake_is_guarded()
     _assert_raw_silence_endpoint_is_not_chunk_quantized()
     print("engine _self_check OK — seam, GPU buffered Parakeet, hybrid, voiced-stall EOU, trimmed PCM, debug WAV, I1 finalize-boundary, M2 reset-pcm, F2 streaming-dur-ms, raw-silence EOU, F7 buffered-silence-trim, F8 offline-lock+size+wav-validation",
           file=sys.stderr)
