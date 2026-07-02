@@ -206,5 +206,33 @@ reset_fake_amd_devices
 run_doctor "no-nvidia-smi"
 assert_contains "engine-nogpu-buffered" "STT_ENGINE=buffered"
 
+# --- F21: the Windows/WSL2 PowerShell doctor must give the CORRECT toolkit remedy --
+# gpu-doctor.ps1 runs on Docker Desktop + WSL2, where GPU support ships WITH Docker
+# Desktop: you cannot apt-install a runtime into the docker-desktop distro,
+# `nvidia-docker2` is deprecated, and `systemctl restart docker` does not apply. The
+# old remedy sent Windows users down a dead end. The .ps1 can't run here (no
+# PowerShell), so assert the remedy text by source inspection.
+readonly PS1_DOCTOR="${SCRIPT_DIR}/gpu-doctor.ps1"
+assert_ps1_not_contains() {
+  local name="$1" substr="$2"
+  if grep -qF -- "${substr}" "${PS1_DOCTOR}"; then
+    FAIL=$((FAIL+1)); printf 'FAIL  %s [ps1 still has Linux-only remedy: %s]\n' "${name}" "${substr}"
+  else
+    PASS=$((PASS+1)); printf 'PASS  %s\n' "${name}"
+  fi
+}
+assert_ps1_contains() {
+  local name="$1" substr="$2"
+  if grep -qF -- "${substr}" "${PS1_DOCTOR}"; then
+    PASS=$((PASS+1)); printf 'PASS  %s\n' "${name}"
+  else
+    FAIL=$((FAIL+1)); printf 'FAIL  %s [ps1 missing WSL2 remedy: %s]\n' "${name}" "${substr}"
+  fi
+}
+assert_ps1_not_contains "ps1-no-apt-nvidia-docker2"  "nvidia-docker2"
+assert_ps1_not_contains "ps1-no-systemctl-restart"   "systemctl restart docker"
+assert_ps1_contains     "ps1-wsl-shutdown-remedy"    "wsl --shutdown"
+assert_ps1_contains     "ps1-restart-docker-desktop" "Docker Desktop"
+
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]
