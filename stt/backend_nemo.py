@@ -34,7 +34,6 @@ from backend_common import (
     DEBUG_DRAIN,
     FINALIZE_PAD,
     INT16_FULL_SCALE,
-    RECYCLE_HARD_CHARS,
     RECYCLE_MIN_CHARS,
     SAMPLE_RATE,
     STALL_FRAMES,

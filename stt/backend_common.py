@@ -25,13 +25,14 @@ INT16_FULL_SCALE = 32768.0
 
 # RNNT decoder-stall watchdog (09-RESEARCH §1, PITFALL B2). Named constants, no
 # magic values. If cumulative text stops growing for STALL_FRAMES while audio is
-# STILL arriving, recycle decoder state and CONTINUE — the server NEVER auto-emits
-# FINAL (the turn detector owns finalize). STT_RECYCLE_* bound the recycle so it
-# stays stall-recovery only. BOTH backends import these so the watchdog thresholds
+# STILL arriving AND at least RECYCLE_MIN_CHARS are held, recycle decoder state and
+# CONTINUE (folding the held text forward so nothing committed is lost — F22). The
+# server owns autonomous FINAL (the ENDPOINT_SILENCE_MS energy path), so the recycle
+# is stall-recovery only, never a finalize. RECYCLE_MIN_CHARS keeps short partials
+# from tripping the recycle. BOTH backends import these so the watchdog thresholds
 # (and thus the stall semantics) are identical across the GPU and CPU runtimes.
 STALL_FRAMES = int(os.environ.get("STT_STALL_FRAMES", "50"))
 RECYCLE_MIN_CHARS = int(os.environ.get("STT_RECYCLE_MIN_CHARS", "120"))
-RECYCLE_HARD_CHARS = int(os.environ.get("STT_RECYCLE_HARD_CHARS", "400"))
 
 # Diagnosis switch for the Item-1 trailing-word cut-off (15a). When truthy, the GPU
 # NeMo backend (backend_nemo) logs the drained transcript + held-token count at finalize

@@ -80,6 +80,28 @@ def _assert_parakeet_real_body() -> None:
     assert proc.returncode == 0, f"parakeet real body failed: {proc.stderr.strip()}"
 
 
+def _assert_no_dead_recycle_hard_chars() -> None:
+    """F27: RECYCLE_HARD_CHARS was dead config — defined in backend_common, imported by
+    backend_nemo, referenced by no decode code. It must be GONE from both, while
+    RECYCLE_MIN_CHARS (the live stall floor) stays. Both backends must still import."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    code = (
+        "import backend_common as c; "
+        "assert not hasattr(c, 'RECYCLE_HARD_CHARS'), 'F27: RECYCLE_HARD_CHARS must be deleted'; "
+        "assert hasattr(c, 'RECYCLE_MIN_CHARS'), 'RECYCLE_MIN_CHARS is live — keep it'; "
+        "import backend_nemo as n; "
+        "assert not hasattr(n, 'RECYCLE_HARD_CHARS'), 'F27: backend_nemo must not re-export it'; "
+        "assert n.RECYCLE_MIN_CHARS == c.RECYCLE_MIN_CHARS"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code], cwd=here,
+        env={k: v for k, v in os.environ.items() if k != "STT_PARAKEET_MODEL"}
+        | {"STT_MODEL": "nvidia/parakeet-tdt-0.6b-v2"},
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, f"F27 dead-config check failed: {proc.stderr.strip()}"
+
+
 def _assert_parakeet_nemo_imports_without_nemo() -> None:
     """GPU buffered backend must byte-import without NeMo until load_model()."""
     here = os.path.dirname(os.path.abspath(__file__))
@@ -807,6 +829,7 @@ def _self_check() -> None:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     _assert_parakeet_imports_without_ort()
     _assert_parakeet_real_body()
+    _assert_no_dead_recycle_hard_chars()
     _assert_parakeet_nemo_imports_without_nemo()
     _assert_parakeet_nemo_real_body()
     _assert_default_engine_is_buffered()
