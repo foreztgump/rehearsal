@@ -41,6 +41,8 @@ COPY nemo_stt.py placement.py captioned_tts.py ./
 # predicate (transcript_gate.py). main.py + captioned_tts.py import them at module
 # load — without them the worker ImportErrors at startup.
 COPY endpointing.py captioned_gate.py transcript_gate.py transcript_debug.py ./
+# The coalescing KB batch distiller (O3) — flat livekit-free module imported by main.py.
+COPY kb_ingest.py ./
 # The KB parser package (Plan 04-01) — pure, livekit-free; copied as a directory.
 COPY kb/ ./kb/
 
