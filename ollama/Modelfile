@@ -8,7 +8,9 @@
 #   envsubst '${OLLAMA_MODEL}' < ollama/Modelfile \
 #     | docker compose exec -T ollama ollama create rehearsal-gemma -f -
 #
-# (OLLAMA_MODEL is resolved by ollama/pull-and-pin.sh; rung 1 = gemma4:e4b-it-q4_K_M.)
+# (OLLAMA_MODEL is the back-compat alias resolved by ollama/pull-and-pin.sh — it
+# points at the chosen default tier's tag, e.g. the FAST rung evalengine/unbound-e2b
+# :latest with the gemma4:e2b stock fallback; there is no gemma4:e4b-it-q4_K_M rung.)
 FROM ${OLLAMA_MODEL}
 
 # Context window pinned to the measured Phase-4 worst case. Ollama PRE-ALLOCATES
