@@ -31,14 +31,23 @@ WAN.
 
 ## The three `.env` settings (the actual answer to "what do I change")
 
-All three must change from the `localhost` / `127.0.0.1` defaults to the host's
+Three keys change from the `localhost` / `127.0.0.1` defaults to the host's
 **LAN IP**:
 
 | Key | Role | Default | LAN value |
 | --- | --- | --- | --- |
-| `LAN_BIND_IP` | Interface every published port binds to (incl. `7882/udp` WebRTC media) | `127.0.0.1` | host LAN IP |
+| `PROXY_BIND_IP` | Interface the LAN-facing ports bind to: the TLS front doors (`443`, `7443`) + the LiveKit WebRTC **media** ports (`7881/tcp`, `7882/udp`) | `127.0.0.1` | host LAN IP |
 | `LIVEKIT_NODE_IP` | ICE host candidate LiveKit advertises for WebRTC **media** (audio) | `127.0.0.1` | host LAN IP |
 | `NEXT_PUBLIC_LIVEKIT_URL` | WS endpoint the browser connects to — **baked into the web build at build time** | `ws://localhost:7880` | `wss://<lan-ip>:7443` |
+
+**Leave `LAN_BIND_IP` at `127.0.0.1`.** This is the F18 split: `LAN_BIND_IP`
+binds the *app* services (Ollama `:11434` — an unauthenticated API including
+model pull/delete — plus STT, Kokoro, plain-HTTP web, and LiveKit WS signaling).
+Caddy reaches `web:3000` / `livekit-server:7880` over the internal docker
+network, so those never need a LAN host bind. Setting the single old
+`LAN_BIND_IP` to the LAN IP would expose the whole unauthenticated stack to
+every LAN peer; `PROXY_BIND_IP` opens **only** the TLS front doors + the media
+ports that must reach the browser directly.
 
 **Critical:** because `NEXT_PUBLIC_LIVEKIT_URL` is baked into the Next.js bundle,
 changing it requires `docker compose build web` — just restarting the web
@@ -144,6 +153,12 @@ check the cert is trusted on that device and that you loaded the `https://` URL
 ## Security scope
 
 - The cert is **per-deployment and LAN-only**. Never forward 443/7443 to the WAN.
+- **Only `PROXY_BIND_IP` faces the LAN** (443/7443 + WebRTC media 7881/7882).
+  The app services — Ollama (`:11434`, unauthenticated, incl. model pull/delete),
+  STT, Kokoro, plain-HTTP web, LiveKit WS — stay on `LAN_BIND_IP=127.0.0.1` and
+  are reached only through the TLS proxy over the internal docker network. Do not
+  set `LAN_BIND_IP` to the LAN IP; that would expose the whole unauthenticated
+  stack to every LAN peer (F18).
 - Re-mint per deployment; do not copy cert material between machines.
 - Keep firewall rules LAN-only. The design pins `rtc.node_ip` with
   `use_external_ip:false` so LiveKit does **no STUN/WAN egress** — do not change

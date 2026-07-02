@@ -2,13 +2,22 @@ name: rehearsal
 
 # Rehearsal — single-stack Docker Compose.
 # Six services boot from one `docker compose up`; the three model containers
-# reserve the GPU; every published port binds to the LAN/host interface only
-# (LAN_BIND_IP, default 127.0.0.1) — never 0.0.0.0 / WAN. The browser talks to
-# the web shell (http://localhost:3000) and LiveKit (ws://localhost:7880)
-# directly: localhost is a secure context, so the mic/WebRTC work over plain
-# HTTP with no TLS. To serve other LAN devices over https://<lan-ip> instead,
-# see README.md (optional TLS reverse-proxy). Upstream image tags are pinned (no
-# :latest); nemo-stt is a locally-built service (./stt), not an upstream image.
+# reserve the GPU. Published ports bind to the host interface only — never
+# 0.0.0.0 / WAN — via TWO knobs (F18):
+#   - LAN_BIND_IP  (default 127.0.0.1): the app services (Ollama, STT, Kokoro,
+#     web, LiveKit WS signaling). Keep these on loopback even for LAN serving —
+#     they are unauthenticated and the TLS proxy reaches them over the internal
+#     docker network, so they never need a LAN host bind.
+#   - PROXY_BIND_IP (default = LAN_BIND_IP): ONLY the LiveKit WebRTC media ports
+#     here (7881/tcp, 7882/udp) + the proxy's 443/7443 in docker-compose.proxy.yml.
+#     Media flows browser->host directly (bypassing the proxy), so for LAN serving
+#     set PROXY_BIND_IP to the host LAN IP while app services stay loopback.
+# The browser talks to the web shell (http://localhost:3000) and LiveKit
+# (ws://localhost:7880) directly for a local install: localhost is a secure
+# context, so the mic/WebRTC work over plain HTTP with no TLS. To serve other LAN
+# devices over https://<lan-ip> instead, see docs/lan-exposure.md (optional TLS
+# reverse-proxy). Upstream image tags are pinned (no :latest); nemo-stt is a
+# locally-built service (./stt), not an upstream image.
 
 services:
   livekit-server:
@@ -25,9 +34,14 @@ services:
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml:ro
     ports:
+      # 7880 is plain-WS signaling: loopback for a local install; for LAN the
+      # proxy fronts it as wss on 7443, so it never needs a LAN bind (F18).
       - "${LAN_BIND_IP:-127.0.0.1}:7880:7880"
-      - "${LAN_BIND_IP:-127.0.0.1}:7881:7881/tcp"
-      - "${LAN_BIND_IP:-127.0.0.1}:7882:7882/udp"
+      # WebRTC MEDIA (audio) flows direct to these, browser -> host, bypassing the
+      # TLS proxy — so they must reach the LAN when serving other devices. They
+      # bind PROXY_BIND_IP (defaults to LAN_BIND_IP=127.0.0.1 for local installs).
+      - "${PROXY_BIND_IP:-${LAN_BIND_IP:-127.0.0.1}}:7881:7881/tcp"
+      - "${PROXY_BIND_IP:-${LAN_BIND_IP:-127.0.0.1}}:7882:7882/udp"
     networks:
       - rehearsal
     restart: unless-stopped
