@@ -154,7 +154,7 @@ FAKE_SMI=""
 enable_fake_amd_devices
 FAKE_SMI_CUDA="" FAKE_SMI_VRAM="" FAKE_DOCKER="" run_doctor "no-nvidia-smi"
 assert_contains "amd-compose-file" "COMPOSE_FILE=docker-compose.yml:docker-compose.amd.yml"
-assert_contains "amd-ollama-image" "ollama/ollama:0.30.10-rocm"
+assert_contains "amd-ollama-image" "ollama/ollama:0.30.11-rocm"
 assert_contains "amd-kokoro-image" "kokoro-fastapi-rocm:v0.5.0"
 assert_not_contains "amd-no-nvidia-degraded" "Sub-spec / non-NVIDIA host"
 reset_fake_amd_devices

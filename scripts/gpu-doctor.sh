@@ -35,7 +35,7 @@ readonly CUDA_FLOOR="${CUDA_FLOOR:-12.8}"
 readonly TOOLKIT_PROBE_IMAGE="${TOOLKIT_PROBE_IMAGE:-nvidia/cuda:12.4.0-base-ubuntu22.04}"
 readonly AMD_DEVICE_ROOT="${AMD_DEVICE_ROOT:-/dev}"
 readonly AMD_COMPOSE_FILE="docker-compose.yml:docker-compose.amd.yml"
-readonly OLLAMA_ROCM_IMAGE="ollama/ollama:0.30.10-rocm"
+readonly OLLAMA_ROCM_IMAGE="ollama/ollama:0.30.11-rocm"
 readonly KOKORO_ROCM_IMAGE="ghcr.io/remsky/kokoro-fastapi-rocm:v0.5.0"
 
 # R3 final (advise-only): use buffered Parakeet everywhere; use GPU only on 16GB+

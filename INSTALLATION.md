@@ -149,8 +149,8 @@ unpacks layers and keeps build cache, so on-disk usage is much larger.
 | Item | Approx download | When used |
 | --- | ---: | --- |
 | `livekit/livekit-server:v1.10.1` | 35 MB | All installs. |
-| `ollama/ollama:0.30.10` | 3.39 GB | NVIDIA/default LLM container. |
-| `ollama/ollama:0.30.10-rocm` | 1.46 GB | Linux AMD override. |
+| `ollama/ollama:0.30.11` | 3.39 GB | NVIDIA/default LLM container. |
+| `ollama/ollama:0.30.11-rocm` | 1.46 GB | Linux AMD override. |
 | `ghcr.io/remsky/kokoro-fastapi-gpu:v0.5.0-cu128` | 8.10 GB | NVIDIA/default TTS. |
 | `ghcr.io/remsky/kokoro-fastapi-cpu:v0.5.0` | 1.66 GB | CPU TTS override. |
 | `ghcr.io/remsky/kokoro-fastapi-rocm:v0.5.0` | 13.02 GB | Linux AMD TTS override. |
