@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 import httpx
 
@@ -95,12 +96,14 @@ BRIEF_NUM_PREDICT: int = 2048
 # must fit the frozen-prefix budget once it lands in KB_SLOT.
 BRIEF_TOKEN_BUDGET: int = 1500
 
-# Bounded total timeout for the off-hot-path distill stream (H3). The previous
-# httpx.Client(timeout=None) meant a stalled/slow Ollama generation never timed out,
-# so a single bad distill could hang the ingest forever (and — until H3's offload —
-# freeze the voice loop). A stalled generation now maps to a typed DistillError so
-# main.ingest_kb surfaces a clear error and the session continues without the KB
-# (REL-03). Mirrors the warmup WARMUP_TIMEOUT_SECONDS=120 bound.
+# Bounded TOTAL wall-clock budget for the off-hot-path distill stream (H3/F15). The
+# httpx.Client(timeout=...) is a PER-OPERATION timeout — during streaming its read
+# timer resets on every chunk, so a generation dripping one token just under the
+# timeout would run unbounded wall-clock (×2 with the repair pass) while ingest_lock
+# is held. num_predict bounds tokens, not token RATE. _generate additionally enforces
+# this value as a hard time.monotonic() deadline INSIDE the stream loop, mapping an
+# overrun to a typed DistillError so main.ingest_kb surfaces a clear error and the
+# session continues without the KB (REL-03). Mirrors the warmup 120 s bound.
 DISTILL_TIMEOUT_SECONDS: float = 120.0
 
 
@@ -166,14 +169,29 @@ def _generate(prompt: str) -> str:
         "options": {"num_predict": BRIEF_NUM_PREDICT},
     }
     parts: list[str] = []
+    # F15: a hard TOTAL wall-clock deadline. The httpx timeout below is per-read and
+    # resets each chunk, so a slow drip could stream forever; this bounds the whole
+    # generation (both passes each get a fresh budget, matching the ×2 note above).
+    deadline = time.monotonic() + DISTILL_TIMEOUT_SECONDS
     try:
         with httpx.Client(timeout=DISTILL_TIMEOUT_SECONDS) as client:
             with client.stream("POST", OLLAMA_GENERATE_URL, json=payload) as response:
                 response.raise_for_status()
                 for line in response.iter_lines():
+                    if time.monotonic() > deadline:
+                        raise DistillError(
+                            f"distill exceeded the {DISTILL_TIMEOUT_SECONDS:.0f}s wall-clock deadline"
+                        )
                     if not line:
                         continue
                     chunk = json.loads(line)
+                    # F15: Ollama reports a mid-stream failure as an {"error": ...}
+                    # chunk (model crash, OOM). Silently ignoring it yields at best the
+                    # generic "produced no output" and at worst a truncated brief that
+                    # passes the FACTS check and is injected as complete. Surface it.
+                    err = chunk.get("error")
+                    if err:
+                        raise DistillError(f"distill stream reported an error: {err}")
                     piece = chunk.get("response")
                     if piece:
                         parts.append(piece)
