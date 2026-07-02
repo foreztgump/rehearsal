@@ -964,6 +964,56 @@ def _assert_debug_hybrid_exposure_warning() -> None:
     os.environ["STT_DEBUG_HYBRID"] = "0"
 
 
+def _assert_max_connections_guard() -> None:
+    """G8: each live streaming connection pins persistent encoder cache (~8 MB VRAM in
+    legacy modes) and can monopolize the single global decode lock, so many idle/noise
+    LAN connections can exhaust VRAM. Bound concurrent streams by STT_MAX_CONNECTIONS.
+
+    A new connection ABOVE the cap must be rejected during the handshake (closed, no
+    'ready'); the live-connection counter must decrement when a stream ends so slots
+    are reclaimed (no permanent leak)."""
+    import importlib
+    from test_dispatch import (
+        _install_fastapi_stub, _install_backend_stub, _FakeWebSocket, _run_async,
+    )
+
+    _install_fastapi_stub(); _install_backend_stub()
+    os.environ["STT_ENGINE"] = "streaming"; os.environ["STT_RUNTIME"] = "cpu"
+    os.environ["STT_ONNX_MODEL"] = "x"; os.environ["STT_MAX_CONNECTIONS"] = "1"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    assert server.STT_MAX_CONNECTIONS == 1
+
+    # Pure admission decision: at/over the cap is refused, under is admitted.
+    assert server._connection_slot_available(0) is True
+    assert server._connection_slot_available(1) is False
+
+    # End-to-end: with the cap already saturated, a new connection is rejected during
+    # the handshake — no 'ready', socket closed — without touching the decode path.
+    server._live_connections = server.STT_MAX_CONNECTIONS
+    ws = _FakeWebSocket([{"type": "websocket.disconnect"}])
+    ws.closed = False
+    orig_close = getattr(ws, "close", None)
+    async def _close(*a, **k): ws.closed = True
+    ws.close = _close
+    _run_async(server.ws_stream(ws))
+    assert not any(m.get("type") == "ready" for m in ws.sent), (
+        f"over-cap connection must not get ready, got {ws.sent}")
+    assert ws.closed, "over-cap connection must be closed"
+    # The rejected over-cap connection must NOT change the counter (it never took a slot).
+    assert server._live_connections == server.STT_MAX_CONNECTIONS, (
+        f"rejected connection must not alter the live count, got {server._live_connections}")
+
+    # A normal connection under the cap runs and RELEASES its slot on exit.
+    server._live_connections = 0
+    ws2 = _FakeWebSocket([{"bytes": b"\x00\x01\x02\x03"}, {"type": "websocket.disconnect"}])
+    _run_async(server.ws_stream(ws2))
+    assert any(m.get("type") == "ready" for m in ws2.sent), "under-cap connection must get ready"
+    assert server._live_connections == 0, (
+        f"a finished stream must release its slot, got {server._live_connections}")
+    os.environ.pop("STT_MAX_CONNECTIONS", None)
+
+
 def _assert_config_handshake_is_guarded() -> None:
     """F25: the config handshake was outside any guard and unbounded. Assert all three
     failure modes are now handled cleanly: no exception leaks out of ws_stream, no
@@ -1035,6 +1085,7 @@ def _self_check() -> None:
     _assert_streaming_eou_dur_ms()
     _assert_no_spurious_empty_delta_after_final()
     _assert_debug_hybrid_exposure_warning()
+    _assert_max_connections_guard()
     _assert_config_handshake_is_guarded()
     _assert_raw_silence_endpoint_is_not_chunk_quantized()
     print("engine _self_check OK — seam, GPU buffered Parakeet, hybrid, voiced-stall EOU, trimmed PCM, debug WAV, I1 finalize-boundary, M2 reset-pcm, F2 streaming-dur-ms, raw-silence EOU, F7 buffered-silence-trim, F8 offline-lock+size+wav-validation",

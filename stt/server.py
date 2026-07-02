@@ -124,6 +124,13 @@ _ENDPOINT_SILENCE_CHUNKS = max(1, -(-ENDPOINT_SILENCE_MS // STREAM_CHUNK_MS))  #
 # LAN port cannot park a coroutine forever. Generous (a real client sends config
 # immediately after connect); override via STT_HANDSHAKE_TIMEOUT_S.
 HANDSHAKE_TIMEOUT_S = float(os.environ.get("STT_HANDSHAKE_TIMEOUT_S", "10"))
+# G8: cap concurrent streaming connections. Each live stream pins persistent encoder
+# cache (~8 MB GPU VRAM in legacy cache-aware modes) and can monopolize the single
+# global decode lock, so many idle/noise connections on an exposed LAN port could
+# exhaust VRAM. Loopback LAN_BIND_IP is the real boundary (docs/lan-exposure.md); this
+# is a cheap belt-and-braces bound. 0 disables the cap. Override via STT_MAX_CONNECTIONS.
+STT_MAX_CONNECTIONS = int(os.environ.get("STT_MAX_CONNECTIONS", "8"))
+_live_connections = 0
 # getattr defaults to True (streaming) for backends that pre-date the STREAMS flag.
 _ACCUMULATE_PCM = getattr(_final, "STREAMS", True) is False   # server owns _turn_pcm for buffered finals
 _PRIMARY_STREAMS = getattr(_primary, "STREAMS", True)
@@ -389,10 +396,27 @@ async def _handle_control(ws: WebSocket, state: dict, msg: dict) -> dict:
     return state
 
 
+def _connection_slot_available(live: int) -> bool:
+    """PURE (G8): True iff a new stream may be admitted given `live` active streams.
+
+    STT_MAX_CONNECTIONS == 0 disables the cap. Split out so the admission decision is
+    unit-testable without booting uvicorn."""
+    return STT_MAX_CONNECTIONS <= 0 or live < STT_MAX_CONNECTIONS
+
+
 @app.websocket("/v1/audio/stream")
 async def ws_stream(websocket: WebSocket) -> None:
     """Primary streaming endpoint. config → ready → deltas; flush → final."""
+    global _live_connections
     await websocket.accept()
+    # G8: refuse a new stream over STT_MAX_CONNECTIONS before the handshake so many
+    # idle/noise LAN connections can't each pin encoder cache / monopolize the decode
+    # lock. Close quietly (no 'ready'); the slot is only taken once we admit.
+    if not _connection_slot_available(_live_connections):
+        logger.warning("stt connection refused: at STT_MAX_CONNECTIONS=%d", STT_MAX_CONNECTIONS)
+        with contextlib.suppress(Exception):
+            await websocket.close()
+        return
     # F25: guard the config handshake. It sits on an unauthenticated LAN port, so it
     # must tolerate hostile/aborted first frames without a noisy traceback or a parked
     # coroutine: a client that drops mid-handshake (WebSocketDisconnect), sends a binary
@@ -411,10 +435,13 @@ async def ws_stream(websocket: WebSocket) -> None:
     state = _primary.new_stream_state(_primary_model)
     if _ACCUMULATE_PCM:
         state.setdefault("_turn_pcm", bytearray())
+    _live_connections += 1  # slot taken only after a successful handshake
     try:
         await _stream_loop(websocket, state)
     except WebSocketDisconnect:
         return
+    finally:
+        _live_connections -= 1  # release the slot on any exit (G8: no permanent leak)
 
 
 async def _stream_loop(websocket: WebSocket, state: dict) -> None:

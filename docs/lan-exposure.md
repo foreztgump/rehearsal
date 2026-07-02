@@ -163,6 +163,13 @@ check the cert is trusted on that device and that you loaded the `https://` URL
 - Keep firewall rules LAN-only. The design pins `rtc.node_ip` with
   `use_external_ip:false` so LiveKit does **no STUN/WAN egress** — do not change
   that for a LAN-only deploy.
+- **STT WebSocket (G8):** the STT `:8000` port has no auth. Loopback `LAN_BIND_IP`
+  is the real boundary (it stays on `127.0.0.1` and is reached only through the TLS
+  proxy over the docker network). Belt-and-braces bounds ship on by default:
+  `STT_MAX_CONNECTIONS` (default 8) caps concurrent streams so idle/noise connections
+  can't exhaust encoder-cache VRAM or monopolize the decode lock, and
+  `STT_HANDSHAKE_TIMEOUT_S` (default 10 s) closes half-open sockets. Do **not** put
+  the STT port directly on the LAN; there is no shared-token auth on it.
 
 ---
 

@@ -194,6 +194,8 @@ services:
       - STT_BUFFERED_DEVICE=${STT_BUFFERED_DEVICE:-gpu}
       - STT_PARAKEET_MODEL=${STT_PARAKEET_MODEL:-/models/parakeet-tdt-0.6b-v2-onnx-int8}
       - STT_DEBUG_HYBRID=${STT_DEBUG_HYBRID:-0}
+      # G8: cap concurrent STT streams (each pins encoder cache + the decode lock). 0 disables.
+      - STT_MAX_CONNECTIONS=${STT_MAX_CONNECTIONS:-8}
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:8000:8000"
     networks:
@@ -256,6 +258,8 @@ services:
       - STT_BUFFERED_DEVICE=cpu
       - STT_PARAKEET_MODEL=${STT_PARAKEET_MODEL:-/models/parakeet-tdt-0.6b-v2-onnx-int8}
       - STT_DEBUG_HYBRID=${STT_DEBUG_HYBRID:-0}
+      # G8: cap concurrent STT streams (each pins encoder cache + the decode lock). 0 disables.
+      - STT_MAX_CONNECTIONS=${STT_MAX_CONNECTIONS:-8}
     # Distinct HOST port 8001 for host probing (internal stays 8000; the agent reaches
     # it by service DNS ws://nemo-stt-cpu:8000/...). No collision with nemo-stt's 8000.
     ports:
