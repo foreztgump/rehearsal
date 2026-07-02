@@ -21,7 +21,7 @@ provenance scrutiny before public access.
 | Python packages | Requirement ranges in `agent/`, `stt/`, and `requirements-dev.txt`. | Generate per-runtime hash lockfiles with `uv pip compile --generate-hashes` if exact Python artifact traceability becomes required. |
 | Docker images | Tags are pinned; digests are not pinned. | Replace tags with `tag@sha256:<digest>` after the public baseline is green. |
 | Hugging Face STT revision | `STT_MODEL_REVISION` defaults to `main` unless overridden. | Pin a commit SHA in `.env.example` after final model choice is frozen. |
-| Ollama community models | Some ladder entries use `:latest` or remote GGUF references. | Record resolved model manifests during install or replace with immutable references when Ollama exposes a stable one for the target source. |
+| Ollama community models | Ladder rung-1s use `:latest`/remote GGUF refs, BUT `pull-and-pin.sh` now records each resolved tier's manifest digest (`OLLAMA_MODEL_*_DIGEST`, sha256 from `/api/tags`) at install and runs `ollama/verify-build.sh` on the community rungs (FAIL → stock rung) — F20. | Replace the community `:latest` refs with immutable `@sha256` references once Ollama exposes a stable one for the source; diff the recorded digest across installs to detect upstream repoints. |
 | Vendored browser assets | Assets are committed under `web/public/vendor/`; upstream/version is known from project research. | Add per-file checksums if those files change again. |
 
 ## Docker Images
@@ -53,8 +53,8 @@ provenance scrutiny before public access.
 
 | Choice | Source tags | Pin/check status | Notes |
 | --- | --- | --- | --- |
-| Fast | `evalengine/unbound-e2b:latest`, fallback `gemma4:e2b` | tag resolved during install; build verified by `ollama/verify-build.sh` when operator runs it | Community first rung, official fallback. |
-| Better | `defyma85/gemma-4-E4B-it-ultra-uncensored-heretic-Q4_K_M_gguf:latest`, fallback `gemma4:e4b` | tag resolved during install; build verified by `ollama/verify-build.sh` when operator runs it | Community first rung, official fallback. |
+| Fast | `evalengine/unbound-e2b:latest`, fallback `gemma4:e2b` | tag + manifest digest recorded during install; community rung gated by `ollama/verify-build.sh` (FAIL → stock rung) — F20 | Community first rung, official fallback. |
+| Better | `defyma85/gemma-4-E4B-it-ultra-uncensored-heretic-Q4_K_M_gguf:latest`, fallback `gemma4:e4b` | tag + manifest digest recorded during install; community rung gated by `ollama/verify-build.sh` (FAIL → stock rung) — F20 | Community first rung, official fallback. |
 | Floor | `hf.co/mradermacher/Huihui-Qwen3-4B-Instruct-2507-abliterated-GGUF:Q4_K_M`, `hf.co/bartowski/mlabonne_Qwen3-1.7B-abliterated-GGUF:Q4_K_M`, fallback `qwen3.5:2b-q4_K_M` | tag resolved during install | First rung is rebuilt as `rehearsal-floor` with the local Modelfile template fix. |
 
 ## Vendored Browser Assets

@@ -71,6 +71,14 @@ readonly OLLAMA_CONTAINER="${OLLAMA_CONTAINER:-ollama}"
 readonly ENV_FILE="${ENV_FILE:-.env}"
 readonly INSTALL_MODELS="${INSTALL_MODELS:-fast,better,floor}"
 readonly DEFAULT_CHOICE="${REHEARSAL_DEFAULT_MODEL:-}"
+# F20 supply chain. OLLAMA_BASE_URL: host-published ollama port, used to read each
+# resolved model's manifest digest from /api/tags (models[].digest — Ollama API) so a
+# mutable :latest that silently repoints is DETECTABLE (the recorded sha256 changes).
+readonly OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
+# The per-build behavioral gate (template + thinking-off scan). Overridable so the
+# sandbox test can stub it; a missing script degrades to "gate skipped" (WARN), never
+# a hard failure — the gate hardens the default path, it must not brick a valid pull.
+readonly VERIFY_BUILD_SCRIPT="${VERIFY_BUILD_SCRIPT:-$(dirname "$0")/verify-build.sh}"
 
 # Resolve which ladders to run from INSTALL_MODELS (comma list, order preserved).
 # Unknown keys are ignored (defensive — the installer only writes known keys).
@@ -98,17 +106,80 @@ write_resolved_tag() {
   fi
 }
 
+# Record the manifest digest of a resolved tag under "<KEY>_DIGEST=" in ENV_FILE
+# (F20). Reads models[].digest from the ollama /api/tags list (Ollama API) via the
+# host-published port and normalizes to a sha256:-prefixed value. A mutable :latest
+# tag alone is not a pin — this sha256 is what makes an upstream repoint detectable
+# (the recorded digest changes on the next install). Best-effort: if the digest can't
+# be read (older ollama / curl unavailable) it WARNs and skips — never blocks a pull.
+record_digest() {
+  local key="$1" tag="$2" digest
+  digest="$(curl -s "${OLLAMA_BASE_URL}/api/tags" 2>/dev/null | python3 -c '
+import sys, json
+tag = sys.argv[1]
+try:
+    models = json.load(sys.stdin).get("models", [])
+except Exception:
+    sys.exit(0)
+for m in models:
+    if m.get("name") == tag or m.get("model") == tag:
+        d = m.get("digest") or ""
+        if d:
+            print(d if d.startswith("sha256:") else "sha256:" + d)
+        break
+' "${tag}" 2>/dev/null)" || true
+  if [ -n "${digest}" ]; then
+    write_resolved_tag "${key}_DIGEST" "${digest}"
+    echo "recorded ${key}_DIGEST=${digest} in ${ENV_FILE}" >&2
+  else
+    echo "WARN: could not read manifest digest for ${tag} — ${key}_DIGEST left unset" >&2
+  fi
+}
+
+# Run the per-build behavioral gate (verify-build.sh) on a COMMUNITY rung before it is
+# accepted (F20). Returns 0 to ACCEPT the tag, non-zero to REJECT (caller advances to
+# the next ladder rung — the stock fallback). A missing gate script is a SKIP (accept
+# with a WARN) so the gate hardens the default path without bricking a valid pull.
+# NB: the FLOOR ladder deliberately does NOT call this — its rung-1 GGUF ships a broken
+# template ON PURPOSE and is only sane AFTER the Modelfile graft, so gating it pre-graft
+# would wrongly reject every floor install (see main()).
+verify_or_skip() {
+  local tag="$1" stock="${2:-}"
+  if [ ! -x "${VERIFY_BUILD_SCRIPT}" ]; then
+    echo "verify: ${VERIFY_BUILD_SCRIPT} not executable — skipping behavioral gate for ${tag}" >&2
+    return 0
+  fi
+  echo "verify: gating ${tag} via $(basename "${VERIFY_BUILD_SCRIPT}")..." >&2
+  if "${VERIFY_BUILD_SCRIPT}" "${tag}" "${stock}"; then
+    return 0
+  fi
+  echo "verify: ${tag} FAILED the behavioral gate — advancing to the next (stock) rung" >&2
+  return 1
+}
+
 # Walk the named ladder (passed by name via a nameref): pull each rung, confirm it
 # is present in `ollama list`, and echo the first that resolves. Same per-rung
 # pull→confirm-present discipline as the single-model original.
+#
+# F20: when "$2" == verify, each rung is additionally run through verify_or_skip AFTER
+# it is confirmed present; a gate FAIL advances to the next rung (the stock fallback),
+# exactly as verify-build.sh's header prescribes. The LAST rung is treated as the
+# operator-accepted stock floor and is NOT gated (it is the fallback of last resort).
 resolve_tag() {
   local -n ladder="$1"
-  local tag
+  local do_verify="${2:-}"
+  local tag idx=0 last=$(( ${#ladder[@]} - 1 ))
   for tag in "${ladder[@]}"; do
     echo "ladder: attempting pull of ${tag}" >&2
     if ollama_exec pull "${tag}" >&2; then
       # Confirm the tag is actually present before pinning it.
       if ollama_exec list | awk '{print $1}' | grep -qx "${tag}"; then
+        if [ "${do_verify}" = "verify" ] && [ "${idx}" -lt "${last}" ]; then
+          # Gate community rungs; hand verify-build the next rung as the stock diff.
+          if ! verify_or_skip "${tag}" "${ladder[$((idx + 1))]}"; then
+            idx=$((idx + 1)); continue
+          fi
+        fi
         echo "${tag}"
         return 0
       fi
@@ -116,6 +187,7 @@ resolve_tag() {
     else
       echo "ladder: ${tag} did not resolve — next rung" >&2
     fi
+    idx=$((idx + 1))
   done
   return 1
 }
@@ -150,6 +222,7 @@ main() {
         write_resolved_tag OLLAMA_MODEL_FLOOR "${floor_tag}"
         echo "pinned OLLAMA_MODEL_FLOOR=${floor_tag} in ${ENV_FILE}"
       fi
+      record_digest OLLAMA_MODEL_FLOOR "${floor_tag}"
       installed_any=1
       [ -z "${first_installed_tag}" ] && first_installed_tag="${floor_tag}"
       [ "${chosen_default}" = "floor" ] && default_tag="${floor_tag}"
@@ -160,8 +233,9 @@ main() {
 
   if should_install "fast"; then
     local fast_tag
-    if fast_tag="$(resolve_tag FAST_LADDER)"; then
+    if fast_tag="$(resolve_tag FAST_LADDER verify)"; then
       write_resolved_tag OLLAMA_MODEL_FAST "${fast_tag}"
+      record_digest OLLAMA_MODEL_FAST "${fast_tag}"
       installed_any=1
       [ -z "${first_installed_tag}" ] && first_installed_tag="${fast_tag}"
       [ "${chosen_default}" = "fast" ] && default_tag="${fast_tag}"
@@ -174,8 +248,9 @@ main() {
 
   if should_install "better"; then
     local better_tag
-    if better_tag="$(resolve_tag BETTER_LADDER)"; then
+    if better_tag="$(resolve_tag BETTER_LADDER verify)"; then
       write_resolved_tag OLLAMA_MODEL_BETTER "${better_tag}"
+      record_digest OLLAMA_MODEL_BETTER "${better_tag}"
       installed_any=1
       [ -z "${first_installed_tag}" ] && first_installed_tag="${better_tag}"
       [ "${chosen_default}" = "better" ] && default_tag="${better_tag}"
