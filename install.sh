@@ -55,8 +55,9 @@ bootstrap_checkout() {
 bootstrap_checkout "$@"
 
 # --- 0b. Windows: hand off to the native PowerShell installer ----------------
-# When this runs in Git Bash / MSYS / Cygwin (e.g. `curl … install.sh | bash` on
-# Windows), the Linux prerequisite path (apt/dnf/pacman) is meaningless. Delegate
+# When this runs in Git Bash / MSYS / Cygwin (e.g. a curl-to-bash install of
+# install.sh on Windows), the Linux prerequisite path (apt/dnf/pacman) is
+# meaningless. Delegate
 # to install.ps1, which uses the winget-based Docker Desktop path. The checkout is
 # guaranteed to exist here (bootstrap_checkout ran), so install.ps1 is on disk.
 delegate_windows() {
