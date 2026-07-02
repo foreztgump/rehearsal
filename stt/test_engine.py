@@ -102,6 +102,51 @@ def _assert_no_dead_recycle_hard_chars() -> None:
     assert proc.returncode == 0, f"F27 dead-config check failed: {proc.stderr.strip()}"
 
 
+def _assert_stall_recycle_preserves_committed_text() -> None:
+    """F22: on a decoder stall the watchdog clears prev_hyps, restarting the cumulative
+    transcript from empty. The pre-recycle text was only ever emitted as interim deltas
+    (LiveKit commits FINALs only), so it was permanently lost; and the first post-recycle
+    decode returned empty, flipping the server's _final_pending False → a turn that ends
+    right after the recycle never commits. Fix: fold the held text forward as a committed
+    prefix so decode_chunk keeps returning prefix+new (text preserved AND non-empty).
+
+    Drives the REAL _track_stall/decode_chunk with _stream_step monkeypatched to a
+    scripted cumulative sequence (no torch). Runs for BOTH backends via subprocess."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for module, model_env, step_name in (
+        ("backend_nemo", {"STT_MODEL": "nvidia/parakeet-tdt-0.6b-v2"}, "_stream_step"),
+        ("backend_onnx", {"STT_ONNX_MODEL": "x", "STT_QUANT": "int8-dynamic", "STT_RUNTIME": "cpu"},
+         "_encode_decode_step"),
+    ):
+        code = (
+            f"import backend_common as c; c.STALL_FRAMES = 2; c.RECYCLE_MIN_CHARS = 3\n"
+            f"import {module} as b\n"
+            f"b.STALL_FRAMES = 2; b.RECYCLE_MIN_CHARS = 3\n"
+            # Scripted decode: grow to a long held string, stall (repeat it) until the\n"
+            # watchdog recycles, then the underlying step returns '' (post-recycle empty)\n"
+            # then a new word. A correct fold keeps the held text as a committed prefix.\n"
+            f"seq = iter(['hello world foo', 'hello world foo', 'hello world foo', '', 'bar'])\n"
+            f"b.{step_name} = lambda *a, **k: next(seq)\n"
+            f"st = {{'last_text_len': 0, 'frames_since_growth': 0,\n"
+            f"      'prev_hyps': 1, 'prev_pred_out': None,\n"
+            f"      'emitted_token_ids': [1], 'dec_state': None,\n"
+            f"      'cache_last_channel': None, 'cache_last_time': None, 'cache_last_channel_len': None}}\n"
+            f"outs = [b.decode_chunk(None, st, b'x') for _ in range(5)]\n"
+            # After the recycle the held 'hello world foo' must NOT vanish, and the\n"
+            # final decode must still contain both the committed prefix and 'bar'.\n"
+            f"assert outs[-1], f'F22: post-recycle decode went empty (turn would wedge): {{outs!r}}'\n"
+            f"assert 'hello world foo' in outs[-1], f'F22: committed text lost on recycle: {{outs!r}}'\n"
+            f"assert 'bar' in outs[-1], f'F22: post-recycle growth lost: {{outs!r}}'\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", code], cwd=here,
+            env={k: v for k, v in os.environ.items() if k not in ("STT_MODEL", "STT_ONNX_MODEL")}
+            | model_env,
+            capture_output=True, text=True,
+        )
+        assert proc.returncode == 0, f"F22 {module} stall-recycle fold failed: {proc.stderr.strip()}"
+
+
 def _assert_parakeet_nemo_imports_without_nemo() -> None:
     """GPU buffered backend must byte-import without NeMo until load_model()."""
     here = os.path.dirname(os.path.abspath(__file__))
@@ -944,6 +989,7 @@ def _self_check() -> None:
     _assert_parakeet_imports_without_ort()
     _assert_parakeet_real_body()
     _assert_no_dead_recycle_hard_chars()
+    _assert_stall_recycle_preserves_committed_text()
     _assert_parakeet_nemo_imports_without_nemo()
     _assert_parakeet_nemo_real_body()
     _assert_default_engine_is_buffered()

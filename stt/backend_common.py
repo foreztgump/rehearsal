@@ -68,6 +68,24 @@ def finalize_pad_pcm() -> bytes:
     return b"\x00\x00" * (SAMPLE_RATE * FINALIZE_PAD_MS // 1000)
 
 
+def join_committed(prefix: str, since_reset: str) -> str:
+    """F22: join the folded-forward committed prefix with the current since-reset decode.
+
+    On a stall recycle the decoder's cumulative restarts from empty (prev_hyps/dec_state
+    are cleared), so the pre-recycle text — only ever emitted as interim deltas, never
+    committed by LiveKit — would be lost from the turn AND the first post-recycle decode
+    would return empty (flipping the server's _final_pending False, wedging a turn that
+    ends right after). Both backends fold the held text into `committed_prefix` at recycle
+    and return prefix+since_reset from decode_chunk/finalize, so the transcript is never
+    lost and decode_chunk stays non-empty. Space-join, skipping empties so no leading/
+    trailing/double space appears across the boundary."""
+    if not prefix:
+        return since_reset
+    if not since_reset:
+        return prefix
+    return f"{prefix} {since_reset}"
+
+
 # R3 buffered/energy-EOU (no numpy: stdlib array+math keeps server.py sandbox-safe).
 # When the PRIMARY backend has STREAMS=False there is no growing transcript to
 # stall-detect, so end-of-utterance is detected acoustically: chunks whose RMS sits

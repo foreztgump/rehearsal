@@ -39,6 +39,7 @@ from backend_common import (
     STALL_FRAMES,
     THREAD_PRED_OUT,
     finalize_pad_pcm,
+    join_committed,
 )
 
 logger = logging.getLogger("nemo-stt")
@@ -138,6 +139,7 @@ def new_stream_state(model) -> dict:
         "prev_pred_out": None,
         "frames_since_growth": 0,
         "last_text_len": 0,
+        "committed_prefix": "",  # F22: text folded forward across stall recycles
     }
 
 
@@ -195,13 +197,18 @@ def decode_chunk(model, state, pcm) -> str:
     Recycles decoder state on a stall but NEVER emits FINAL (the turn detector owns
     finalize).
     """
-    cumulative = _stream_step(model, state, pcm)
-    _track_stall(state, cumulative)
-    return cumulative
+    since_reset = _stream_step(model, state, pcm)
+    full = join_committed(state.get("committed_prefix", ""), since_reset)
+    _track_stall(state, full, since_reset)
+    return full
 
 
-def _track_stall(state: dict, cumulative: str) -> None:
-    """Stall watchdog: recycle decoder state if text stops growing (no FINAL)."""
+def _track_stall(state: dict, cumulative: str, since_reset: str) -> None:
+    """Stall watchdog: recycle decoder state if text stops growing (no FINAL).
+
+    `cumulative` is the full transcript (committed_prefix + this chunk's since-reset
+    decode) used for growth/threshold detection; `since_reset` is only the post-reset
+    portion, folded into committed_prefix at recycle so the held text survives (F22)."""
     grew = len(cumulative) > state["last_text_len"]
     state["last_text_len"] = len(cumulative)
     if grew:
@@ -210,9 +217,13 @@ def _track_stall(state: dict, cumulative: str) -> None:
     state["frames_since_growth"] += 1
     stalled = state["frames_since_growth"] >= STALL_FRAMES
     if stalled and len(cumulative) >= RECYCLE_MIN_CHARS:
-        # Reset prev_hyps, carry the encoder cache forward, continue. Log only —
-        # do NOT emit FINAL (single-turn-source invariant, 09-RESEARCH §1/§4).
+        # Reset prev_hyps, carry the encoder cache forward, continue. Log only — do NOT
+        # emit FINAL (single-turn-source invariant, 09-RESEARCH §1/§4). F22: fold the
+        # held text into committed_prefix FIRST so the cleared prev_hyps can't drop it
+        # from the turn and the next decode_chunk still returns non-empty (keeps the
+        # server's _final_pending True so an utterance ending right after still commits).
         logger.info("nemo-stt RNNT stall recycle at %d chars (cache carried forward)", len(cumulative))
+        state["committed_prefix"] = join_committed(state.get("committed_prefix", ""), since_reset)
         state["prev_hyps"] = None
         state["prev_pred_out"] = None
         state["frames_since_growth"] = 0
@@ -227,9 +238,11 @@ def finalize(model, state) -> str:
     """
     held = state["prev_hyps"][0].text if state["prev_hyps"] else ""
     if FINALIZE_PAD and state["prev_hyps"] is not None:
-        cumulative = _drain_tail(model, state, held)
+        since_reset = _drain_tail(model, state, held)
     else:
-        cumulative = held
+        since_reset = held
+    # F22: prepend any text folded forward across stall recycles this turn.
+    cumulative = join_committed(state.get("committed_prefix", ""), since_reset)
     if DEBUG_DRAIN:
         logger.info("nemo-stt diag finalize: text=%r held_tokens=%d",
                     cumulative, _held_token_count(state["prev_hyps"]))
@@ -275,3 +288,4 @@ def reset_turn_state(state: dict) -> None:
     state["prev_pred_out"] = None
     state["frames_since_growth"] = 0
     state["last_text_len"] = 0
+    state["committed_prefix"] = ""  # F22: new turn starts with no folded text

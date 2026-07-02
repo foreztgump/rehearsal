@@ -39,6 +39,7 @@ from backend_common import (
     RECYCLE_MIN_CHARS,
     STALL_FRAMES,
     finalize_pad_pcm,
+    join_committed,
 )
 
 logger = logging.getLogger("nemo-stt")
@@ -159,6 +160,7 @@ def new_stream_state(model) -> dict:
         "emitted_token_ids": [],
         "frames_since_growth": 0,
         "last_text_len": 0,
+        "committed_prefix": "",  # F22: text folded forward across stall recycles
     }
 
 
@@ -267,9 +269,10 @@ def decode_chunk(model, state, pcm) -> str:
     Recycles decoder state on a stall but NEVER emits FINAL (the turn detector owns
     finalize).
     """
-    text = _encode_decode_step(model, state, pcm)
-    _track_stall(state, text)
-    return text
+    since_reset = _encode_decode_step(model, state, pcm)
+    full = join_committed(state.get("committed_prefix", ""), since_reset)
+    _track_stall(state, full, since_reset)
+    return full
 
 
 def _greedy_rnnt(model, state, enc_out) -> None:
@@ -310,12 +313,14 @@ def _decode_step(model, state, enc_step):
     return int(np.argmax(logits.reshape(-1))), [h, c]
 
 
-def _track_stall(state, cumulative) -> None:
+def _track_stall(state, cumulative, since_reset) -> None:
     """Stall watchdog: recycle decoder state if text stops growing (no FINAL).
 
     Identical semantics to backend_nemo. The ONNX analog of `prev_hyps=None` is the
     `dec_state` reset + the emitted-token-list reset; the encoder cache is CARRIED
-    forward. Log only — NEVER emit FINAL (single-turn-source invariant).
+    forward. Log only — NEVER emit FINAL (single-turn-source invariant). `cumulative`
+    is the full transcript (committed_prefix + since_reset); `since_reset` is the
+    post-reset portion folded into committed_prefix at recycle so text survives (F22).
     """
     import numpy as np  # noqa: PLC0415 - ORT-only dep
 
@@ -327,7 +332,11 @@ def _track_stall(state, cumulative) -> None:
     state["frames_since_growth"] += 1
     stalled = state["frames_since_growth"] >= STALL_FRAMES
     if stalled and len(cumulative) >= RECYCLE_MIN_CHARS:
+        # F22: fold the held text into committed_prefix BEFORE clearing dec_state/
+        # emitted_token_ids, so the pre-recycle transcript survives and the next
+        # decode_chunk still returns non-empty (keeps the server's _final_pending True).
         logger.info("nemo-stt-cpu RNNT stall recycle at %d chars (cache carried forward)", len(cumulative))
+        state["committed_prefix"] = join_committed(state.get("committed_prefix", ""), since_reset)
         state["dec_state"] = [np.zeros(_DEC_STATE_SHAPE, dtype=np.float32),
                               np.zeros(_DEC_STATE_SHAPE, dtype=np.float32)]
         state["emitted_token_ids"] = []
@@ -343,8 +352,11 @@ def finalize(model, state) -> str:
     """
     held = model["tokenizer"].decode(state["emitted_token_ids"]) if state["emitted_token_ids"] else ""
     if FINALIZE_PAD and state["emitted_token_ids"]:
-        return _drain_tail(model, state, held)
-    return held
+        since_reset = _drain_tail(model, state, held)
+    else:
+        since_reset = held
+    # F22: prepend any text folded forward across stall recycles this turn.
+    return join_committed(state.get("committed_prefix", ""), since_reset)
 
 
 def _drain_tail(model, state, held_text: str) -> str:
@@ -376,3 +388,4 @@ def reset_turn_state(state) -> None:
     state["emitted_token_ids"] = []
     state["frames_since_growth"] = 0
     state["last_text_len"] = 0
+    state["committed_prefix"] = ""  # F22: new turn starts with no folded text
