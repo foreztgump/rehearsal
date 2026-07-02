@@ -793,6 +793,19 @@ def _assert_streaming_eou_dur_ms() -> None:
         f"streaming autonomous final must carry dur_ms==0 (pre-R3 compat), got {final!r}")
 
 
+def _assert_no_spurious_empty_delta_after_final() -> None:
+    """F26: after a final, _send_final resets the per-turn dedup marker. The next
+    silent chunk decodes to '' — that must NOT be re-emitted as a delta. Previously
+    the marker was popped (None), so `'' != None` counted as growth and a spurious
+    {"type":"delta","text":""} was sent after EVERY final. No empty delta may appear
+    at all in this exchange (the stub only ever decodes '' or 'wordN')."""
+    sent = _run_streaming_eou_exchange()
+    empties = [m for m in sent if m.get("type") == "delta" and m.get("text") == ""]
+    assert not empties, f"F26: no empty-text delta may follow a final, got {sent}"
+    # And a final must still fire (we did not break EOU).
+    assert any(m.get("type") == "final" for m in sent), f"EOU final still required, got {sent}"
+
+
 def _assert_raw_silence_endpoint_is_not_chunk_quantized() -> None:
     """700 ms of raw silence must end a turn without waiting for two 560 ms decodes."""
     import importlib, types
@@ -849,6 +862,7 @@ def _self_check() -> None:
     _assert_finalize_error_boundary()
     _assert_reset_turn_pcm_safe()
     _assert_streaming_eou_dur_ms()
+    _assert_no_spurious_empty_delta_after_final()
     _assert_raw_silence_endpoint_is_not_chunk_quantized()
     print("engine _self_check OK — seam, GPU buffered Parakeet, hybrid, voiced-stall EOU, trimmed PCM, debug WAV, I1 finalize-boundary, M2 reset-pcm, F2 streaming-dur-ms, raw-silence EOU, F7 buffered-silence-trim, F8 offline-lock+size+wav-validation",
           file=sys.stderr)

@@ -295,7 +295,11 @@ async def _send_final(ws: WebSocket, state: dict, text: str, dur_ms: int = 0) ->
     (the agent owns that span via _flush_started).
     """
     _primary.reset_turn_state(state)
-    state.pop("_last_delta_text", None)
+    # F26: init to "" (NOT pop). _emit_streaming dedups via `cumulative != _last_delta_text`;
+    # a popped/None marker makes the next silent chunk's "" != None read as growth, emitting a
+    # spurious {"type":"delta","text":""} after every final. "" == "" suppresses it, and real
+    # post-final growth ("wordN" != "") still fires normally.
+    state["_last_delta_text"] = ""
     state["_silent_chunks"] = 0
     state["_final_pending"] = False
     state["_raw_silence_ms"] = 0
