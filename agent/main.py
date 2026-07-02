@@ -425,6 +425,19 @@ async def entrypoint(ctx: JobContext) -> None:
     # extra_body verbatim, so this lands the cap where Ollama actually reads it.
     # Applies equally to BOTH models and survives the in-place _opts.model swap
     # (extra_body lives in the same _opts the swap mutates only .model on).
+    #
+    # F17/G4 pin-tripwire: the live cap AND the model-swap handler mutate the private
+    # `session.llm._opts` surface (.model / .extra_body). It is present and forwarded
+    # in the pinned livekit-plugins-openai==1.6.4, but a silent version bump could
+    # rename or drop it, degrading the cap/model-swap to a silent no-op. Assert the
+    # surface exists BEFORE the first mutation so a bad bump fails loudly at startup
+    # instead of shipping a broken hot path.
+    _opts = getattr(session.llm, "_opts", None)
+    if _opts is None or not hasattr(_opts, "model") or not hasattr(_opts, "extra_body"):
+        raise RuntimeError(
+            "session.llm._opts.{model,extra_body} missing — the live cap + model swap "
+            "depend on this private surface; re-pin livekit-plugins-openai==1.6.4 (F17/G4)"
+        )
     session.llm._opts.extra_body = {"max_tokens": LIVE_NUM_PREDICT_CAP}
     # Named local ref (was inline): 03-02's RPC handler will close over `agent` to
     # hot-swap the persona via agent.update_instructions(...) without a restart.
