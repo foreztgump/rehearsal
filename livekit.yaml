@@ -20,7 +20,7 @@
 
 # Main TCP port: RoomService / RTC signaling (WS + API). For a local install the
 # browser connects here directly over ws://localhost:7880. For LAN devices, front
-# it with a TLS proxy (wss://<lan-ip>:7443 -> 7880) — see README.md.
+# it with a TLS proxy (wss://<lan-ip>:7443 -> 7880) — see docs/lan-exposure.md.
 port: 7880
 
 # Room lifecycle: close empty rooms quickly so a re-join always creates a fresh
@@ -28,6 +28,17 @@ port: 7880
 # NOT on join into an existing room). The default empty_timeout (300s) leaves a
 # stale, agent-less room alive for 5 min after an agent restart, so a re-join
 # lands in a "ghost" room with no agent. Short timeouts avoid that in dev.
+#
+# OPERATOR NOTE (F36) — phone / LAN clients: these 10 s values are DEV-TUNED for a
+# single on-box browser. empty_timeout closes a room this many seconds after the
+# LAST participant leaves; departure_timeout is the grace period after a participant
+# disconnects. A phone browser BACKGROUNDED for >10 s (lock screen, app switch)
+# drops its transport, the room closes, and the rehearsal session + its (persona ×
+# KB) context are lost — the reconnecting client lands in a fresh, agent-dispatched
+# room with none of the prior turn history. If you serve phones/LAN devices via the
+# TLS proxy, RAISE both to e.g. 60–120 s to survive brief backgrounding; the only
+# cost is a stale empty room lingering that much longer after an agent restart.
+# LiveKit does not interpolate env vars in this YAML, so edit the values here.
 room:
   empty_timeout: 10
   departure_timeout: 10
