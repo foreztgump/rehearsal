@@ -121,6 +121,11 @@ _ENDPOINT_SILENCE_CHUNKS = max(1, -(-ENDPOINT_SILENCE_MS // STREAM_CHUNK_MS))  #
 _ACCUMULATE_PCM = getattr(_final, "STREAMS", True) is False   # server owns _turn_pcm for buffered finals
 _PRIMARY_STREAMS = getattr(_primary, "STREAMS", True)
 _MAX_BUFFER_BYTES = SAMPLE_RATE * BUFFERED_MAX_S * _BYTES_PER_SAMPLE
+# Buffered pre-voice lead-in (F7): while a turn has not yet gone voiced, keep only
+# this much trailing pre-voice audio as a ring so the finalize buffer starts at the
+# turn (plus a small lead-in for the attack transient), NOT at every inter-turn
+# silence chunk since the last final. One streaming chunk of lead-in is plenty.
+_BUFFERED_LEADIN_BYTES = _STREAM_CHUNK_BYTES
 STT_DEBUG_HYBRID = os.environ.get("STT_DEBUG_HYBRID") == "1"
 _DEBUG_SAMPLE_LIMIT = max(1, int(os.environ.get("STT_DEBUG_SAMPLE_LIMIT", "5")))
 _debug_samples: list[dict[str, Any]] = []
@@ -495,16 +500,37 @@ async def _emit_streaming(websocket: WebSocket, state: dict, pcm: bytes) -> None
 
 async def _emit_buffered(websocket: WebSocket, state: dict, pcm: bytes) -> None:
     """No partials. Accumulate PCM; fire ONE final after ENDPOINT silence of low RMS
-    following voiced audio, or when the max-buffer cap is hit."""
-    state.setdefault("_turn_pcm", bytearray()).extend(pcm)
-    if len(state["_turn_pcm"]) >= _MAX_BUFFER_BYTES:
-        await _run_finalize(websocket, state)
-        return
-    if rms_int16(pcm) >= ENERGY_SILENCE_RMS:
+    following voiced audio, or when the max-buffer cap is hit.
+
+    F7: LiveKit pushes mic audio continuously between turns, so accumulating EVERY
+    chunk since the last final would refill the buffer with inter-turn silence (agent
+    speaking time, idle gaps). finalize would then decode that leading silence + the
+    speech under the global decode lock — seconds of wasted latency after a long agent
+    turn. While the turn has NOT yet gone voiced, keep only a small trailing lead-in
+    ring so the finalize buffer starts at the turn, not at the last final. Once voiced,
+    accumulate every chunk (the turn is live)."""
+    turn_pcm = state.setdefault("_turn_pcm", bytearray())
+    turn_pcm.extend(pcm)
+    is_voiced = rms_int16(pcm) >= ENERGY_SILENCE_RMS
+    if is_voiced:
         state["_voiced"] = True
         state["_silent_chunks"] = 0
+    elif not state.get("_voiced"):
+        # Pre-voice: trim the buffer to the trailing lead-in ring so inter-turn
+        # silence never accumulates into the next finalize.
+        if len(turn_pcm) > _BUFFERED_LEADIN_BYTES:
+            del turn_pcm[:-_BUFFERED_LEADIN_BYTES]
+    if len(turn_pcm) >= _MAX_BUFFER_BYTES:
+        if state.get("_voiced"):
+            # A real (voiced) turn overran the cap — finalize what we have.
+            await _run_finalize(websocket, state)
+        else:
+            # Never-voiced overrun is impossible once the pre-voice ring is bounded,
+            # but guard anyway (O2): reset without a pure-silence decode + spurious final.
+            turn_pcm.clear()
+            state["_silent_chunks"] = 0
         return
-    if not state.get("_voiced"):
+    if is_voiced or not state.get("_voiced"):
         return
     state["_silent_chunks"] = state.get("_silent_chunks", 0) + 1
     if state["_silent_chunks"] >= _ENDPOINT_SILENCE_CHUNKS:
