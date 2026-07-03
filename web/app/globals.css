@@ -436,6 +436,20 @@ body {
   cursor: progress;
   filter: saturate(0.7) brightness(0.9);
 }
+/* Destructive fill (End-session confirm) — recolor-only, mirrors .btn-ghost.danger. */
+.btn-apply.danger {
+  background: var(--destructive);
+  box-shadow: none;
+}
+
+/* Settings drawer scrim — themed translucency (same recipe as .topbar). */
+.drawer-scrim {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
 
 /* Dashed upload dropzone. */
 .dropzone {

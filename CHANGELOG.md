@@ -6,6 +6,11 @@ All notable changes to Rehearsal are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- `web` SettingsDrawer scrim/panel/close/End controls now use the shared theme
+  classes (`.drawer-scrim`, `.surface`, `.btn-ghost[.danger]`, `.btn-apply.danger`)
+  instead of hardcoded inline styles.
+
 ## [0.2.1] - 2026-07-03
 
 Review Batches A–H (PR #2 and #3): KB/STT/web fixes, the LAN TLS proxy
