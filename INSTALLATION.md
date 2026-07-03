@@ -122,19 +122,74 @@ Linux AMD is best effort. Use the ROCm override after the normal checkout:
 COMPOSE_FILE=docker-compose.yml:docker-compose.amd.yml docker compose up -d
 ```
 
+On Linux the `COMPOSE_FILE` separator is `:`; on Windows it is `;` (the `:`
+collides with drive letters), so on Windows use explicit `-f` flags instead of
+`COMPOSE_FILE`.
+
 The default installer path is NVIDIA-first. Treat AMD as manual until it has
 been validated on your exact ROCm host.
 
 ### Windows AMD
 
-Windows AMD is best effort. Run native Windows Ollama for the LLM, then use the
-Windows AMD plus CPU TTS overrides:
+Windows AMD is best effort and **manual** — the one-line installer does not drive
+it. On AMD the LLM runs in **native host Ollama** (not a container); only the CPU
+services run in Docker. `install.ps1` detects AMD and prints these steps, then
+stops, so it never silently runs the wrong NVIDIA topology.
 
-```powershell
-docker compose -f docker-compose.yml -f docker-compose.windows-amd.yml -f docker-compose.cpu-tts.yml up -d
-```
+Consumer RDNA cards (for example the RX 6600 XT / gfx1032) are off Ollama's ROCm
+support list, so native Ollama falls back to CPU unless you force its **Vulkan**
+backend. Vulkan is the one GPU lever on those cards.
 
-The Docker stack reaches native Ollama through `host.docker.internal:11434`.
+1. Install native Ollama, then reopen PowerShell so `ollama` is on `PATH`:
+
+   ```powershell
+   winget install -e --id Ollama.Ollama
+   ```
+
+2. Force the Vulkan backend and make it permanent (the Ollama tray app is a
+   background process, so a per-session variable is lost on restart). Restart
+   Ollama so it picks the variables up:
+
+   ```powershell
+   [Environment]::SetEnvironmentVariable("OLLAMA_LLM_LIBRARY", "vulkan", "User")
+   [Environment]::SetEnvironmentVariable("OLLAMA_VULKAN", "1", "User")
+   Get-Process ollama* | Stop-Process -Force; Start-Process ollama
+   ```
+
+3. Pull the model into native Ollama (not the container) and confirm GPU use:
+
+   ```powershell
+   ollama pull evalengine/unbound-e2b:latest
+   ollama ps   # the PROCESSOR column should show GPU, not 100% CPU
+   ```
+
+4. Scaffold `.env` and pin the single installed model. When you narrow to one
+   model, write all five keys as **uncommented** active lines (leaving the
+   `.env.example` comments in place makes the picker surface empty tiers that
+   crash the agent):
+
+   ```powershell
+   Copy-Item .env.example .env
+   # set a long random LIVEKIT_API_SECRET, then set the model config:
+   #   REHEARSAL_MODEL_CHOICES=fast
+   #   NEXT_PUBLIC_REHEARSAL_MODEL_LABELS=Fast
+   #   REHEARSAL_DEFAULT_MODEL=fast
+   #   OLLAMA_MODEL_FAST=evalengine/unbound-e2b:latest
+   #   OLLAMA_MODEL=evalengine/unbound-e2b:latest
+   ```
+
+5. Build and start with the AMD plus CPU TTS overrides. Use explicit `-f` flags —
+   the `COMPOSE_FILE=...:...` colon form fails on Windows (the `:` collides with
+   drive letters):
+
+   ```powershell
+   docker compose -f docker-compose.yml -f docker-compose.windows-amd.yml `
+     -f docker-compose.cpu-tts.yml up -d --build
+   ```
+
+The Docker stack reaches native Ollama through `host.docker.internal:11434`. On an
+8 GB Vulkan card, prefer the `fast` model; the first turn is slow while the model
+loads, and it will not hit the sub-second P50 the 16 GB NVIDIA target aims for.
 
 ### No Supported GPU
 
@@ -201,6 +256,25 @@ docker compose logs -f agent
 The first turn can be slow while models warm. That is expected; a permanent
 agent restart loop is not.
 
+## Upgrading From A Pre-Rename Install
+
+The project's compose name is `rehearsal`. Installs created before the rename ran
+under the `voice-trainer` project (derived from the old directory name), so after
+upgrading you may see two issues:
+
+- **`down` stops nothing.** `docker compose down` targets the `rehearsal` project
+  and leaves the old `voice-trainer-*` containers up. Stop them once, explicitly:
+
+  ```bash
+  docker compose -p voice-trainer down
+  ```
+
+- **Models look missing.** The fresh `rehearsal` project creates an empty
+  `rehearsal_ollama-models` volume; your pulled models still live in the old
+  `voice-trainer_ollama-models` volume. Re-pull into the new volume with the
+  installer (or `./ollama/pull-and-pin.sh`), or copy the old volume's contents
+  over with a one-off `docker run ... -v` if you want to avoid re-downloading.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
@@ -210,8 +284,11 @@ agent restart loop is not.
 | Container GPU probe fails after driver update | WSL2 GPU mount is stale. | `wsl --shutdown`, restart Docker Desktop, or reboot. |
 | `cuda>=12.8` runtime error | NVIDIA driver is too old for the Kokoro CUDA image. | Update the NVIDIA driver, then rerun `.\scripts\gpu-doctor.ps1` or `./scripts/gpu-doctor.sh`. |
 | Browser cannot connect after WSL restart | Docker port proxies are stale. | Run `docker compose down`, then `docker compose up -d`. |
-| Agent crash-loops with `ws_url is required` | Missing `LIVEKIT_URL`. | PR #1 fixes this in compose; rebuild from the latest branch. |
-| Agent loops during prewarm | Cold model load exceeded worker init timeout. | PR #1 raises `AGENT_INIT_TIMEOUT_S` default to 300s. |
+| Agent crash-loops with `ws_url is required` | Missing `LIVEKIT_URL`. | Fixed in compose (agent sets `LIVEKIT_URL`); rebuild from the latest tree. |
+| Agent loops during prewarm | Cold model load exceeded worker init timeout. | `AGENT_INIT_TIMEOUT_S` defaults to 300s; raise it further on very slow hosts. |
+| Agent stuck on "Listening to you..."; logs show `Connection error.` | `.env` selects GPU STT (`STT_FORCE_CPU=0` + `STT_HEADROOM_MEASURED=1`) but the opt-in `stt-gpu` profile is not running. | Start it: `docker compose --profile stt-gpu up -d nemo-stt` (or `COMPOSE_PROFILES=stt-gpu ./up.sh -d`). `up.sh`/`up.ps1` warn about this. |
+| First turn slow / not sub-second on a small GPU | Cold STT/LLM/TTS warmup and/or sub-16GB VRAM. | Expected. The installer defaults `<=8GB` NVIDIA cards to the `floor` model; wait for `registered worker` in the agent logs. |
+| `./down.sh` stops nothing after upgrading | Pre-rename containers ran under the old `voice-trainer` compose project (now `rehearsal`). | Stop the old project once: `docker compose -p voice-trainer down`. See "Upgrading from a pre-rename install". |
 
 ## AI-Agent Install Prompt
 

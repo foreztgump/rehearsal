@@ -1,6 +1,9 @@
-# Rehearsal AMD ROCm override.
+# Rehearsal AMD ROCm override (Linux).
 # Use with:
 #   COMPOSE_FILE=docker-compose.yml:docker-compose.amd.yml docker compose up -d
+# On Windows the COMPOSE_FILE separator is ';' (':' collides with drive letters),
+# so prefer explicit -f flags there:
+#   docker compose -f docker-compose.yml -f docker-compose.amd.yml up -d
 #
 # Keeps the default docker-compose.yml NVIDIA-first and opt-in only.
 

@@ -18,7 +18,7 @@ bad()  { FAIL=$((FAIL+1)); printf 'FAIL: %s\n' "$1"; }
 # isolated PATH is what keeps the host's real docker/nvidia-smi out (their dirs are
 # never on PATH). env + bash are needed because the stub helpers use a
 # `#!/usr/bin/env bash` shebang that must resolve against this isolated PATH.
-readonly -a NEEDED_TOOLS=(dirname cp grep sed mv head base64 tr cat env bash mkdir chmod)
+readonly -a NEEDED_TOOLS=(dirname cp grep sed mv head base64 tr cat env bash mkdir chmod sleep sort)
 
 # 0) Syntax
 bash -n install.sh && ok "install.sh parses" || bad "install.sh syntax"
@@ -70,7 +70,7 @@ fi
 BIN_B="$WORK/bin_b"; build_path "$BIN_B"
 make_shim "$BIN_B" docker 'echo "docker $*" >> "$PWD/docker.log"; exit 0'
 make_shim "$BIN_B" openssl 'echo deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
-( cd "$WORK" && env -i PATH="$BIN_B" ASSUME_YES=1 bash install.sh -y >b.out 2>&1 ) && rcb=0 || rcb=$?
+( cd "$WORK" && env -i PATH="$BIN_B" ASSUME_YES=1 READY_TIMEOUT_S=0 bash install.sh -y >b.out 2>&1 ) && rcb=0 || rcb=$?
 if [ "${rcb:-1}" -eq 0 ] \
    && [ -f "$WORK/.env" ] \
    && ! grep -q 'replace-with-a-long-random-secret' "$WORK/.env" \
@@ -90,7 +90,7 @@ make_shim "$BIN_C" docker 'echo "docker $*" >> "$PWD/docker.log"; exit 0'
 make_shim "$BIN_C" openssl 'echo deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
 printf '#!/usr/bin/env bash\necho "[stub] pull-and-pin INSTALL_MODELS=${INSTALL_MODELS}" > "$PWD/pin.log"\n' > "$WORK/ollama/pull-and-pin.sh"
 chmod +x "$WORK/ollama/pull-and-pin.sh"
-( cd "$WORK" && env -i PATH="$BIN_C" ASSUME_YES=1 bash install.sh -y >c.out 2>&1 ) && rcc=0 || rcc=$?
+( cd "$WORK" && env -i PATH="$BIN_C" ASSUME_YES=1 READY_TIMEOUT_S=0 bash install.sh -y >c.out 2>&1 ) && rcc=0 || rcc=$?
 if [ "${rcc:-1}" -eq 0 ]    && grep -q 'REHEARSAL_MODEL_CHOICES=floor' "$WORK/.env"    && grep -q 'INSTALL_MODELS=floor' "$WORK/pin.log" 2>/dev/null; then
   ok "Scenario C: GPU=none → floor default + INSTALL_MODELS passed to pull-and-pin"
 else
@@ -113,7 +113,7 @@ printf "#!/usr/bin/env bash\nexit 0\n" > "$REHEARSAL_INSTALL_DIR/scripts/gpu-doc
 printf "#!/usr/bin/env bash\necho clone-pull > \"\$PWD/pin.log\"\n" > "$REHEARSAL_INSTALL_DIR/ollama/pull-and-pin.sh"
 chmod +x "$REHEARSAL_INSTALL_DIR/install.sh" "$REHEARSAL_INSTALL_DIR/scripts/gpu-doctor.sh" "$REHEARSAL_INSTALL_DIR/ollama/pull-and-pin.sh"
 '
-( cd "$WORK/pipe" && env -i PATH="$BIN_D" ASSUME_YES=1 REHEARSAL_INSTALL_DIR="$WORK/cloned" SOURCE_INSTALL_SH="$REPO/install.sh" SOURCE_ENV_EXAMPLE="$REPO/.env.example" bash -s -- -y < "$REPO/install.sh" >d.out 2>&1 ) && rcd=0 || rcd=$?
+( cd "$WORK/pipe" && env -i PATH="$BIN_D" ASSUME_YES=1 READY_TIMEOUT_S=0 REHEARSAL_INSTALL_DIR="$WORK/cloned" SOURCE_INSTALL_SH="$REPO/install.sh" SOURCE_ENV_EXAMPLE="$REPO/.env.example" bash -s -- -y < "$REPO/install.sh" >d.out 2>&1 ) && rcd=0 || rcd=$?
 if [ "${rcd:-1}" -eq 0 ] \
    && grep -q 'clone https://github.com/foreztgump/rehearsal.git' "$WORK/pipe/git.log" \
    && grep -q 'compose build' "$WORK/cloned/docker.log" \
@@ -153,7 +153,7 @@ make_shim "$BIN_F" openssl 'echo deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbee
 # existence check passes in the sandbox copy.
 : > "$WORK/docker-compose.cpu-llm.yml"; : > "$WORK/docker-compose.cpu-tts.yml"
 rm -f "$WORK/.env"
-( cd "$WORK" && env -i PATH="$BIN_F" ASSUME_YES=1 bash install.sh -y >f.out 2>&1 ) && rcf=0 || rcf=$?
+( cd "$WORK" && env -i PATH="$BIN_F" ASSUME_YES=1 READY_TIMEOUT_S=0 bash install.sh -y >f.out 2>&1 ) && rcf=0 || rcf=$?
 if [ "${rcf:-1}" -eq 0 ] \
    && grep -q '^COMPOSE_FILE=' "$WORK/.env" \
    && grep -q 'docker-compose.cpu-llm.yml' "$WORK/.env" \
@@ -185,7 +185,7 @@ make_shim "$BIN_G" docker 'echo "docker $*" >> "$PWD/docker.log"; exit 0'
 make_shim "$BIN_G" openssl 'echo deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
 # A git shim that FAILS if invoked — re-running in a valid checkout must never clone.
 make_shim "$BIN_G" git 'echo "git UNEXPECTEDLY called: $*" > "$PWD/git_called.log"; exit 1'
-( cd "$WORK/pipe_g" && env -i PATH="$BIN_G" ASSUME_YES=1 REHEARSAL_INSTALL_DIR="$CLONED_G" \
+( cd "$WORK/pipe_g" && env -i PATH="$BIN_G" ASSUME_YES=1 READY_TIMEOUT_S=0 REHEARSAL_INSTALL_DIR="$CLONED_G" \
     bash -s -- -y < "$REPO/install.sh" >g.out 2>&1 ) && rcg=0 || rcg=$?
 if [ "${rcg:-1}" -eq 0 ] \
    && [ ! -f "$WORK/pipe_g/git_called.log" ] \
@@ -194,6 +194,28 @@ if [ "${rcg:-1}" -eq 0 ] \
 else
   bad "Scenario G: existing-checkout re-run not idempotent (rc=$rcg)"
   printf -- '------ install output ------\n%s\n' "$(cat "$WORK/pipe_g/g.out")"
+fi
+
+# --- Scenario H: NVIDIA low-VRAM host → floor default (field report rec #5) --
+# An nvidia-smi shim reporting an 8GB card must make the installer default to the
+# smaller Floor model, not Fast. gpu-doctor is stubbed + skipped; pull-and-pin logs
+# INSTALL_MODELS so we assert the propagated default without a real container.
+BIN_H="$WORK/bin_h"; build_path "$BIN_H"
+make_shim "$BIN_H" docker 'echo "docker $*" >> "$PWD/docker.log"; exit 0'
+make_shim "$BIN_H" openssl 'echo deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
+# nvidia-smi shim: only the memory.total query path matters here (8192 MB <= floor).
+make_shim "$BIN_H" nvidia-smi 'case "$*" in *memory.total*) echo 8192 ;; *) echo "shim nvidia-smi" ;; esac'
+printf '#!/usr/bin/env bash\necho "[stub] pull-and-pin INSTALL_MODELS=${INSTALL_MODELS}" > "$PWD/pin.log"\n' > "$WORK/ollama/pull-and-pin.sh"
+chmod +x "$WORK/ollama/pull-and-pin.sh"
+rm -f "$WORK/.env"
+( cd "$WORK" && env -i PATH="$BIN_H" ASSUME_YES=1 READY_TIMEOUT_S=0 SKIP_DOCTOR=1 bash install.sh -y >h.out 2>&1 ) && rch=0 || rch=$?
+if [ "${rch:-1}" -eq 0 ] \
+   && grep -q 'REHEARSAL_MODEL_CHOICES=floor' "$WORK/.env" \
+   && grep -q 'INSTALL_MODELS=floor' "$WORK/pin.log" 2>/dev/null; then
+  ok "Scenario H: NVIDIA <=8GB VRAM → floor default"
+else
+  bad "Scenario H: low-VRAM NVIDIA model default incorrect (rc=$rch)"
+  printf -- '------ install output ------\n%s\n----------------------------\n' "$(cat "$WORK/h.out")"
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

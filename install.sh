@@ -16,6 +16,14 @@ cd "$(dirname "$0")"
 
 ASSUME_YES="${ASSUME_YES:-0}"
 [ "${1:-}" = "-y" ] && ASSUME_YES=1
+# Model-default + readiness tunables (single-sourced; no magic numbers inline).
+# VRAM_SMALL_MB: NVIDIA cards at/below this can't comfortably co-fit the Better tier,
+# so the installer defaults them to the smaller Floor model (field report rec #5).
+# READY_*: bound the post-`up` wait for the agent to register (advise-only on timeout).
+VRAM_SMALL_MB="${VRAM_SMALL_MB:-8192}"
+VRAM_FLOOR_MB="${VRAM_FLOOR_MB:-16384}"   # the 16GB co-residency floor (matches gpu-doctor)
+READY_TIMEOUT_S="${READY_TIMEOUT_S:-180}"
+READY_POLL_S="${READY_POLL_S:-5}"
 DEFAULT_INSTALL_DIR="${HOME:-$PWD}/rehearsal"
 REHEARSAL_REPO_URL="${REHEARSAL_REPO_URL:-https://github.com/foreztgump/rehearsal.git}"
 REHEARSAL_INSTALL_DIR="${REHEARSAL_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
@@ -122,6 +130,18 @@ detect_gpu() {  # prints: nvidia | amd | none
   else printf 'none\n'; fi
 }
 
+# Total VRAM in MB for the primary NVIDIA GPU, or "" if unknown (non-NVIDIA, or a
+# driver that rejects the query). Only digits are accepted — a rejected query field
+# prints an error string that must not reach the numeric model-default test.
+detect_nvidia_vram_mb() {
+  command -v nvidia-smi >/dev/null 2>&1 || return 0
+  local vram
+  vram="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null \
+            | tr -d ' ' | sort -nr | head -1 || true)"
+  case "${vram}" in ''|*[!0-9]*) return 0 ;; esac
+  printf '%s\n' "${vram}"
+}
+
 # --- 1b. Offer to install safe prerequisites (behind confirmation) -----------
 detect_pkgmgr() {  # prints: apt|dnf|pacman|none
   for pm in apt dnf pacman; do
@@ -154,9 +174,20 @@ offer_install_prereqs() {
 
 # --- 1c. Model selection ----------------------------------------------------
 prompt_models() {  # sets INSTALL_MODELS + MODEL_LABELS (globals)
-  gpu="$1"
+  gpu="$1"; vram_mb="${2:-}"
   case "$gpu" in
-    nvidia) default_model="fast" ;;
+    # On NVIDIA, pick by VRAM: cards at/below VRAM_SMALL_MB can't comfortably co-fit
+    # the Better tier, so default them to the smaller Floor model (field report rec #5).
+    # Unknown VRAM keeps the historical Fast default.
+    nvidia)
+      if [ -n "${vram_mb}" ] && [ "${vram_mb}" -le "${VRAM_SMALL_MB}" ]; then
+        default_model="floor"
+        log ""
+        log "Detected ${vram_mb} MB VRAM (<= ${VRAM_SMALL_MB} MB) — defaulting to the smaller Floor model."
+      else
+        default_model="fast"
+        [ -n "${vram_mb}" ] && log "" && log "Detected ${vram_mb} MB VRAM — defaulting to the Fast model."
+      fi ;;
     amd)    default_model="fast" ;;
     none)   default_model="floor" ;;
   esac
@@ -293,6 +324,32 @@ build_and_pull() {
   docker compose up -d
 }
 
+# --- 5. Health-gate the finish line -----------------------------------------
+# `docker compose up -d` returns as soon as containers are CREATED, not when the
+# agent has warmed models and registered as a LiveKit worker — so a naive installer
+# prints "ready" while the first turn would still fail. Poll until the agent logs
+# "registered worker" (bounded by READY_TIMEOUT_S); on timeout, advise rather than
+# fail (a slow cold warmup on a sub-16GB card is expected, not an error).
+wait_for_ready() {
+  gpu="$1"; vram_mb="${2:-}"
+  log ""
+  log "Waiting for the agent to warm models + register (up to ${READY_TIMEOUT_S}s)…"
+  waited=0
+  while [ "${waited}" -lt "${READY_TIMEOUT_S}" ]; do
+    if docker compose logs --tail=200 agent 2>/dev/null | grep -qi 'registered worker'; then
+      log "Agent registered — ready to talk. Open the web UI (see NEXT_PUBLIC_LIVEKIT_URL in .env)."
+      return 0
+    fi
+    sleep "${READY_POLL_S}"
+    waited=$((waited + READY_POLL_S))
+  done
+  log "Agent not registered after ${READY_TIMEOUT_S}s — the model may still be warming."
+  if [ "$gpu" != "nvidia" ] || { [ -n "${vram_mb}" ] && [ "${vram_mb}" -lt "${VRAM_FLOOR_MB}" ]; }; then
+    log "  On CPU / sub-16GB GPUs the first turn is slow while STT/LLM/TTS warm — this is expected."
+  fi
+  log "  Watch progress: docker compose logs -f agent   (look for 'registered worker')."
+}
+
 # --- main -------------------------------------------------------------------
 GPU="$(detect_gpu)"
 DOCKER_WAS_MISSING=0
@@ -307,10 +364,12 @@ if [ "$GPU" = "nvidia" ] && [ "${SKIP_DOCTOR:-0}" != "1" ]; then
 fi
 scaffold_env
 layer_cpu_overrides "$GPU"
-prompt_models "$GPU"
+VRAM_MB="$(detect_nvidia_vram_mb)"
+prompt_models "$GPU" "$VRAM_MB"
 print_plan "$GPU" "$INSTALL_MODELS"
 confirm
 build_and_pull
+wait_for_ready "$GPU" "$VRAM_MB"
 log ""
 log "Done. The stack is up."
 log "  Start:  ./up.sh -d        (preflight + docker compose up -d)"

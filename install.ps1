@@ -72,6 +72,14 @@ Set-Location $CheckoutDir
 if ($Yes) { $env:ASSUME_YES = "1" }
 $AssumeYes = ($env:ASSUME_YES -eq "1")
 
+# Model-default + readiness tunables (single-sourced; mirror install.sh).
+# VramSmallMb: NVIDIA cards at/below this default to the smaller Floor model.
+# ReadyTimeoutS/ReadyPollS: bound the post-`up` wait for the agent to register.
+$VramSmallMb   = if ($env:VRAM_SMALL_MB)   { [int]$env:VRAM_SMALL_MB }   else { 8192 }
+$VramFloorMb   = if ($env:VRAM_FLOOR_MB)   { [int]$env:VRAM_FLOOR_MB }   else { 16384 }
+$ReadyTimeoutS = if ($env:READY_TIMEOUT_S) { [int]$env:READY_TIMEOUT_S } else { 180 }
+$ReadyPollS    = if ($env:READY_POLL_S)    { [int]$env:READY_POLL_S }    else { 5 }
+
 # --- 1. Prerequisites: offer to install via winget, else guide ----------------
 # Returns a plain boolean. Guidance goes through Write-Host (NOT Log/Write-Output):
 # Write-Output inside a function is appended to the return value, which would turn
@@ -114,10 +122,66 @@ function Offer-InstallPrereqs {
 
 function Detect-Gpu {  # prints: nvidia | amd | none
   if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { return "nvidia" }
-  # AMD on Windows: no reliable rocm-smi; check for the HIP SDK install marker.
+  # AMD on Windows: the HIP SDK marker only exists on ROCm-listed cards. Consumer
+  # RDNA cards (e.g. RX 6600 XT / gfx1032) run the LLM via native Ollama's Vulkan
+  # backend and have NO ROCm marker — so ALSO match the adapter name so the
+  # Vulkan-only AMD path is detected (field report: else it mis-detects as 'none'
+  # and the one-liner silently runs the wrong NVIDIA topology).
   $hipSdk = Get-ChildItem "C:\Program Files\AMD ROCm*\bin" -ErrorAction SilentlyContinue
   if ($hipSdk) { return "amd" }
+  try {
+    $amd = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue |
+             Where-Object { $_.Name -match "AMD|Radeon" }
+    if ($amd) { return "amd" }
+  } catch { }
   return "none"
+}
+
+# Total VRAM in MB for the primary NVIDIA GPU, or $null if unknown. Win32_VideoController
+# is NOT used here — its AdapterRAM is a uint32 that WRAPS at 4 GB (field report G3),
+# so it under-reports 8 GB cards as 4 GB. nvidia-smi is authoritative on NVIDIA.
+function Detect-NvidiaVramMb {
+  if (-not (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) { return $null }
+  $vram = (nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>$null | Select-Object -First 1)
+  if ($vram) { $vram = "$vram".Trim() }
+  if ($vram -match '^[0-9]+$') { return [int]$vram }
+  return $null
+}
+
+# Windows AMD is a DIFFERENT topology (native host Ollama + Vulkan; only the CPU
+# services run in Docker). install.ps1 cannot drive it end-to-end: its Build-AndPull
+# runs plain `docker compose build/up` (no AMD overrides) and pulls into the
+# in-container Ollama, which the AMD override replaces with an alpine sleep stub that
+# has no `ollama` binary. So on AMD we DETECT + GUIDE (print the exact manual steps)
+# and STOP — never silently run the wrong NVIDIA topology (field report Bug #5).
+function Show-AmdGuidanceAndExit {
+  Write-Host ""
+  Write-Host "================ Windows AMD detected — manual path ================" -ForegroundColor Yellow
+  Write-Host "The one-line installer does NOT drive the AMD topology. On AMD the LLM runs"
+  Write-Host "in NATIVE host Ollama (Vulkan-accelerated), and only the CPU services run in"
+  Write-Host "Docker (the in-stack ollama is a no-op stub). Follow these steps:"
+  Write-Host ""
+  Write-Host "  1. Install native Ollama, then reopen PowerShell so 'ollama' is on PATH:"
+  Write-Host "       winget install -e --id Ollama.Ollama"
+  Write-Host "  2. Force the Vulkan backend so RDNA cards off Ollama's ROCm list get GPU"
+  Write-Host "     acceleration (make it permanent + restart Ollama so the tray app picks it up):"
+  Write-Host '       [Environment]::SetEnvironmentVariable("OLLAMA_LLM_LIBRARY","vulkan","User")'
+  Write-Host '       [Environment]::SetEnvironmentVariable("OLLAMA_VULKAN","1","User")'
+  Write-Host "       Get-Process ollama* | Stop-Process -Force; Start-Process ollama"
+  Write-Host "  3. Pull the model into NATIVE Ollama (not the container), then verify GPU use:"
+  Write-Host "       ollama pull evalengine/unbound-e2b:latest"
+  Write-Host "       ollama ps        # PROCESSOR column should show GPU, not 100% CPU"
+  Write-Host "  4. Scaffold .env (copy .env.example to .env; set a random LIVEKIT_API_SECRET"
+  Write-Host "     and the single-model config — see INSTALLATION.md 'Windows AMD')."
+  Write-Host "  5. From the checkout, build + start with the AMD + CPU-TTS overrides (use -f"
+  Write-Host "     flags; the COMPOSE_FILE colon form fails on Windows):"
+  Write-Host "       cd `"$CheckoutDir`""
+  Write-Host "       docker compose -f docker-compose.yml -f docker-compose.windows-amd.yml ``"
+  Write-Host "         -f docker-compose.cpu-tts.yml up -d --build"
+  Write-Host ""
+  Write-Host "Full walkthrough + verification: INSTALLATION.md ('Windows AMD')."
+  Write-Host "===================================================================" -ForegroundColor Yellow
+  exit 0
 }
 
 # --- 2. .env scaffold with a generated secret --------------------------------
@@ -146,9 +210,21 @@ function Scaffold-Env {
 
 # --- 3. Model selection ------------------------------------------------------
 function Prompt-Models {
-  param([string]$Gpu)
+  param([string]$Gpu, [Nullable[int]]$VramMb)
   switch ($Gpu) {
-    "nvidia" { $defaultModel = "fast" }
+    "nvidia" {
+      # Pick by VRAM: cards at/below VramSmallMb can't comfortably co-fit the Better
+      # tier, so default them to the smaller Floor model (field report rec #5). Unknown
+      # VRAM keeps the historical Fast default.
+      if ($null -ne $VramMb -and $VramMb -le $VramSmallMb) {
+        $defaultModel = "floor"
+        Log ""
+        Log "Detected $VramMb MB VRAM (<= $VramSmallMb MB) — defaulting to the smaller Floor model."
+      } else {
+        $defaultModel = "fast"
+        if ($null -ne $VramMb) { Log ""; Log "Detected $VramMb MB VRAM — defaulting to the Fast model." }
+      }
+    }
     "amd"    { $defaultModel = "fast" }
     default  { $defaultModel = "floor" }
   }
@@ -282,8 +358,36 @@ function Build-AndPull {
   if ($LASTEXITCODE -ne 0) { Err "Failed to start the full stack (docker compose up -d)."; exit 1 }
 }
 
+# --- 6. Health-gate the finish line ------------------------------------------
+# `docker compose up -d` returns when containers are CREATED, not when the agent has
+# warmed models + registered as a LiveKit worker — so poll until the agent logs
+# "registered worker" (bounded by ReadyTimeoutS). On timeout ADVISE, don't fail: a
+# slow cold warmup on a sub-16GB card is expected (mirrors install.sh wait_for_ready).
+function Wait-ForReady {
+  param([string]$Gpu, [Nullable[int]]$VramMb)
+  Log ""
+  Log "Waiting for the agent to warm models + register (up to ${ReadyTimeoutS}s)…"
+  $waited = 0
+  while ($waited -lt $ReadyTimeoutS) {
+    $logs = docker compose logs --tail=200 agent 2>$null
+    if ($logs -match "registered worker") {
+      Log "Agent registered — ready to talk. Open the web UI (see NEXT_PUBLIC_LIVEKIT_URL in .env)."
+      return
+    }
+    Start-Sleep -Seconds $ReadyPollS
+    $waited += $ReadyPollS
+  }
+  Log "Agent not registered after ${ReadyTimeoutS}s — the model may still be warming."
+  if ($Gpu -ne "nvidia" -or ($null -ne $VramMb -and $VramMb -lt $VramFloorMb)) {
+    Log "  On CPU / sub-16GB GPUs the first turn is slow while STT/LLM/TTS warm — this is expected."
+  }
+  Log "  Watch progress: docker compose logs -f agent   (look for 'registered worker')."
+}
+
 # --- main --------------------------------------------------------------------
 $Gpu = Detect-Gpu
+# Windows AMD is a different topology this installer can't drive — detect + guide, stop.
+if ($Gpu -eq "amd") { Show-AmdGuidanceAndExit }
 $dockerOk = Require-Docker
 if (-not $dockerOk) {
   Offer-InstallPrereqs
@@ -295,13 +399,15 @@ if ($Gpu -eq "nvidia" -and -not $SkipDoctor) {
 }
 Scaffold-Env
 Layer-CpuOverrides -Gpu $Gpu
-Prompt-Models -Gpu $Gpu
+$VramMb = Detect-NvidiaVramMb
+Prompt-Models -Gpu $Gpu -VramMb $VramMb
 Print-Plan -Gpu $Gpu -Models $script:InstallModels
 if (-not (Confirm)) {
   Log "Aborted — nothing built. Re-run .\install.ps1 when ready."
   exit 1
 }
 Build-AndPull
+Wait-ForReady -Gpu $Gpu -VramMb $VramMb
 Log ""
 Log "Done. The stack is up."
 Log "  Start:  .\up.ps1 -d        (preflight + docker compose up -d)"
