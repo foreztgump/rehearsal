@@ -38,9 +38,17 @@ function Advise($msg) { Write-Output "ADVISE: $msg"; $script:Degraded = $true }
 function Hr           { Write-Output "----------------------------------------------------------------------" }
 
 function Detect-GpuVendor {
-  if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { $script:GpuVendor = "nvidia" }
-  elseif (Test-Path "C:\Program Files\AMD ROCm*\bin") { $script:GpuVendor = "amd" }
-  else { $script:GpuVendor = "none" }
+  if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { $script:GpuVendor = "nvidia"; return }
+  # AMD: the ROCm marker only exists on ROCm-listed cards. Consumer RDNA cards run the
+  # LLM via native Ollama's Vulkan backend and have NO marker — also match the adapter
+  # name so the Vulkan-only AMD path is detected (else it mis-reports as 'none').
+  if (Test-Path "C:\Program Files\AMD ROCm*\bin") { $script:GpuVendor = "amd"; return }
+  try {
+    $amd = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue |
+             Where-Object { $_.Name -match "AMD|Radeon" }
+    if ($amd) { $script:GpuVendor = "amd"; return }
+  } catch { }
+  $script:GpuVendor = "none"
 }
 
 # --- Step 1: Docker Desktop running + daemon responds -------------------------
@@ -168,6 +176,32 @@ function Check-VramFloor {
   }
 }
 
+# --- AMD branch (Vulkan-only; no ROCm on Windows for consumer RDNA cards) ------
+# Consumer AMD (e.g. RX 6600 XT / gfx1032) is off Ollama's ROCm list, so the LLM
+# runs in NATIVE host Ollama via the Vulkan backend — NOT in a container. The
+# NVIDIA CUDA/VRAM floors do not apply; advise the native-Ollama + Vulkan path
+# instead (field report Bug #4). VRAM is deliberately NOT read from
+# Win32_VideoController here: its AdapterRAM wraps at 4 GB and under-reports 8 GB
+# cards (field report G3).
+function Check-AmdVulkan {
+  $adapter = $null
+  try {
+    $adapter = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue |
+                 Where-Object { $_.Name -match "AMD|Radeon" } | Select-Object -First 1
+  } catch { }
+  if ($adapter) {
+    Ok "AMD/Radeon adapter detected: $($adapter.Name)."
+  } else {
+    Advise "AMD ROCm marker found but no Radeon adapter enumerated."
+  }
+  Write-Output "  Windows AMD topology: the LLM runs in NATIVE host Ollama (Vulkan), not a"
+  Write-Output "  container; only the CPU services run in Docker. To get GPU acceleration on"
+  Write-Output "  RDNA cards off Ollama's ROCm list, force the Vulkan backend (permanent + restart):"
+  Write-Output '    [Environment]::SetEnvironmentVariable("OLLAMA_LLM_LIBRARY","vulkan","User")'
+  Write-Output "    Get-Process ollama* | Stop-Process -Force; Start-Process ollama"
+  Write-Output "  Verify with 'ollama ps' (PROCESSOR column should show GPU). See INSTALLATION.md."
+}
+
 # --- main --------------------------------------------------------------------
 Detect-GpuVendor
 Hr
@@ -175,14 +209,28 @@ Check-DockerDaemon
 Hr
 Check-Wsl2Backend
 Hr
-Check-NvidiaSmi
-Hr
-Check-Toolkit
-Hr
-Check-CudaFloor
-Hr
-Check-VramFloor
-Hr
+switch ($script:GpuVendor) {
+  "nvidia" {
+    Check-NvidiaSmi
+    Hr
+    Check-Toolkit
+    Hr
+    Check-CudaFloor
+    Hr
+    Check-VramFloor
+    Hr
+  }
+  "amd" {
+    Check-AmdVulkan
+    Hr
+  }
+  default {
+    Advise "No NVIDIA driver and no AMD adapter detected — no GPU acceleration."
+    Write-Output "  The stack still boots on CPU (ollama + kokoro), but will not hit the live-voice"
+    Write-Output "  latency target. See INSTALLATION.md 'No Supported GPU'."
+    Hr
+  }
+}
 if ($Degraded) {
   Write-Output "GPU doctor: one or more checks flagged (ADVISE above). Proceeding (advise-only)."
 } else {

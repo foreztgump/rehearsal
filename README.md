@@ -7,7 +7,7 @@ reference documents, and speak with the agent in your browser. STT, LLM, TTS,
 LiveKit, and browser assets run locally or on your LAN; audio, transcripts, KB
 files, and prompts are not sent to cloud inference services.
 
-Current release: `0.2.0`
+Current release: `0.2.2`
 
 ## Quick Start
 
@@ -54,9 +54,9 @@ overrides (`docker-compose.cpu-llm.yml` + `docker-compose.cpu-tts.yml` via
 `COMPOSE_FILE` in `.env`) so ollama + kokoro run on CPU and the stack boots — CPU
 inference will not meet the live-voice latency target.
 
-Default published ports bind to `127.0.0.1`. Do not expose them to the WAN. For
-another LAN device, use the optional TLS setup in [certs/README.md](certs/README.md)
-and keep firewall rules LAN-only.
+Default published ports bind to `127.0.0.1`. Do not expose them to the WAN. To
+serve another LAN device, follow the TLS reverse-proxy runbook in
+[docs/lan-exposure.md](docs/lan-exposure.md) and keep firewall rules LAN-only.
 
 ## Daily Use
 

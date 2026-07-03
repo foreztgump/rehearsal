@@ -23,4 +23,21 @@ if [ "${SKIP_DOCTOR:-0}" != "1" ]; then
   printf '\n'
 fi
 
+# STT placement preflight (advise-only). When .env selects GPU STT
+# (STT_FORCE_CPU=0 + STT_HEADROOM_MEASURED=1) the agent connects to the GPU
+# `nemo-stt` service — but that service is behind the opt-in `stt-gpu` profile. If
+# the profile is not enabled, every STT connect fails with a cryptic
+# `Connection error.` and the agent hangs on "Listening to you..." (field report).
+# Warn (never block) so the operator adds the profile before it bites.
+warn_stt_profile() {
+  [ -f .env ] || return 0
+  grep -Eq '^[[:space:]]*STT_FORCE_CPU=0([[:space:]]|$)'        .env || return 0
+  grep -Eq '^[[:space:]]*STT_HEADROOM_MEASURED=1([[:space:]]|$)' .env || return 0
+  case ",${COMPOSE_PROFILES:-}," in *,stt-gpu,*) return 0 ;; esac
+  printf '%s\n' "WARN: .env selects GPU STT (STT_FORCE_CPU=0 + STT_HEADROOM_MEASURED=1) but the" \
+                "      'stt-gpu' profile is not enabled — the agent will fail to reach nemo-stt" \
+                "      ('Connection error.'). Enable it, e.g.:  COMPOSE_PROFILES=stt-gpu ./up.sh $*" ""
+}
+warn_stt_profile "$@"
+
 exec docker compose up "$@"

@@ -19,6 +19,14 @@ ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 ENV VIRTUAL_ENV=/app/.venv
 ENV PATH="/app/.venv/bin:${PATH}"
 
+# F34 follow-up: pin the HuggingFace cache under /app so the baked turn-detector
+# weights (languages.json etc.) are readable by the non-root runtime user. The
+# default cache is ~/.cache/huggingface; with --no-create-home the app user has
+# no writable HOME, and a root-owned /root/.cache is unreadable at runtime ->
+# "Could not find file languages.json" -> every agent job crashed. /app/.hf-cache
+# is chowned to app by the existing `chown -R app:app /app` below.
+ENV HF_HOME=/app/.hf-cache
+
 COPY requirements.txt ./
 # O10: --no-cache drops uv's wheel/download cache. In a single-shot image build the
 # cache is never reused, so keeping it only bloats the layer — smaller image, faster

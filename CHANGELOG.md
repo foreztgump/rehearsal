@@ -6,10 +6,61 @@ All notable changes to Rehearsal are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-07-03
+
+Field-report follow-through: the Windows AMD install path, VRAM-aware model
+defaults, a health-gated finish line, an STT-profile preflight warning, and the
+docs to match — plus the F34 non-root turn-detector fix from the 0.2.1 live test.
+
+### Added
+- `install.ps1` detects Windows AMD (including Vulkan-only RDNA cards with no
+  ROCm marker, via the video-adapter name) and prints the exact native-Ollama +
+  Vulkan manual steps, then stops — instead of silently running the wrong NVIDIA
+  topology (the AMD stack needs the `windows-amd` + `cpu-tts` overrides the
+  one-liner never loaded).
+- `gpu-doctor.ps1` gains an AMD branch: it advises the native-Ollama + Vulkan
+  path and skips the NVIDIA-only CUDA/VRAM floors on AMD hosts.
+- Installers health-gate the finish line: after `up -d` they poll the agent logs
+  for `registered worker` (bounded by `READY_TIMEOUT_S`, default 180s) and print
+  a real "ready to talk", or advise that a sub-16GB/CPU first turn is slow.
+- `up.sh` / `up.ps1` warn when `.env` selects GPU STT (`STT_FORCE_CPU=0` +
+  `STT_HEADROOM_MEASURED=1`) but the opt-in `stt-gpu` profile is not enabled —
+  the case that otherwise fails with a cryptic `Connection error.`
+- `INSTALLATION.md` gains a full Windows AMD walkthrough (native Ollama, the
+  permanent-Vulkan-env dance, single-model `.env` narrowing, `ollama ps`
+  verification) and an "Upgrading from a pre-rename install" section covering the
+  `voice-trainer` -> `rehearsal` compose-project split and orphaned model volume.
+
 ### Changed
+- Installers default the LLM tier by detected VRAM: NVIDIA cards at/below
+  `VRAM_SMALL_MB` (8192) default to the smaller `floor` model instead of `fast`;
+  the detected VRAM and chosen default are surfaced so an interactive user can
+  override.
+- `gpu-doctor.ps1` and `install.ps1` read VRAM from `nvidia-smi`, never
+  `Win32_VideoController.AdapterRAM` (a uint32 that wraps at 4GB and under-reports
+  8GB cards).
+- Docs and override headers use explicit `-f` flags on Windows instead of
+  `COMPOSE_FILE=...:...` (the `:` separator collides with Windows drive letters);
+  the `docker-compose.amd.yml` / `windows-amd.yml` / `cpu-tts.yml` headers note
+  the caveat.
+- `INSTALLATION.md` troubleshooting replaces the stale "PR #1 fixes this" rows
+  with the shipped state and adds STT-profile, low-VRAM-first-turn, and
+  pre-rename-`down` rows; `README.md` points LAN guidance at
+  `docs/lan-exposure.md` and bumps the release line to 0.2.2.
 - `web` SettingsDrawer scrim/panel/close/End controls now use the shared theme
   classes (`.drawer-scrim`, `.surface`, `.btn-ghost[.danger]`, `.btn-apply.danger`)
   instead of hardcoded inline styles.
+
+### Fixed
+- Agent worker no longer crash-loops on every job with `Could not find file
+  "languages.json"`. The F34 non-root-user hardening baked the turn-detector
+  weights into `/root/.cache/huggingface` (root-owned, since `download-files`
+  ran before `USER app`), but the runtime `app` user had no writable HOME
+  (`--no-create-home`) and couldn't read the root cache, so the local
+  `MultilingualModel` turn detector failed to initialize on every room dispatch
+  and the publisher data channel closed. The Dockerfile now pins
+  `HF_HOME=/app/.hf-cache` so the cache bakes under `/app` and is chowned to
+  `app` by the existing `chown -R app:app /app`, making it readable at runtime.
 
 ## [0.2.1] - 2026-07-03
 
