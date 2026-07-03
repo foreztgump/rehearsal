@@ -6,40 +6,109 @@ All notable changes to Rehearsal are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-03
+
+Review Batches A–H (PR #2 and #3): KB/STT/web fixes, the LAN TLS proxy
+override, hardening and supply-chain pinning, CI, and latency/perf
+optimizations. Also ships the Windows one-line install and installer
+robustness work.
+
 ### Added
-- Added a Windows one-line install (`irm …/install.ps1 | iex`) that clones the
-  repo and runs the native installer, mirroring the Linux curl bootstrap.
-- Added `INSTALLATION.md` with platform prerequisites, first-run download
-  size expectations, troubleshooting, and an AI-agent install prompt.
+- LAN TLS proxy override (`docker-compose.proxy.yml`) with `PROXY_BIND_IP`
+  split-binding and caddy 2.11.4, so the stack can be exposed on the LAN with
+  a single pinned-image override; a compose test asserts the topology.
+- STT concurrent-connection cap plus a LAN hardening runbook, bounding how many
+  simultaneous ASR sessions the sidecar accepts.
+- Minimal GitHub Actions CI workflow (typecheck, ruff, basedpyright, stub
+  tests).
+- `ollama/pull-and-pin.sh` now records pulled model manifest digests and wires
+  `verify-build` into the pull flow.
+- Agent and web containers run as a non-root `USER` with a `HEALTHCHECK`, and
+  the agent base image is digest-pinned.
+- Windows one-line install (`irm …/install.ps1 | iex`) that clones the repo and
+  runs the native installer, mirroring the Linux curl bootstrap.
+- `INSTALLATION.md` with platform prerequisites, first-run download size
+  expectations, troubleshooting, and an AI-agent install prompt.
 
 ### Changed
-- `curl … install.sh | bash` now detects Windows (Git Bash / MSYS / Cygwin) and
-  hands off to the PowerShell installer instead of the Linux prerequisite path.
-- `install.ps1` now runs `ollama/pull-and-pin.sh` via Git Bash (not the WSL
-  `bash.exe` shim) with a clear error when Git Bash is absent.
-- `gpu-doctor.ps1` now checks the driver's CUDA version against the 12.8 floor
-  (parity with `gpu-doctor.sh`), advising a driver update before `up` fails with
-  a cryptic `cuda>=12.8` runtime error.
+- Web `tsconfig` strict mode enabled and enforced in CI.
+- Ollama pinned image bumped 0.30.10 -> 0.30.11.
+- KB ingest now short-circuits before parse when the session is full, and
+  multi-file uploads coalesce into one batched distill call.
+- STT raw-silence EOU logic extended to the buffered path.
+- CPU legacy-ONNX export gated behind a build ARG so GPU images stay lean.
+- Agent deps install with `uv --no-cache`.
+- Web `Visualizer` hoists the per-frame `Uint8Array` allocation out of the
+  render loop; per-line transcript rendering is memoized.
+- `curl … install.sh | bash` detects Windows (Git Bash / MSYS / Cygwin) and
+  hands off to the PowerShell installer; `install.ps1` runs `pull-and-pin.sh`
+  via Git Bash (not the WSL `bash.exe` shim) with a clear error when absent.
+- `gpu-doctor.ps1` checks the driver's CUDA version against the 12.8 floor
+  (parity with `gpu-doctor.sh`).
 - README is shorter and points detailed install guidance to `INSTALLATION.md`.
 
+### Security
+- KB DOCX parser rejects XML DTD/entity declarations before parsing.
+- KB distill delimiters neutralized against spoofing and a token budget enforced
+  on the distilled stream.
+- Agent KB distill stream bounded by wall-clock and byte count; Ollama error
+  chunks surfaced instead of swallowed.
+- Agent PDF extraction capped at a max page count.
+- `livekit-agents` pinned to `==1.6.4` and the `_opts` surface guarded at
+  startup.
+- STT `python-multipart` pinned in the GPU image deps.
+- STT offline `/v1/audio/transcriptions` route hardened (lock, size cap, WAV
+  validation).
+- `STT_DEBUG_HYBRID` exposure now warns, and dead debug code was dropped.
+
 ### Fixed
+- STT folds held text forward on stall recycle; caps hybrid `_turn_pcm` at
+  `_MAX_BUFFER_BYTES`; guards the WS config handshake with try/except + timeout;
+  suppresses spurious empty deltas after finals; deletes dead
+  `RECYCLE_HARD_CHARS` config; trims inter-turn silence from the buffered
+  finalize buffer.
+- `NemoSTT` reconnects on transport errors and survives bad correction
+  callbacks.
+- Agent KB byte stream capped in-loop and accumulated into a bytearray;
+  unexpected `ingest_kb` failures are contained so the KB panel unsticks;
+  `ByteStreamInfo.mime_type` is used to unbrick KB upload.
+- Web confirms the top-bar End before destroying the session; recovers from
+  terminal LiveKit disconnect; handles drag/drop on both KB dropzones; gates
+  setup apply on agent readiness and honors RPC acks; re-arms the
+  `avatar.update` retry budget on every toggle; strips unknown persona keys on
+  load so agent apply doesn't silently fail.
+- Compose Windows-AMD ollama stub port publish reset (field report Bug #1).
+- Install gates AMD/no-GPU hosts onto the CPU compose override and makes the
+  bootstrap idempotent.
+- `gpu-doctor.ps1` WSL2 toolkit remedy corrected; gpu-doctor stops backtick
+  escapes garbling Windows advise messages.
+- Windows `up.ps1`/`down.ps1` gained the missing `up`/`down` subcommand.
+- `security-check.sh` gates shellcheck at `-S error` to drop benign false
+  positives; CI installs numpy so the STT stub tests pass.
 - Added `.gitattributes` forcing LF for shell scripts. With `core.autocrlf=true`
-  (the Git-for-Windows default) they were checked out CRLF, and `bash` inside the
-  Docker build failed on `set -o pipefail` — breaking `docker compose build` for
-  every Windows one-line install.
-- `install.ps1` now checks `$LASTEXITCODE` after each `docker compose` step; a
-  failed build previously slipped through to "the stack is up" and exited 0.
-- `install.ps1` Docker-missing gate now stops correctly (the guidance text was
-  polluting `Require-Docker`'s boolean return via `Write-Output`).
-- `agent` now receives `LIVEKIT_URL` (compose), so the worker registers instead
-  of crash-looping with "ws_url is required, or set LIVEKIT_URL".
-- The agent worker's `initialize_process_timeout` is now raised (env-tunable via
-  `AGENT_INIT_TIMEOUT_S`, default 300s) so the prewarm LLM warmup can cold-load
-  the model on modest/low-VRAM GPUs; the 10s default SIGUSR1-killed the process
-  and looped forever, never letting the model go resident.
-- GPU doctor CUDA parsing now accepts the newer `CUDA UMD Version` header when
-  `nvidia-smi --query-gpu=cuda_version` is unavailable.
+  (the Git-for-Windows default) they were checked out CRLF, and `bash` inside
+  the Docker build failed on `set -o pipefail` — breaking `docker compose
+  build` for every Windows one-line install.
+- `install.ps1` checks `$LASTEXITCODE` after each `docker compose` step; its
+  Docker-missing gate now stops correctly.
+- Agent receives `LIVEKIT_URL` (compose), and its `initialize_process_timeout`
+  is raised (env-tunable via `AGENT_INIT_TIMEOUT_S`, default 300s) so cold
+  warmup can load the model on modest/low-VRAM GPUs.
+- GPU doctor CUDA parsing accepts the newer `CUDA UMD Version` header.
 - The STT debug window no longer mounts in the main talking UI.
+
+### Docs
+- Corrected stale STT 560ms "equals the live step" claims, stale model-tag
+  claims in compose/Modelfile/vram-validate, and stale README TLS refs;
+  documented phone-background room timeouts.
+- Added `caddy:2.11.4` to the provenance Docker Images table; un-ignored the
+  LAN-exposure runbook and Windows-AMD field report (the latter kept
+  local-only).
+- Fixed the proxy bring-up command for the override design; replaced an
+  impossible `--profile` example with `COMPOSE_PROFILES`; switched Windows docs
+  to `-f` flags instead of colon `COMPOSE_FILE`.
+- `security-check` now excludes `docs/**` and allowlists the `savedPersonas`
+  key.
 
 ## [0.2.0] - 2026-06-30
 
