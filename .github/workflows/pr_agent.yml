@@ -1,9 +1,8 @@
 name: pr-agent
 
-# Auto-review every pull request with PR-Agent, powered by Ollama Cloud.
-# Ollama Cloud is a REMOTE API (https://ollama.com), so this runs on a stock
-# GitHub-hosted runner — no self-hosted runner or local Ollama needed.
-# Model: glm-5.2 (primary) with kimi-k2.7-code:cloud as fallback. Review-only.
+# Automated code review on every pull request (review-only). Runs on a stock
+# GitHub-hosted runner. The review model, fallback, and API base/key are supplied
+# via repo secrets so this public workflow reveals no provider or model details.
 
 on:
   pull_request:
@@ -23,29 +22,23 @@ jobs:
       issues: write
       pull-requests: write
       contents: read
-    name: PR-Agent review (Ollama Cloud · glm-5.2)
+    name: automated code review
     steps:
       - name: PR-Agent
         # Pinned to the 0.38.0 release by digest (no :latest — repo convention).
         uses: docker://pragent/pr-agent@sha256:ea2ea90f072fd97708755e59827a317272f66097a1ef349eca23d39160bb0baf
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # --- Ollama Cloud via its OpenAI-compatible endpoint (the robust path
-          #     for structured review output; avoids litellm's native ollama/
-          #     provider auth/streaming quirks against ollama.com). ---
-          config.model: "openai/glm-5.2"
-          config.fallback_models: '["openai/kimi-k2.7-code:cloud"]'
-          # Keep in step with the models' context (both are large-context). PR-Agent
-          # requires this for non-catalog models or output can truncate unexpectedly.
-          config.custom_model_max_tokens: "131072"
+          # Model, fallback, context size, and API base/key come from repo secrets so
+          # no provider/model details are exposed in this public workflow. The chosen
+          # models are large-context; custom_model_max_tokens must match the API base.
+          config.model: ${{ secrets.PR_AGENT_MODEL }}
+          config.fallback_models: ${{ secrets.PR_AGENT_FALLBACK_MODELS }}
+          config.custom_model_max_tokens: ${{ secrets.PR_AGENT_MAX_TOKENS }}
           # Duplicate the in-prompt examples — steadies structured output on open models.
           config.duplicate_examples: "true"
-          OPENAI__API_BASE: "https://ollama.com/v1"
-          OPENAI__KEY: ${{ secrets.OLLAMA_API_KEY }}
-          # NOTE on reasoning level: PR-Agent rejects a think/reasoning_effort hint
-          # (litellm extra_body only allows service_tier/processing_mode, and native
-          # reasoning_effort is gated to OpenAI o3/o4 models). glm-5.2 is a thinking
-          # model, so it reasons at full depth on its own — no explicit knob needed.
+          OPENAI__API_BASE: ${{ secrets.PR_AGENT_API_BASE }}
+          OPENAI__KEY: ${{ secrets.PR_AGENT_API_KEY }}
           # --- Review only (no describe / no improve). ---
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "false"

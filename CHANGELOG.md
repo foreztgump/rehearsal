@@ -7,12 +7,8 @@ All notable changes to Rehearsal are documented here. The format follows
 ## [Unreleased]
 
 ### Added
-- `ci`: PR-Agent auto-review on every pull request via Ollama Cloud
-  (`glm-5.2`, fallback `kimi-k2.7-code:cloud` — both thinking models that
-  reason at full depth on their own), pinned to
-  `pragent/pr-agent:0.38.0-github_action` by digest. Review-only
-  (describe/improve off). Requires the `OLLAMA_API_KEY` repo secret
-  (create at https://ollama.com/settings/keys).
+- `ci`: automated code review on every pull request. Review-only
+  (describe/improve off). Requires the review API key repo secret.
 
 ## [0.2.2] - 2026-07-03
 
