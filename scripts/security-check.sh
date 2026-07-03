@@ -212,7 +212,7 @@ run_sbom_and_grype() {
     --exclude './.codex/**' \
     --exclude './.superpowers/**' \
     --exclude './.planning/**' \
-    --exclude './docs/superpowers/**' \
+    --exclude './docs/**' \
     --exclude './design-mockups/**' \
     -o cyclonedx-json >"$SBOM_FILE"
   pass "Syft source SBOM: ${SBOM_FILE}"
@@ -253,13 +253,19 @@ paths = [
   '''(^|/)\.claude/''',
   '''(^|/)\.codex/''',
   '''(^|/)\.superpowers/''',
-  '''(^|/)docs/superpowers/''',
+  '''(^|/)docs/''',
   '''(^|/)design-mockups/''',
   '''(^|/)security/reports/''',
   '''(^|/)web/node_modules/''',
   '''(^|/)web/\.next/''',
   '''(^|/)\.env(\..*)?$''',
   '''(^|/)certs/.*\.pem$''',
+]
+
+[[allowlists]]
+description = "localStorage key name, not a credential"
+regexes = [
+  '''adept\.savedPersonas\.v1''',
 ]
 TOML
 }
