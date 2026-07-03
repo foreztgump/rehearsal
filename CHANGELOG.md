@@ -11,6 +11,17 @@ All notable changes to Rehearsal are documented here. The format follows
   classes (`.drawer-scrim`, `.surface`, `.btn-ghost[.danger]`, `.btn-apply.danger`)
   instead of hardcoded inline styles.
 
+### Fixed
+- Agent worker no longer crash-loops on every job with `Could not find file
+  "languages.json"`. The F34 non-root-user hardening baked the turn-detector
+  weights into `/root/.cache/huggingface` (root-owned, since `download-files`
+  ran before `USER app`), but the runtime `app` user had no writable HOME
+  (`--no-create-home`) and couldn't read the root cache, so the local
+  `MultilingualModel` turn detector failed to initialize on every room dispatch
+  and the publisher data channel closed. The Dockerfile now pins
+  `HF_HOME=/app/.hf-cache` so the cache bakes under `/app` and is chowned to
+  `app` by the existing `chown -R app:app /app`, making it readable at runtime.
+
 ## [0.2.1] - 2026-07-03
 
 Review Batches A–H (PR #2 and #3): KB/STT/web fixes, the LAN TLS proxy
