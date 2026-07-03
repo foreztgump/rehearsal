@@ -32,11 +32,12 @@ jobs:
           python-version: "3.12"
       - name: Install dev + test deps
         # ruff + basedpyright come from requirements-dev.txt (pinned there). The agent
-        # test suite stubs livekit but genuinely imports httpx + aiohttp, so install
-        # just those two runtime deps — NOT the full livekit stack (kept out of CI).
+        # test suite stubs livekit but genuinely imports httpx + aiohttp, and the STT
+        # stub tests exercise backend_parakeet's real int16->float32 PCM body (numpy) —
+        # install just those runtime deps, NOT the full livekit stack (kept out of CI).
         run: |
           python -m pip install --upgrade pip
-          pip install ruff==0.15.20 basedpyright==1.39.9 pytest~=9.0 httpx~=0.28 aiohttp~=3.14
+          pip install ruff==0.15.20 basedpyright==1.39.9 pytest~=9.0 httpx~=0.28 aiohttp~=3.14 numpy~=1.26
       - name: Ruff (syntax + undefined-name gate)
         run: ruff check .
       - name: basedpyright (type check)
@@ -44,7 +45,8 @@ jobs:
       - name: Agent test suite
         run: python -m pytest tests/ -q
       - name: STT stub tests
-        # These self-check without sherpa/numpy — same as the dev sandbox invocation.
+        # These self-check without sherpa (stubbed via sys.modules) — same as the dev
+        # sandbox invocation. numpy is real (the int16->float32 PCM body); installed above.
         run: |
           python stt/test_engine.py
           python stt/test_dispatch.py
