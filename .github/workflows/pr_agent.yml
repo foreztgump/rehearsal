@@ -42,12 +42,10 @@ jobs:
           config.duplicate_examples: "true"
           OPENAI__API_BASE: "https://ollama.com/v1"
           OPENAI__KEY: ${{ secrets.OLLAMA_API_KEY }}
-          # --- Static reasoning level: request a HIGH thinking budget. Best-effort:
-          #     PR-Agent's native reasoning_effort only reaches OpenAI o3/o4 models,
-          #     so we pass the hint via litellm extra_body. If Ollama Cloud's /v1
-          #     ignores it, glm-5.2 still reasons on its own (it is a thinking model)
-          #     — only the explicit level may not apply; review quality is unaffected.
-          litellm.extra_body: '{"reasoning_effort": "high", "think": "high"}'
+          # NOTE on reasoning level: PR-Agent rejects a think/reasoning_effort hint
+          # (litellm extra_body only allows service_tier/processing_mode, and native
+          # reasoning_effort is gated to OpenAI o3/o4 models). glm-5.2 is a thinking
+          # model, so it reasons at full depth on its own — no explicit knob needed.
           # --- Review only (no describe / no improve). ---
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "false"
