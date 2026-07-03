@@ -6,6 +6,7 @@ import { useVoiceAssistant } from "@livekit/components-react";
 
 import { getTheme, type RGB, type Theme } from "./ui/themes";
 import { useTheme } from "./ui/ThemeProvider";
+import { speechLevelFromTimeDomain } from "./visualizerLevel";
 
 // Canvas orb visualizer ported from design-mockups/v4 (one renderer per theme).
 //
@@ -19,9 +20,8 @@ import { useTheme } from "./ui/ThemeProvider";
 // as the CSS. All per-mode mutable state lives in refs so the single effect owns
 // one rAF loop for the component's life.
 
-// Multiplier mapping inbound-speech RMS (~0.0–0.17 typical) onto the orb's 0–1
-// level so normal speaking fills the orb without clipping (AVTR-09).
-const SPEECH_LEVEL_GAIN = 6;
+// SPEECH_LEVEL_GAIN + the RMS helpers live in ./visualizerLevel (pure, allocation-free
+// so the per-frame time-domain buffer can be hoisted — O8 — and unit-tested).
 
 // rgba() string from an RGB triplet + alpha.
 function rgba([r, g, b]: RGB, a: number): string {
@@ -537,6 +537,11 @@ export default function Visualizer() {
 
     const DPR = Math.min(2, window.devicePixelRatio || 1);
     const buf = makeBuffers();
+    // O8: hoist the analyser time-domain buffer out of the rAF loop. The analyser's
+    // fftSize is fixed at 512 (set once above), so one reusable Uint8Array serves every
+    // frame — the old `new Uint8Array(analyser.fftSize)` per frame churned ~30 KB/s of
+    // GC garbage during speech. getByteTimeDomainData overwrites it in place each call.
+    const timeDomain = new Uint8Array(512);
     let W = 0,
       H = 0;
     let level = 0,
@@ -586,15 +591,9 @@ export default function Visualizer() {
       const analyser = analyserRef.current;
       let target = noisy;
       if (speaking && analyser) {
-        const samples = new Uint8Array(analyser.fftSize);
-        analyser.getByteTimeDomainData(samples);
-        let sumOfSquares = 0;
-        for (let i = 0; i < samples.length; i++) {
-          const centered = (samples[i] - 128) / 128;
-          sumOfSquares += centered * centered;
-        }
-        const rms = Math.sqrt(sumOfSquares / samples.length);
-        target = Math.min(1, rms * SPEECH_LEVEL_GAIN);
+        // Reuse the hoisted buffer (O8): getByteTimeDomainData overwrites it in place.
+        analyser.getByteTimeDomainData(timeDomain);
+        target = speechLevelFromTimeDomain(timeDomain);
       }
       level += (target - level) * 0.16;
       if (W && H) {

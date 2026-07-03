@@ -165,7 +165,7 @@ assert_kv_quant_engaged() {
   # A silent F16 fallback emits a warning that flash-attn/KV-quant was not used.
   # (Negative-evidence guard: covers both 0.6.x and 0.30.x phrasings.)
   if grep -iqE 'flash.?attention.*(disabled|not enabled|unavailable)|flash_attn[ ]*=[ ]*disabled|kv.?cache.*f16.*fallback|requested .*q8_0.*falling back|cache.?type.*f16' <<< "${logs}"; then
-    fail "q8_0 KV cache fell back to F16 (gemma4 off the flash-attn allowlist) — 16GB budget broken. Fall back to a smaller num_ctx or the gemma3:4b-it-qat rung."
+    fail "q8_0 KV cache fell back to F16 (gemma4 off the flash-attn allowlist) — 16GB budget broken. Fall back to a smaller num_ctx or a stock fallback rung (Fast->gemma4:e2b, Better->gemma4:e4b)."
   fi
   # Positive evidence. 0.6.x logged 'flash attention enabled' / 'kv cache type q8_0';
   # 0.30.x (Phase-8 engine bump) logs 'flash_attn = enabled', the per-cache

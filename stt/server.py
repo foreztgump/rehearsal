@@ -89,8 +89,11 @@ _final = _primary if _FINAL_BACKEND == _PRIMARY_BACKEND else importlib.import_mo
 PORT = 8000
 SAMPLE_RATE = 16000
 # Offline-path window: feed whole-file PCM through the per-chunk decode loop in
-# fixed ~560 ms slices (the live cache-aware step size) rather than one giant
-# step, so the VERIFY offline path exercises the same code path as live.
+# fixed ~560 ms slices rather than one giant step, so the VERIFY offline path
+# exercises the same per-chunk decode LOOP as live. NB (F28): 560 ms is NOT the
+# live step — the live cache-aware stream steps at STREAM_CHUNK_MS (default 320 ms,
+# below). The offline path deliberately uses a larger slice for throughput; it
+# shares the decode loop, not the exact step size. Override via STT_OFFLINE_CHUNK_MS.
 OFFLINE_CHUNK_MS = int(os.environ.get("STT_OFFLINE_CHUNK_MS", "560"))
 _BYTES_PER_SAMPLE = 2  # int16 mono
 _AUDIO_STATS_FRAME_MS = 10
@@ -117,6 +120,17 @@ _STREAM_CHUNK_BYTES = (SAMPLE_RATE * STREAM_CHUNK_MS // 1000) * _BYTES_PER_SAMPL
 # so a mid-sentence pause that fires early is recombined, not lost.
 ENDPOINT_SILENCE_MS = int(os.environ.get("STT_ENDPOINT_SILENCE_MS", "640"))
 _ENDPOINT_SILENCE_CHUNKS = max(1, -(-ENDPOINT_SILENCE_MS // STREAM_CHUNK_MS))  # ceil
+# F25: bound the config handshake so a silent/half-open client on the unauthenticated
+# LAN port cannot park a coroutine forever. Generous (a real client sends config
+# immediately after connect); override via STT_HANDSHAKE_TIMEOUT_S.
+HANDSHAKE_TIMEOUT_S = float(os.environ.get("STT_HANDSHAKE_TIMEOUT_S", "10"))
+# G8: cap concurrent streaming connections. Each live stream pins persistent encoder
+# cache (~8 MB GPU VRAM in legacy cache-aware modes) and can monopolize the single
+# global decode lock, so many idle/noise connections on an exposed LAN port could
+# exhaust VRAM. Loopback LAN_BIND_IP is the real boundary (docs/lan-exposure.md); this
+# is a cheap belt-and-braces bound. 0 disables the cap. Override via STT_MAX_CONNECTIONS.
+STT_MAX_CONNECTIONS = int(os.environ.get("STT_MAX_CONNECTIONS", "8"))
+_live_connections = 0
 # getattr defaults to True (streaming) for backends that pre-date the STREAMS flag.
 _ACCUMULATE_PCM = getattr(_final, "STREAMS", True) is False   # server owns _turn_pcm for buffered finals
 _PRIMARY_STREAMS = getattr(_primary, "STREAMS", True)
@@ -146,10 +160,30 @@ _ready: bool = False
 _gpu_lock = asyncio.Lock()
 
 
+def _debug_hybrid_warning() -> str:
+    """F37: warning string for the STT_DEBUG_HYBRID exposure, or "" when off.
+
+    With the flag on, /debug/hybrid serves recent RAW MIC AUDIO + transcripts with no
+    auth on the LAN-published port (loopback is the real boundary — see docs/lan-
+    exposure.md). Default-off; when an operator turns it on, the server must say so
+    loudly at startup. Pure so the decision is unit-testable without booting uvicorn.
+    """
+    if not STT_DEBUG_HYBRID:
+        return ""
+    return (
+        "STT_DEBUG_HYBRID=1: /debug/hybrid is serving recent raw microphone audio + "
+        "transcripts UNAUTHENTICATED on the published port. Keep LAN_BIND_IP on loopback "
+        "(127.0.0.1) or disable this flag in production (see docs/lan-exposure.md)."
+    )
+
+
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Load primary (+ final, if distinct) resident at startup; keep forever."""
     global _primary_model, _final_model, _ready
+    warning = _debug_hybrid_warning()
+    if warning:
+        logger.warning(warning)
     _primary_model = await asyncio.to_thread(_primary.load_model)
     _final_model = _primary_model if _final is _primary else await asyncio.to_thread(_final.load_model)
     _ready = True
@@ -171,7 +205,12 @@ async def health() -> Response:
 
 @app.get("/debug/hybrid")
 async def debug_hybrid() -> Response:
-    """Temporary in-memory STT debug feed for comparing NeMo, Parakeet, and audio."""
+    """Temporary in-memory STT debug feed for comparing NeMo, Parakeet, and audio.
+
+    F37: when STT_DEBUG_HYBRID=1 this returns recent RAW MIC AUDIO + transcripts with
+    no auth. It is default-off and empty unless the flag is set (loopback LAN_BIND_IP
+    is the real boundary); the server logs a loud exposure warning at startup when on.
+    """
     payload = {
         "enabled": STT_DEBUG_HYBRID,
         "engine": ENGINE,
@@ -292,7 +331,11 @@ async def _send_final(ws: WebSocket, state: dict, text: str, dur_ms: int = 0) ->
     (the agent owns that span via _flush_started).
     """
     _primary.reset_turn_state(state)
-    state.pop("_last_delta_text", None)
+    # F26: init to "" (NOT pop). _emit_streaming dedups via `cumulative != _last_delta_text`;
+    # a popped/None marker makes the next silent chunk's "" != None read as growth, emitting a
+    # spurious {"type":"delta","text":""} after every final. "" == "" suppresses it, and real
+    # post-final growth ("wordN" != "") still fires normally.
+    state["_last_delta_text"] = ""
     state["_silent_chunks"] = 0
     state["_final_pending"] = False
     state["_raw_silence_ms"] = 0
@@ -353,19 +396,52 @@ async def _handle_control(ws: WebSocket, state: dict, msg: dict) -> dict:
     return state
 
 
+def _connection_slot_available(live: int) -> bool:
+    """PURE (G8): True iff a new stream may be admitted given `live` active streams.
+
+    STT_MAX_CONNECTIONS == 0 disables the cap. Split out so the admission decision is
+    unit-testable without booting uvicorn."""
+    return STT_MAX_CONNECTIONS <= 0 or live < STT_MAX_CONNECTIONS
+
+
 @app.websocket("/v1/audio/stream")
 async def ws_stream(websocket: WebSocket) -> None:
     """Primary streaming endpoint. config → ready → deltas; flush → final."""
+    global _live_connections
     await websocket.accept()
-    await websocket.receive_json()  # the {"type":"config", ...} handshake
+    # G8: refuse a new stream over STT_MAX_CONNECTIONS before the handshake so many
+    # idle/noise LAN connections can't each pin encoder cache / monopolize the decode
+    # lock. Close quietly (no 'ready'); the slot is only taken once we admit.
+    if not _connection_slot_available(_live_connections):
+        logger.warning("stt connection refused: at STT_MAX_CONNECTIONS=%d", STT_MAX_CONNECTIONS)
+        with contextlib.suppress(Exception):
+            await websocket.close()
+        return
+    # F25: guard the config handshake. It sits on an unauthenticated LAN port, so it
+    # must tolerate hostile/aborted first frames without a noisy traceback or a parked
+    # coroutine: a client that drops mid-handshake (WebSocketDisconnect), sends a binary
+    # first frame (Starlette raises KeyError('text') from receive_json), or never sends
+    # anything (bounded by HANDSHAKE_TIMEOUT_S) must all just close the socket quietly.
+    try:
+        await asyncio.wait_for(websocket.receive_json(), timeout=HANDSHAKE_TIMEOUT_S)
+    except WebSocketDisconnect:
+        return
+    except (asyncio.TimeoutError, KeyError, ValueError, json.JSONDecodeError) as exc:
+        logger.info("stt handshake rejected: %s", type(exc).__name__)
+        with contextlib.suppress(Exception):
+            await websocket.close()
+        return
     await websocket.send_json({"type": "ready"})
     state = _primary.new_stream_state(_primary_model)
     if _ACCUMULATE_PCM:
         state.setdefault("_turn_pcm", bytearray())
+    _live_connections += 1  # slot taken only after a successful handshake
     try:
         await _stream_loop(websocket, state)
     except WebSocketDisconnect:
         return
+    finally:
+        _live_connections -= 1  # release the slot on any exit (G8: no permanent leak)
 
 
 async def _stream_loop(websocket: WebSocket, state: dict) -> None:
@@ -397,14 +473,22 @@ async def _stream_loop(websocket: WebSocket, state: dict) -> None:
 
 
 def _raw_endpoint_ready(state: dict, pcm: bytes) -> bool:
-    """Track real incoming silence so endpointing is not quantized to decode chunks."""
-    if not _PRIMARY_STREAMS:
-        return False
+    """Track real incoming silence so endpointing is not quantized to decode chunks.
+
+    O7: this now serves BOTH primary modes. The raw-silence accumulator measures the
+    ACTUAL incoming audio, so end-of-utterance fires the moment real silence crosses
+    ENDPOINT_SILENCE_MS instead of on the next decode-chunk boundary (up to ~STREAM_
+    CHUNK_MS late). The only difference per mode is the "has spoken" gate:
+      * streaming — _final_pending (a non-empty transcript exists to finalize);
+      * buffered  — _voiced (acoustic energy has been seen this turn; there is no
+        growing transcript to gate on). _emit_buffered still owns the chunk-grid
+        fallback, so a missed raw frame can't strand the turn."""
     if rms_int16(pcm) >= ENERGY_SILENCE_RMS:
         state["_raw_silence_ms"] = 0
         return False
+    has_spoken = state.get("_final_pending") if _PRIMARY_STREAMS else state.get("_voiced")
     state["_raw_silence_ms"] = state.get("_raw_silence_ms", 0) + _pcm_duration_ms(pcm)
-    return bool(state.get("_final_pending")) and state["_raw_silence_ms"] >= ENDPOINT_SILENCE_MS
+    return bool(has_spoken) and state["_raw_silence_ms"] >= ENDPOINT_SILENCE_MS
 
 
 def _pcm_duration_ms(pcm: bytes) -> int:
@@ -412,9 +496,15 @@ def _pcm_duration_ms(pcm: bytes) -> int:
 
 
 async def _finish_on_raw_silence(websocket: WebSocket, state: dict, buf: bytearray) -> bytearray:
-    """Drain a partial decode chunk, then finalize if the stream is still pending."""
+    """Drain a partial decode chunk, then finalize the turn (O7: both primary modes).
+
+    Streaming finalizes when a transcript is pending (_final_pending). Buffered has no
+    interim transcript, so it finalizes when the turn has gone voiced — matching the
+    chunk-grid EOU in _emit_buffered, just fired on real silence instead of on the next
+    decode-chunk boundary."""
     buf = await _drain_buffer(websocket, state, buf)
-    if state.get("_final_pending"):
+    finalize = state.get("_final_pending") if _PRIMARY_STREAMS else state.get("_voiced")
+    if finalize:
         await _run_finalize(websocket, state, timed=_ACCUMULATE_PCM)
     return buf
 
@@ -483,6 +573,18 @@ async def _emit_streaming(websocket: WebSocket, state: dict, pcm: bytes) -> None
             turn_pcm.extend(pcm)
         else:
             turn_pcm.clear()
+        if len(turn_pcm) >= _MAX_BUFFER_BYTES:
+            # F23: bound the hybrid turn buffer like the buffered path (:532). A real
+            # turn with a pending transcript that overran the cap → finalize what we
+            # have. A noise-only overrun (above-threshold non-speech that never decodes
+            # to text, so _final_pending stays False and no EOU can fire) → trim to the
+            # lead-in ring so continuous fan/music can't grow memory unbounded, without
+            # a spurious empty final.
+            if state.get("_final_pending"):
+                await _run_finalize(websocket, state, timed=_ACCUMULATE_PCM)
+            else:
+                del turn_pcm[:-_BUFFERED_LEADIN_BYTES]
+            return
     grew = cumulative != state.get("_last_delta_text")
     if grew:
         state["_last_delta_text"] = cumulative

@@ -106,12 +106,18 @@ function Check-Toolkit {
     return
   }
   if ($probe -match "could not select device driver") {
-    Advise "GPU not reachable from a container — NVIDIA Container Toolkit missing."
+    Advise "GPU not reachable from a container — Docker Desktop's WSL2 GPU mount is not active."
   } else {
     Advise "GPU not reachable from a container ('docker run --gpus all' failed)."
   }
-  Write-Output "  Fix: install the NVIDIA Container Toolkit inside the WSL2 distro:"
-  Write-Output "       sudo apt-get install -y nvidia-docker2 && sudo systemctl restart docker"
+  # F21: on Docker Desktop + WSL2 the GPU integration ships WITH Docker Desktop — you
+  # cannot apt-install a container runtime into the docker-desktop distro, the old
+  # apt package is deprecated, and restarting a Linux docker service does not apply.
+  # The real remedy (mirrors INSTALLATION.md) is: update the Windows NVIDIA driver,
+  # then reset the WSL2 GPU mount.
+  Write-Output "  Fix: update the Windows NVIDIA driver (CUDA >= 12.8), then reset WSL2 + Docker Desktop:"
+  Write-Output "       wsl --update; wsl --shutdown"
+  Write-Output "       then restart Docker Desktop (or reboot) so the GPU mount is re-created."
 }
 
 # --- Step 5: CUDA/driver floor (mirror gpu-doctor.sh check_cuda_floor) ---------

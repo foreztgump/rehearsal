@@ -8,6 +8,11 @@ fastapi~=0.115
 uvicorn[standard]~=0.34
 h11~=0.16
 idna~=3.15
+# FastAPI needs python-multipart to parse the server's multipart/form-data upload
+# endpoint (server.py transcribe_file / UploadFile); without it FastAPI raises at
+# route-registration/startup. The GPU image relied on the NeMo base shipping it —
+# a base bump would break startup (F35). Pin it explicitly, matching requirements-cpu.txt.
+python-multipart~=0.0.32
 numpy~=1.26
 soundfile~=0.12
 # R3 buffered Parakeet (D22): sherpa-onnx OfflineRecognizer. CUDA provider support

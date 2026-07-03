@@ -94,7 +94,9 @@ services:
     # `unknown model architecture: 'gemma4'`. Ollama 0.30+ ships gemma4/GGUF
     # support (ollama blog "Improved performance and model support with GGUF").
     # Pinned to an exact stable tag (not :latest / -rc) for reproducibility.
-    image: ollama/ollama:0.30.10
+    # 0.30.10 -> 0.30.11 (patch bump): re-run scripts/vram-validate.sh after this
+    # to reconfirm q8_0 KV + flash-attn still engage for gemma4 under the new engine.
+    image: ollama/ollama:0.30.11
     # No env_file (M3): this pure model server needs none of .env's vars — all its
     # config is in the explicit `environment:` block below. Dropping env_file keeps
     # LIVEKIT_API_SECRET (and other secrets) out of a container that never uses them.
@@ -123,10 +125,11 @@ services:
       # 1 slot pre-allocates the SAME total KV as 4096 x 2 slots.
       - OLLAMA_NUM_PARALLEL=1
       # SINGLE SOURCE OF TRUTH for the hot-path context. The agent (`/v1/chat` via
-      # with_ollama) and the distiller (`/api/generate`) both load the BASE tag
-      # gemma3:4b-it-qat, NOT the `rehearsal-gemma` pinned model, so the Modelfile
-      # `num_ctx 8192` never reaches the runtime — this env is what actually pins
-      # the effective context to 8192 for every model loaded over either endpoint.
+      # with_ollama) and the distiller (`/api/generate`) load the RESOLVED response
+      # tags (OLLAMA_MODEL_FAST / _BETTER / _FLOOR, pinned by ollama/pull-and-pin.sh),
+      # NOT a `rehearsal-gemma` Modelfile build, so the Modelfile `num_ctx 8192` never
+      # reaches the runtime — this env is what actually pins the effective context to
+      # 8192 for every model loaded over either endpoint.
       - OLLAMA_CONTEXT_LENGTH=8192
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:11434:11434"
@@ -191,6 +194,8 @@ services:
       - STT_BUFFERED_DEVICE=${STT_BUFFERED_DEVICE:-gpu}
       - STT_PARAKEET_MODEL=${STT_PARAKEET_MODEL:-/models/parakeet-tdt-0.6b-v2-onnx-int8}
       - STT_DEBUG_HYBRID=${STT_DEBUG_HYBRID:-0}
+      # G8: cap concurrent STT streams (each pins encoder cache + the decode lock). 0 disables.
+      - STT_MAX_CONNECTIONS=${STT_MAX_CONNECTIONS:-8}
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:8000:8000"
     networks:
@@ -239,6 +244,10 @@ services:
         STT_MODEL_REVISION: ${STT_MODEL_REVISION:-main}
         STT_ONNX_MODEL: ${STT_ONNX_MODEL:-nvidia/nemotron-speech-streaming-en-0.6b-onnx}
         STT_QUANT: ${STT_QUANT:-int8-dynamic}
+        # O6: the legacy-streaming ONNX export pulls a multi-GB nvcr NeMo image. The
+        # shipped default (STT_ENGINE=buffered) uses the sherpa bundle and never needs
+        # it, so it is OFF by default; set to 1 only for a CPU STT_ENGINE=streaming build.
+        STT_INCLUDE_LEGACY_ONNX: ${STT_INCLUDE_LEGACY_ONNX:-0}
     # No env_file (M3): takes its model/params via build-ARG + env; needs none of .env
     # and must not carry the LiveKit secret.
     environment:
@@ -253,6 +262,8 @@ services:
       - STT_BUFFERED_DEVICE=cpu
       - STT_PARAKEET_MODEL=${STT_PARAKEET_MODEL:-/models/parakeet-tdt-0.6b-v2-onnx-int8}
       - STT_DEBUG_HYBRID=${STT_DEBUG_HYBRID:-0}
+      # G8: cap concurrent STT streams (each pins encoder cache + the decode lock). 0 disables.
+      - STT_MAX_CONNECTIONS=${STT_MAX_CONNECTIONS:-8}
     # Distinct HOST port 8001 for host probing (internal stays 8000; the agent reaches
     # it by service DNS ws://nemo-stt-cpu:8000/...). No collision with nemo-stt's 8000.
     ports:

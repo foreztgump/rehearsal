@@ -80,6 +80,73 @@ def _assert_parakeet_real_body() -> None:
     assert proc.returncode == 0, f"parakeet real body failed: {proc.stderr.strip()}"
 
 
+def _assert_no_dead_recycle_hard_chars() -> None:
+    """F27: RECYCLE_HARD_CHARS was dead config — defined in backend_common, imported by
+    backend_nemo, referenced by no decode code. It must be GONE from both, while
+    RECYCLE_MIN_CHARS (the live stall floor) stays. Both backends must still import."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    code = (
+        "import backend_common as c; "
+        "assert not hasattr(c, 'RECYCLE_HARD_CHARS'), 'F27: RECYCLE_HARD_CHARS must be deleted'; "
+        "assert hasattr(c, 'RECYCLE_MIN_CHARS'), 'RECYCLE_MIN_CHARS is live — keep it'; "
+        "import backend_nemo as n; "
+        "assert not hasattr(n, 'RECYCLE_HARD_CHARS'), 'F27: backend_nemo must not re-export it'; "
+        "assert n.RECYCLE_MIN_CHARS == c.RECYCLE_MIN_CHARS"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code], cwd=here,
+        env={k: v for k, v in os.environ.items() if k != "STT_PARAKEET_MODEL"}
+        | {"STT_MODEL": "nvidia/parakeet-tdt-0.6b-v2"},
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, f"F27 dead-config check failed: {proc.stderr.strip()}"
+
+
+def _assert_stall_recycle_preserves_committed_text() -> None:
+    """F22: on a decoder stall the watchdog clears prev_hyps, restarting the cumulative
+    transcript from empty. The pre-recycle text was only ever emitted as interim deltas
+    (LiveKit commits FINALs only), so it was permanently lost; and the first post-recycle
+    decode returned empty, flipping the server's _final_pending False → a turn that ends
+    right after the recycle never commits. Fix: fold the held text forward as a committed
+    prefix so decode_chunk keeps returning prefix+new (text preserved AND non-empty).
+
+    Drives the REAL _track_stall/decode_chunk with _stream_step monkeypatched to a
+    scripted cumulative sequence (no torch). Runs for BOTH backends via subprocess."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for module, model_env, step_name in (
+        ("backend_nemo", {"STT_MODEL": "nvidia/parakeet-tdt-0.6b-v2"}, "_stream_step"),
+        ("backend_onnx", {"STT_ONNX_MODEL": "x", "STT_QUANT": "int8-dynamic", "STT_RUNTIME": "cpu"},
+         "_encode_decode_step"),
+    ):
+        code = (
+            f"import backend_common as c; c.STALL_FRAMES = 2; c.RECYCLE_MIN_CHARS = 3\n"
+            f"import {module} as b\n"
+            f"b.STALL_FRAMES = 2; b.RECYCLE_MIN_CHARS = 3\n"
+            # Scripted decode: grow to a long held string, stall (repeat it) until the\n"
+            # watchdog recycles, then the underlying step returns '' (post-recycle empty)\n"
+            # then a new word. A correct fold keeps the held text as a committed prefix.\n"
+            f"seq = iter(['hello world foo', 'hello world foo', 'hello world foo', '', 'bar'])\n"
+            f"b.{step_name} = lambda *a, **k: next(seq)\n"
+            f"st = {{'last_text_len': 0, 'frames_since_growth': 0,\n"
+            f"      'prev_hyps': 1, 'prev_pred_out': None,\n"
+            f"      'emitted_token_ids': [1], 'dec_state': None,\n"
+            f"      'cache_last_channel': None, 'cache_last_time': None, 'cache_last_channel_len': None}}\n"
+            f"outs = [b.decode_chunk(None, st, b'x') for _ in range(5)]\n"
+            # After the recycle the held 'hello world foo' must NOT vanish, and the\n"
+            # final decode must still contain both the committed prefix and 'bar'.\n"
+            f"assert outs[-1], f'F22: post-recycle decode went empty (turn would wedge): {{outs!r}}'\n"
+            f"assert 'hello world foo' in outs[-1], f'F22: committed text lost on recycle: {{outs!r}}'\n"
+            f"assert 'bar' in outs[-1], f'F22: post-recycle growth lost: {{outs!r}}'\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", code], cwd=here,
+            env={k: v for k, v in os.environ.items() if k not in ("STT_MODEL", "STT_ONNX_MODEL")}
+            | model_env,
+            capture_output=True, text=True,
+        )
+        assert proc.returncode == 0, f"F22 {module} stall-recycle fold failed: {proc.stderr.strip()}"
+
+
 def _assert_parakeet_nemo_imports_without_nemo() -> None:
     """GPU buffered backend must byte-import without NeMo until load_model()."""
     here = os.path.dirname(os.path.abspath(__file__))
@@ -303,6 +370,48 @@ def _assert_buffered_never_voiced_stays_bounded() -> None:
         f"never-voiced silence must emit no final, got {ws.sent!r}")
     assert len(state["_turn_pcm"]) <= 2 * chunk, (
         f"never-voiced buffer must stay ring-bounded, grew to {len(state['_turn_pcm'])} bytes")
+
+
+def _assert_hybrid_turn_pcm_stays_bounded() -> None:
+    """F23: hybrid/streaming _turn_pcm had no cap. Continuous above-threshold NON-speech
+    noise (fan/music) decodes to empty text, so _final_pending never flips and no EOU
+    fires — the buffer grew ~1.9 MB/min per connection forever. Drives _emit_streaming
+    directly with noise that never decodes; _turn_pcm must stay bounded by the cap."""
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub, _FakeWebSocket, _run_async
+
+    prim = types.ModuleType("backend_nemo"); prim.STREAMS = True
+    prim.load_model = lambda: {}
+    prim.new_stream_state = lambda m: {"text": ""}
+    prim.decode_chunk = lambda m, s, pcm: ""      # noise never decodes to text
+    prim.finalize = lambda m, s: ""
+    prim.reset_turn_state = lambda s: s.update(text="")
+    fin = types.ModuleType("backend_parakeet"); fin.STREAMS = False
+    fin.load_model = lambda: {}
+    fin.new_stream_state = lambda m: {"_turn_pcm": bytearray()}
+    fin.decode_chunk = lambda m, s, pcm: ""
+    fin.finalize = lambda m, s: f"P:{len(s.get('_turn_pcm', b''))}"
+    fin.reset_turn_state = lambda s: s.update(_turn_pcm=bytearray())
+    sys.modules["backend_nemo"] = prim; sys.modules["backend_parakeet"] = fin
+    _install_fastapi_stub()
+    os.environ["STT_ENGINE"] = "hybrid"; os.environ["STT_RUNTIME"] = "gpu"
+    os.environ["STT_MODEL"] = "x"; os.environ["STT_PARAKEET_MODEL"] = "x"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    chunk = server._STREAM_CHUNK_BYTES
+    noise = b"\x40\x10" * (chunk // 2)   # RMS 4160 >= ENERGY_SILENCE_RMS: above threshold, non-silent
+    n = server._MAX_BUFFER_BYTES // chunk + 5
+    ws = _FakeWebSocket([])
+    state = server._primary.new_stream_state(None)
+    state.setdefault("_turn_pcm", bytearray())
+
+    async def _drive():
+        for _ in range(n):
+            await server._emit_streaming(ws, state, noise)
+
+    _run_async(_drive())
+    assert len(state["_turn_pcm"]) <= server._MAX_BUFFER_BYTES, (
+        f"F23: hybrid _turn_pcm must stay <= _MAX_BUFFER_BYTES, grew to {len(state['_turn_pcm'])} bytes")
 
 
 def _run_hybrid_exchange():
@@ -771,6 +880,151 @@ def _assert_streaming_eou_dur_ms() -> None:
         f"streaming autonomous final must carry dur_ms==0 (pre-R3 compat), got {final!r}")
 
 
+def _assert_no_spurious_empty_delta_after_final() -> None:
+    """F26: after a final, _send_final resets the per-turn dedup marker. The next
+    silent chunk decodes to '' — that must NOT be re-emitted as a delta. Previously
+    the marker was popped (None), so `'' != None` counted as growth and a spurious
+    {"type":"delta","text":""} was sent after EVERY final. No empty delta may appear
+    at all in this exchange (the stub only ever decodes '' or 'wordN')."""
+    sent = _run_streaming_eou_exchange()
+    empties = [m for m in sent if m.get("type") == "delta" and m.get("text") == ""]
+    assert not empties, f"F26: no empty-text delta may follow a final, got {sent}"
+    # And a final must still fire (we did not break EOU).
+    assert any(m.get("type") == "final" for m in sent), f"EOU final still required, got {sent}"
+
+
+def _run_handshake(mode: str):
+    """Drive ws_stream's config handshake with a fake WS that fails in `mode`:
+    'disconnect' (client drops mid-handshake), 'binary' (bytes first frame ->
+    Starlette KeyError('text')), or 'hang' (silent socket). Returns (ws, raised)."""
+    import asyncio, importlib, types
+    from test_dispatch import _install_fastapi_stub, _run_async
+
+    _install_fastapi_stub()
+    disconnect_exc = sys.modules["fastapi"].WebSocketDisconnect
+    prim = types.ModuleType("backend_onnx"); prim.STREAMS = True
+    prim.load_model = lambda: {}
+    prim.new_stream_state = lambda m: {"text": ""}
+    prim.decode_chunk = lambda m, s, pcm: ""
+    prim.finalize = lambda m, s: ""
+    prim.reset_turn_state = lambda s: None
+    sys.modules["backend_onnx"] = prim
+    os.environ["STT_ENGINE"] = "streaming"; os.environ["STT_RUNTIME"] = "cpu"
+    os.environ["STT_ONNX_MODEL"] = "x"; os.environ["STT_HANDSHAKE_TIMEOUT_S"] = "0.05"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+
+    class _HandshakeWS:
+        def __init__(self) -> None:
+            self.sent: list = []
+            self.closed = False
+        async def accept(self) -> None: return None
+        async def receive_json(self):
+            if mode == "disconnect":
+                raise disconnect_exc()
+            if mode == "binary":
+                raise KeyError("text")           # Starlette raises this on a bytes first frame
+            if mode == "hang":
+                await asyncio.sleep(5)            # never returns before the 0.05 s timeout
+            return {"type": "config"}
+        async def receive(self):
+            return {"type": "websocket.disconnect"}
+        async def send_json(self, payload) -> None: self.sent.append(payload)
+        async def close(self, *a, **k) -> None: self.closed = True
+
+    ws = _HandshakeWS()
+    raised = None
+    try:
+        _run_async(server.ws_stream(ws))
+    except BaseException as exc:  # noqa: BLE001 - capture ANY leak for the assertion
+        raised = exc
+    return ws, raised
+
+
+def _assert_debug_hybrid_exposure_warning() -> None:
+    """F37: STT_DEBUG_HYBRID=1 serves recent raw mic audio + transcripts unauthenticated
+    on the published port. It is default-off, but when enabled the server must emit a
+    loud startup warning so the operator knows the exposure is live. The decision is a
+    pure helper: a non-empty warning iff the flag is on."""
+    import importlib
+    from test_dispatch import _install_fastapi_stub
+
+    _install_fastapi_stub()
+    for flag, want_warning in (("1", True), ("0", False)):
+        os.environ["STT_ENGINE"] = "buffered"; os.environ["STT_RUNTIME"] = "cpu"
+        os.environ["STT_ONNX_MODEL"] = "x"; os.environ["STT_DEBUG_HYBRID"] = flag
+        sys.modules.pop("server", None)
+        server = importlib.import_module("server")
+        warning = server._debug_hybrid_warning()
+        if want_warning:
+            assert warning, "STT_DEBUG_HYBRID=1 must produce a startup exposure warning"
+            assert "STT_DEBUG_HYBRID" in warning and "audio" in warning.lower(), warning
+        else:
+            assert warning == "", f"default-off flag must produce no warning, got {warning!r}"
+    os.environ["STT_DEBUG_HYBRID"] = "0"
+
+
+def _assert_max_connections_guard() -> None:
+    """G8: each live streaming connection pins persistent encoder cache (~8 MB VRAM in
+    legacy modes) and can monopolize the single global decode lock, so many idle/noise
+    LAN connections can exhaust VRAM. Bound concurrent streams by STT_MAX_CONNECTIONS.
+
+    A new connection ABOVE the cap must be rejected during the handshake (closed, no
+    'ready'); the live-connection counter must decrement when a stream ends so slots
+    are reclaimed (no permanent leak)."""
+    import importlib
+    from test_dispatch import (
+        _install_fastapi_stub, _install_backend_stub, _FakeWebSocket, _run_async,
+    )
+
+    _install_fastapi_stub(); _install_backend_stub()
+    os.environ["STT_ENGINE"] = "streaming"; os.environ["STT_RUNTIME"] = "cpu"
+    os.environ["STT_ONNX_MODEL"] = "x"; os.environ["STT_MAX_CONNECTIONS"] = "1"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    assert server.STT_MAX_CONNECTIONS == 1
+
+    # Pure admission decision: at/over the cap is refused, under is admitted.
+    assert server._connection_slot_available(0) is True
+    assert server._connection_slot_available(1) is False
+
+    # End-to-end: with the cap already saturated, a new connection is rejected during
+    # the handshake — no 'ready', socket closed — without touching the decode path.
+    server._live_connections = server.STT_MAX_CONNECTIONS
+    ws = _FakeWebSocket([{"type": "websocket.disconnect"}])
+    ws.closed = False
+    orig_close = getattr(ws, "close", None)
+    async def _close(*a, **k): ws.closed = True
+    ws.close = _close
+    _run_async(server.ws_stream(ws))
+    assert not any(m.get("type") == "ready" for m in ws.sent), (
+        f"over-cap connection must not get ready, got {ws.sent}")
+    assert ws.closed, "over-cap connection must be closed"
+    # The rejected over-cap connection must NOT change the counter (it never took a slot).
+    assert server._live_connections == server.STT_MAX_CONNECTIONS, (
+        f"rejected connection must not alter the live count, got {server._live_connections}")
+
+    # A normal connection under the cap runs and RELEASES its slot on exit.
+    server._live_connections = 0
+    ws2 = _FakeWebSocket([{"bytes": b"\x00\x01\x02\x03"}, {"type": "websocket.disconnect"}])
+    _run_async(server.ws_stream(ws2))
+    assert any(m.get("type") == "ready" for m in ws2.sent), "under-cap connection must get ready"
+    assert server._live_connections == 0, (
+        f"a finished stream must release its slot, got {server._live_connections}")
+    os.environ.pop("STT_MAX_CONNECTIONS", None)
+
+
+def _assert_config_handshake_is_guarded() -> None:
+    """F25: the config handshake was outside any guard and unbounded. Assert all three
+    failure modes are now handled cleanly: no exception leaks out of ws_stream, no
+    'ready' is sent on a failed handshake, and a hanging client is bounded by timeout."""
+    for mode in ("disconnect", "binary", "hang"):
+        ws, raised = _run_handshake(mode)
+        assert raised is None, f"F25[{mode}]: handshake failure must not leak, got {type(raised).__name__}: {raised}"
+        assert not any(m.get("type") == "ready" for m in ws.sent), (
+            f"F25[{mode}]: no ready may be sent on a failed handshake, got {ws.sent}")
+
+
 def _assert_raw_silence_endpoint_is_not_chunk_quantized() -> None:
     """700 ms of raw silence must end a turn without waiting for two 560 ms decodes."""
     import importlib, types
@@ -803,10 +1057,49 @@ def _assert_raw_silence_endpoint_is_not_chunk_quantized() -> None:
     assert final is not None, f"raw 700 ms silence must emit final, got {ws.sent!r}"
 
 
+def _assert_buffered_raw_silence_endpoint_is_not_chunk_quantized() -> None:
+    """O7: the buffered path must end a turn on raw incoming silence at ENDPOINT_SILENCE_MS,
+    not quantized to the decode-chunk grid. Feed voiced audio, then SUB-CHUNK silence
+    frames that sum to exactly the endpoint window but never fill a full decode chunk —
+    the old buffered path (which counts only full silence chunks) would never finalize,
+    while the raw tracker fires as soon as the real silence crosses the window."""
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub, _FakeWebSocket, _run_async
+
+    stub = types.ModuleType("backend_parakeet")
+    stub.STREAMS = False
+    stub.load_model = lambda: {}
+    stub.new_stream_state = lambda m: {"_turn_pcm": bytearray()}
+    stub.decode_chunk = lambda m, s, pcm: ""
+    stub.finalize = lambda m, s: f"buffered:{len(s['_turn_pcm'])}"
+    stub.reset_turn_state = lambda s: s.update(_turn_pcm=bytearray())
+    sys.modules["backend_parakeet"] = stub
+    _install_fastapi_stub()
+    os.environ["STT_ENGINE"] = "buffered"; os.environ["STT_RUNTIME"] = "cpu"
+    os.environ["STT_ONNX_MODEL"] = "x"; os.environ["STT_PARAKEET_MODEL"] = "x"
+    os.environ["STT_STREAM_CHUNK_MS"] = "560"; os.environ["STT_ENDPOINT_SILENCE_MS"] = "700"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    chunk = server._STREAM_CHUNK_BYTES
+    voiced = b"\x40\x10" * (chunk // 2)   # one loud decode chunk → marks _voiced
+    raw_silence = b"\x00\x00" * 320       # 20 ms sub-chunk silence (never a full chunk)
+    # 700 ms window / 20 ms = 35 sub-chunk frames of silence; add a couple for the ceil.
+    frames = [{"bytes": voiced}] + [{"bytes": raw_silence} for _ in range(37)] + \
+             [{"type": "websocket.disconnect"}]
+    ws = _FakeWebSocket(frames)
+    _run_async(server.ws_stream(ws))
+    final = next((m for m in ws.sent if m.get("type") == "final"), None)
+    assert final is not None, (
+        f"buffered raw 700 ms sub-chunk silence must emit a final, got {ws.sent!r}")
+    assert final["text"].startswith("buffered:"), "final must come from the buffered backend"
+
+
 def _self_check() -> None:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     _assert_parakeet_imports_without_ort()
     _assert_parakeet_real_body()
+    _assert_no_dead_recycle_hard_chars()
+    _assert_stall_recycle_preserves_committed_text()
     _assert_parakeet_nemo_imports_without_nemo()
     _assert_parakeet_nemo_real_body()
     _assert_default_engine_is_buffered()
@@ -819,6 +1112,7 @@ def _self_check() -> None:
     _assert_offline_rejects_wrong_wav_params()
     _assert_offline_decode_holds_gpu_lock()
     _assert_hybrid()
+    _assert_hybrid_turn_pcm_stays_bounded()
     _assert_hybrid_stall_waits_for_silence()
     _assert_hybrid_skips_leading_silence_for_final_pcm()
     _assert_debug_sample_wav()
@@ -826,8 +1120,13 @@ def _self_check() -> None:
     _assert_finalize_error_boundary()
     _assert_reset_turn_pcm_safe()
     _assert_streaming_eou_dur_ms()
+    _assert_no_spurious_empty_delta_after_final()
+    _assert_debug_hybrid_exposure_warning()
+    _assert_max_connections_guard()
+    _assert_config_handshake_is_guarded()
     _assert_raw_silence_endpoint_is_not_chunk_quantized()
-    print("engine _self_check OK — seam, GPU buffered Parakeet, hybrid, voiced-stall EOU, trimmed PCM, debug WAV, I1 finalize-boundary, M2 reset-pcm, F2 streaming-dur-ms, raw-silence EOU, F7 buffered-silence-trim, F8 offline-lock+size+wav-validation",
+    _assert_buffered_raw_silence_endpoint_is_not_chunk_quantized()
+    print("engine _self_check OK — seam, GPU buffered Parakeet, hybrid, voiced-stall EOU, trimmed PCM, debug WAV, I1 finalize-boundary, M2 reset-pcm, F2 streaming-dur-ms, raw-silence EOU, O7 buffered-raw-silence EOU, F7 buffered-silence-trim, F8 offline-lock+size+wav-validation",
           file=sys.stderr)
 
 

@@ -1,10 +1,36 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 
-import { normalizeTranscriptSegments } from "./transcriptSegments";
+import { transcriptLineClass } from "./transcriptLine";
+import { normalizeTranscriptSegments, type TranscriptLine as TranscriptLineData } from "./transcriptSegments";
 import { useTranscriptionSegments } from "./useTranscriptionSegments";
 import { font, palette, radius, space } from "./ui/tokens";
+
+// O9: one transcript row, memoized so a streaming token update (which produces a new
+// `lines` array every frame) only re-renders the ONE line whose text/final flag
+// changed — not every prior line. Render cost per token is O(1) instead of
+// O(session length). The default shallow prop compare is exactly right: `line` fields
+// are primitives, so React re-renders iff id/text/isFinal/sourceId/speaker differ.
+const TranscriptLineRow = memo(function TranscriptLineRow({ line }: { line: TranscriptLineData }) {
+  const isUser = line.speaker === "You";
+  // Theme-reactive .bubble classes (globals.css): agent = glass left, user =
+  // accent-gradient right, .interim = tentative, .bubble-pop = one-shot entrance
+  // (runs once; the <li> is keyed by line id so a streaming text update reuses the
+  // node and never re-animates).
+  return (
+    <li
+      data-from={isUser ? "user" : "agent"}
+      data-final={line.isFinal ? "true" : "false"}
+      data-source-id={line.sourceId}
+      className={transcriptLineClass({ isUser, isFinal: line.isFinal })}
+    >
+      <span className="who">{line.speaker}</span>
+      {line.text}
+      {line.isFinal && <span className="final-mark" aria-label="final transcript">✓</span>}
+    </li>
+  );
+});
 
 // "At bottom" tolerance in px. Kept above a couple of px so a programmatic
 // scrollTop write to the exact bottom never falsely flips atBottom (RESEARCH §4
@@ -119,26 +145,9 @@ export default function Transcript({ resetAfter = 0 }: { resetAfter?: number }) 
               gap: space.sm,
             }}
           >
-            {visibleLines.map((line) => {
-              const isUser = line.speaker === "You";
-              // Use the theme-reactive .bubble classes (globals.css): agent = glass
-              // left, user = accent-gradient right, .interim = tentative, .bubble-pop
-              // = one-shot entrance (runs once; the <li> is keyed by line id so a
-              // streaming text update reuses the node and never re-animates).
-              return (
-                <li
-                  key={line.id}
-                  data-from={isUser ? "user" : "agent"}
-                  data-final={line.isFinal ? "true" : "false"}
-                  data-source-id={line.sourceId}
-                  className={`bubble bubble-pop ${isUser ? "user" : "agent"}${line.isFinal ? "" : " interim"}`}
-                >
-                  <span className="who">{line.speaker}</span>
-                  {line.text}
-                  {line.isFinal && <span className="final-mark" aria-label="final transcript">✓</span>}
-                </li>
-              );
-            })}
+            {visibleLines.map((line) => (
+              <TranscriptLineRow key={line.id} line={line} />
+            ))}
           </ul>
         )}
       </div>

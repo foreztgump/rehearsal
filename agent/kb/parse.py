@@ -60,6 +60,19 @@ KB_MAX_TOKENS: int = 24000      # over → reject this doc with a clear error (R
 # is already allowed to be (coupled to OLLAMA_CONTEXT_LENGTH the same way).
 KB_AGGREGATE_MAX_TOKENS: int = KB_MAX_TOKENS
 
+
+def kb_aggregate_is_full(current_total: int) -> bool:
+    """PURE (O3): True when a session already holding `current_total` estimated tokens
+    cannot accept ANY further doc, so ingest_kb can skip the CPU-heavy parse entirely.
+
+    Every doc that clears the extraction gate has >= MIN_USEFUL_CHARS chars, i.e.
+    token_estimate >= 1, so once the running total reaches KB_AGGREGATE_MAX_TOKENS the
+    post-parse M2 guard (`current_total + new > KB_AGGREGATE_MAX_TOKENS`) is guaranteed
+    to reject. Short-circuiting here only skips a GUARANTEED-rejected parse — it never
+    changes which docs are accepted (the exact accept/reject call still belongs to the
+    post-parse guard, which knows the real token_estimate)."""
+    return current_total >= KB_AGGREGATE_MAX_TOKENS
+
 # RESOURCE ceilings enforced BEFORE the (memory-heavy) extraction step, so a large
 # or maliciously-crafted upload cannot OOM-kill the worker before the token guard
 # (which only measures EXTRACTED text) ever runs.
@@ -229,6 +242,34 @@ def _extract_pdf(raw: bytes) -> str:
         doc.close()
 
 
+def _docx_has_xml_entities(raw: bytes) -> bool:
+    """PURE: True iff any XML member of the .docx zip declares a DTD or internal entity.
+
+    Split out so the DTD/entity decision is unit-testable without python-docx (a lazy,
+    sandbox-absent dep) — mirrors the _pdf_pages_over_cap shape. Scans only the .xml/.rels
+    members (case-insensitive), byte-matching '<!doctype' or '<!entity' so no XML parser
+    is invoked on the untrusted document. A non-zip input returns False (python-docx then
+    raises the real error). Valid OOXML never contains either token, so this is a clean
+    defense-in-depth gate against billion-laughs / XXE (F39).
+    """
+    import zipfile  # stdlib
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+            for zi in zf.infolist():
+                if not zi.filename.lower().endswith((".xml", ".rels")):
+                    continue
+                # A DTD lives in the XML prolog (before the root element); scan a bounded
+                # 64 KB head — generous for any legitimate prolog, cheap vs. the member's
+                # full inflated size (already capped above).
+                head = zf.read(zi)[:65536].lower()
+                if b"<!doctype" in head or b"<!entity" in head:
+                    return True
+    except zipfile.BadZipFile:
+        return False
+    return False
+
+
 def _extract_docx(raw: bytes) -> str:
     """DOCX → text via python-docx (NOT pymupdf4llm — Office needs paid PyMuPDF Pro).
 
@@ -250,6 +291,14 @@ def _extract_docx(raw: bytes) -> str:
         uncompressed = 0  # not a valid zip → let python-docx raise the real error below
     if uncompressed > DOCX_MAX_UNCOMPRESSED_BYTES:
         raise _OversizeExtraction(uncompressed)
+
+    # XML entity-expansion guard (F39, defense-in-depth): valid OOXML never carries a
+    # DTD or internal entities, so any <!DOCTYPE / <!ENTITY in a zip member is a
+    # billion-laughs / XXE attempt (or malformed enough to be 'corrupt' anyway). Reject
+    # on stdlib zipfile BEFORE python-docx / lxml parses. Modern libxml2 blunts the
+    # exponential case, but not parsing the declaration at all is the cheaper certainty.
+    if _docx_has_xml_entities(raw):
+        raise ValueError("DOCX contains an XML DTD/entity declaration (rejected: F39)")
 
     from docx import Document  # python-docx; lazy import
 

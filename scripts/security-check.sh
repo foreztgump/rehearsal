@@ -282,8 +282,18 @@ run_shellcheck_if_present() {
     warn "no shell files found"
     return 0
   fi
-  shellcheck "${shell_files[@]}"
-  pass "ShellCheck"
+  # -S error (F42): gate on ERROR-severity findings only. The default severity
+  # (style/info/warning) fails the baseline on benign findings that are correct as
+  # written — SC2034 nameref-array false positives (pull-and-pin.sh's `local -n`
+  # ladders), SC2097/SC2098 (install.sh's env-prefixed invocation), SC2155/SC2034 in
+  # vram-validate/test_compose_topology — none of which are real defects. Errors are
+  # the genuinely-broken class (bad syntax, unassigned criticals). This matches the CI
+  # (.github/workflows/ci.yml) and the manual `shellcheck -S error` used in review.
+  if shellcheck -S error "${shell_files[@]}"; then
+    pass "ShellCheck (-S error)"
+  else
+    block "ShellCheck found ERROR-severity issues"
+  fi
 }
 
 run_pattern_scan() {

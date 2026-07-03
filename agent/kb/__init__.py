@@ -14,6 +14,7 @@ from kb.parse import (
     KB_WARN_TOKENS,
     KbParseError,
     ParsedDoc,
+    kb_aggregate_is_full,
     parse,
 )
 
@@ -25,6 +26,7 @@ __all__ = [
     "KB_MAX_TOKENS",
     "KB_MAX_RAW_BYTES",
     "KB_AGGREGATE_MAX_TOKENS",
+    "kb_aggregate_is_full",
     "build_distill_prompt",
     "distill",
     "DistillError",

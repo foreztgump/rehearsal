@@ -149,8 +149,8 @@ unpacks layers and keeps build cache, so on-disk usage is much larger.
 | Item | Approx download | When used |
 | --- | ---: | --- |
 | `livekit/livekit-server:v1.10.1` | 35 MB | All installs. |
-| `ollama/ollama:0.30.10` | 3.39 GB | NVIDIA/default LLM container. |
-| `ollama/ollama:0.30.10-rocm` | 1.46 GB | Linux AMD override. |
+| `ollama/ollama:0.30.11` | 3.39 GB | NVIDIA/default LLM container. |
+| `ollama/ollama:0.30.11-rocm` | 1.46 GB | Linux AMD override. |
 | `ghcr.io/remsky/kokoro-fastapi-gpu:v0.5.0-cu128` | 8.10 GB | NVIDIA/default TTS. |
 | `ghcr.io/remsky/kokoro-fastapi-cpu:v0.5.0` | 1.66 GB | CPU TTS override. |
 | `ghcr.io/remsky/kokoro-fastapi-rocm:v0.5.0` | 13.02 GB | Linux AMD TTS override. |
@@ -212,7 +212,6 @@ agent restart loop is not.
 | Browser cannot connect after WSL restart | Docker port proxies are stale. | Run `docker compose down`, then `docker compose up -d`. |
 | Agent crash-loops with `ws_url is required` | Missing `LIVEKIT_URL`. | PR #1 fixes this in compose; rebuild from the latest branch. |
 | Agent loops during prewarm | Cold model load exceeded worker init timeout. | PR #1 raises `AGENT_INIT_TIMEOUT_S` default to 300s. |
-| `/api/stt-debug` 502 | GPU STT debug endpoint is not running in default CPU-STT mode. | Harmless; the frontend debug window is disabled. |
 
 ## AI-Agent Install Prompt
 

@@ -96,6 +96,10 @@ BRIEF_NUM_PREDICT: int = 2048
 # must fit the frozen-prefix budget once it lands in KB_SLOT.
 BRIEF_TOKEN_BUDGET: int = 1500
 
+# Cheap token estimate (chars/token) — same heuristic parse.py uses for its size
+# guard, kept in lockstep so the brief-budget math matches the ingest-side math.
+_CHARS_PER_TOKEN: int = 4
+
 # Bounded TOTAL wall-clock budget for the off-hot-path distill stream (H3/F15). The
 # httpx.Client(timeout=...) is a PER-OPERATION timeout — during streaming its read
 # timer resets on every chunk, so a generation dripping one token just under the
@@ -125,16 +129,40 @@ def _resolved_llm_tag() -> str:
     return tag
 
 
+# Fence markers wrapping the untrusted source (M4 data-not-instructions). Named
+# constants so the sanitizer and the builders agree on the exact literals.
+SOURCE_OPEN_MARKER: str = "<<<SOURCE>>>"
+SOURCE_CLOSE_MARKER: str = "<<<END SOURCE>>>"
+
+
+def _neutralize_markers(text: str) -> str:
+    """F40(a): defang any literal fence markers inside the untrusted source.
+
+    A document whose text contains ``<<<END SOURCE>>>`` would otherwise close the data
+    fence early, so text after it lands OUTSIDE the "this is data, not instructions"
+    region — strengthening prompt injection into the session-frozen brief. Insert a
+    zero-width space into each marker so it survives as readable content (the distill
+    still sees the words) but no longer matches the exact delimiter the fence uses.
+    Deterministic: identical input -> identical bytes (frozen-prefix discipline).
+    """
+    return (
+        text.replace(SOURCE_CLOSE_MARKER, "<<<END\u200bSOURCE>>>")
+        .replace(SOURCE_OPEN_MARKER, "<<<\u200bSOURCE>>>")
+    )
+
+
 def build_distill_prompt(text: str) -> str:
     """PURE, deterministic distill prompt: the static instruction + the source text.
 
     The only interpolation is over ``DISTILL_INSTRUCTION`` (a frozen constant) and
     the input ``text``. The untrusted source is wrapped in explicit
     ``<<<SOURCE>>>`` / ``<<<END SOURCE>>>`` markers the instruction names as
-    data-not-instructions (M4 prompt-injection hardening). No volatile data;
-    identical input -> identical bytes.
+    data-not-instructions (M4 prompt-injection hardening), and any literal marker in
+    the source itself is neutralized first (F40) so it cannot break the fence. No
+    volatile data; identical input -> identical bytes.
     """
-    return f"{DISTILL_INSTRUCTION}\n\n<<<SOURCE>>>\n{text}\n<<<END SOURCE>>>"
+    return (f"{DISTILL_INSTRUCTION}\n\n{SOURCE_OPEN_MARKER}\n"
+            f"{_neutralize_markers(text)}\n{SOURCE_CLOSE_MARKER}")
 
 
 def build_facts_prompt(source_text: str) -> str:
@@ -142,9 +170,10 @@ def build_facts_prompt(source_text: str) -> str:
 
     Used only when the first pass omitted the anchor. Same interpolation discipline
     as ``build_distill_prompt`` — a frozen constant + the input text wrapped in the
-    same data-not-instructions markers (M4), no volatile data.
+    same data-not-instructions markers, with in-source markers neutralized (F40).
     """
-    return f"{FACTS_INSTRUCTION}\n\n<<<SOURCE>>>\n{source_text}\n<<<END SOURCE>>>"
+    return (f"{FACTS_INSTRUCTION}\n\n{SOURCE_OPEN_MARKER}\n"
+            f"{_neutralize_markers(source_text)}\n{SOURCE_CLOSE_MARKER}")
 
 
 def _has_facts_anchor(brief: str) -> bool:
@@ -211,6 +240,28 @@ def _generate(prompt: str) -> str:
     return "".join(parts).strip()
 
 
+def _enforce_budget(brief: str) -> str:
+    """F40(b): trim a distilled brief to BRIEF_TOKEN_BUDGET so it can't blow the frozen
+    prefix. num_predict only bounds OUTPUT tokens loosely (2048) and the coupling to
+    the KB_SLOT allocation was never enforced. Trim the PROSE to budget while always
+    preserving the trailing ``FACTS:`` anchor line (the downstream coach parses it).
+    Deterministic and byte-stable; a brief already within budget is returned unchanged.
+    """
+    budget_chars = BRIEF_TOKEN_BUDGET * _CHARS_PER_TOKEN
+    if len(brief) <= budget_chars:
+        return brief
+    lines = brief.splitlines()
+    facts = [ln for ln in lines if ln.lstrip().startswith("FACTS:")]
+    prose = [ln for ln in lines if not ln.lstrip().startswith("FACTS:")]
+    facts_text = "\n".join(facts)
+    # Reserve room for the anchor line(s); trim the prose to what remains.
+    prose_budget = max(0, budget_chars - len(facts_text) - 1)
+    trimmed_prose = "\n".join(prose)[:prose_budget].rstrip()
+    if facts_text:
+        return f"{trimmed_prose}\n{facts_text}" if trimmed_prose else facts_text
+    return trimmed_prose
+
+
 def distill(text: str) -> str:
     """One off-hot-path Ollama call: source text -> compact brief + FACTS anchors.
 
@@ -226,7 +277,7 @@ def distill(text: str) -> str:
     if not brief:
         raise DistillError("distill produced no output")
     if _has_facts_anchor(brief):
-        return brief
+        return _enforce_budget(brief)
 
     # Repair pass (Finding 2): the first pass lacked the anchor. Ask for ONLY the
     # FACTS: line. Append it ONLY if it carries real verbatim content — never fabricate
@@ -241,4 +292,4 @@ def distill(text: str) -> str:
         brief = f"{brief}\n{facts_line}"
     if not _has_facts_anchor(brief):
         raise DistillError("distill did not produce a FACTS: anchor")
-    return brief
+    return _enforce_budget(brief)

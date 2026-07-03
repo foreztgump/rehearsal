@@ -45,9 +45,11 @@ from captioned_tts import CaptionedTTS
 from nemo_stt import NemoSTT
 from models import MODEL_CHOICES, default_model_choice, resolved_model_tag
 from placement import resolve_stt_placement
-from kb import KB_AGGREGATE_MAX_TOKENS, KB_MAX_RAW_BYTES, DistillError, KbParseError, ParsedDoc
+from kb import KB_AGGREGATE_MAX_TOKENS, KB_MAX_RAW_BYTES, KbParseError, ParsedDoc
 from kb import distill as kb_distill
+from kb import kb_aggregate_is_full
 from kb import parse as kb_parse
+from kb_ingest import KbBatchDistiller
 from persona import (
     CORRECTION,
     DEFAULT_PERSONA,
@@ -708,6 +710,35 @@ async def entrypoint(ctx: JobContext) -> None:
             {KB_STATE_ATTRIBUTE: json.dumps({"status": status, "docs": docs, "error": error})}
         )
 
+    async def _distill_docs(docs: list[ParsedDoc]) -> str:
+        # Offload the blocking httpx-stream distill to a worker thread (H3): the
+        # synchronous httpx.Client streaming loop would otherwise block the event loop
+        # for the whole generation. The client carries a bounded DISTILL_TIMEOUT_SECONDS,
+        # so a stalled Ollama maps to DistillError instead of hanging the ingest forever.
+        return await asyncio.to_thread(kb_distill, _concat_docs(docs))
+
+    async def _apply_brief(brief: str) -> None:
+        # Inject the brief into the frozen KB_SLOT (the single sanctioned re-prefill,
+        # mirroring the persona hot-swap). Route through compose_instructions so a KB
+        # load while in Interview mode re-emits the INTERVIEW block + the new brief
+        # (compose, not clobber). render_prompt composes under the CURRENT persona so a
+        # prior persona edit is preserved. Then frozen: no per-turn re-distill/-inject.
+        session_kb.brief = brief
+        await agent.update_instructions(compose_instructions())
+
+    # O3 Part 2: coalesce a multi-file pick's distills. session_kb.docs IS the committed
+    # list the distiller owns; while one distill runs, later uploads pile into its
+    # pending queue and drain in ONE batch → ~2 distills per burst instead of N, without
+    # losing arrival order or M3 atomicity (the distill lock replaces the old
+    # ingest_lock for the distill/inject half; parse stays serialized below).
+    kb_distiller = KbBatchDistiller(
+        committed=session_kb.docs,
+        max_tokens=KB_AGGREGATE_MAX_TOKENS,
+        distill_docs=_distill_docs,
+        apply_brief=_apply_brief,
+        publish_state=set_kb_state,
+    )
+
     async def ingest_kb(reader) -> None:
         """Read one uploaded byte stream, parse it, distill it, inject ONCE.
 
@@ -746,10 +777,25 @@ async def entrypoint(ctx: JobContext) -> None:
                 )
                 return
             raw = bytes(raw)
-            # Serialize the whole parse→distill→inject critical section (M3) so overlapping
-            # uploads from a multi-file pick apply atomically in arrival order instead of
-            # interleaving at their await points.
+            # Serialize ONLY the parse (M3): overlapping uploads from a multi-file pick
+            # parse in arrival order, and try_add appends to the distiller's pending queue
+            # in that same order. The distill/inject half is NOT under this lock — it runs
+            # on the distiller's own lock (below) so a later file can parse while an
+            # earlier batch is still distilling, which is exactly what lets a burst
+            # coalesce (O3 Part 2).
             async with ingest_lock:
+                # O3 Part 1: pre-parse aggregate short-circuit. If the session (committed +
+                # everything already queued for the next batch) is at KB_AGGREGATE_MAX_TOKENS,
+                # EVERY accepted doc adds >= 1 token, so try_add is guaranteed to reject this
+                # upload — skip the CPU-heavy PyMuPDF/docx parse (which runs under this lock
+                # and would block the next parse) and surface the same "KB is full" error.
+                if kb_aggregate_is_full(kb_distiller.current_total()):
+                    await set_kb_state(
+                        status="error",
+                        docs=len(session_kb.docs),
+                        error="KB is full — remove material or upload less to add more",
+                    )
+                    return
                 await set_kb_state(status="parsing", docs=len(session_kb.docs))
                 # Offload the synchronous, CPU-heavy PyMuPDF / python-docx parse to a worker
                 # thread (H3): running it inline on the agent's single event-loop thread would
@@ -761,53 +807,25 @@ async def entrypoint(ctx: JobContext) -> None:
                     return
 
                 # Aggregate token-budget guard (M2): the distiller re-distills the FULL
-                # concatenation of every accepted doc, so reject a new doc when the running
-                # session total would exceed KB_AGGREGATE_MAX_TOKENS — otherwise Ollama
-                # silently truncates the distill prompt past its context (the GAP-1 class
-                # of bug, multi-doc edition). Reject BEFORE appending so the prior KB stays
-                # intact and the session continues unchanged.
-                current_total = sum(d.token_estimate for d in session_kb.docs)
-                if current_total + result.token_estimate > KB_AGGREGATE_MAX_TOKENS:
-                    await set_kb_state(
-                        status="error",
-                        docs=len(session_kb.docs),
-                        error="KB is full — remove material or upload less to add more",
-                    )
+                # concatenation of every accepted doc, so a new doc that would push the
+                # running total (committed + pending) past KB_AGGREGATE_MAX_TOKENS is
+                # rejected — otherwise Ollama silently truncates the distill prompt past its
+                # context (the GAP-1 class of bug, multi-doc edition). try_add rejects BEFORE
+                # enqueueing so the prior KB stays intact and the session continues unchanged.
+                if not await kb_distiller.try_add(result):
                     return
-                session_kb.docs.append(result)
+                await set_kb_state(status="distilling", docs=len(session_kb.docs) + 1)
 
-                # Distill all docs into a compact brief (one off-hot-path Ollama call — the
-                # latency is invisible to the voice loop). A typed DistillError is surfaced
-                # as a clear kb.state error; the session continues with the prefix unchanged.
-                await set_kb_state(status="distilling", docs=len(session_kb.docs))
-                try:
-                    # Offload the blocking httpx-stream distill to a worker thread (H3): the
-                    # synchronous httpx.Client streaming loop would otherwise block the event
-                    # loop for the whole generation. The client now also carries a bounded
-                    # DISTILL_TIMEOUT_SECONDS, so a stalled Ollama maps to DistillError instead
-                    # of hanging the ingest forever.
-                    brief = await asyncio.to_thread(kb_distill, _concat_docs(session_kb.docs))
-                except DistillError:
-                    # Roll back the just-appended doc so a failed distill leaves session_kb
-                    # exactly as it was (the prior brief stays valid; M3 atomicity).
-                    session_kb.docs.pop()
-                    await set_kb_state(
-                        status="error",
-                        docs=len(session_kb.docs),
-                        error="Couldn't build the brief — continuing without KB",
-                    )
-                    return
-
-                # Inject the brief into the frozen KB_SLOT EXACTLY ONCE (the single sanctioned
-                # re-prefill, mirroring the persona hot-swap). render_prompt composes under the
-                # CURRENT persona so a prior persona edit is preserved. Then freeze: no
-                # per-turn re-distill / re-inject. The elevated llm_ttft_ms / over_budget on
-                # THIS one turn is expected (same as the persona-swap turn) — NOT "fixed".
-                session_kb.brief = brief
-                # Route through compose_instructions so a KB load while in Interview mode
-                # re-emits the INTERVIEW block + the new brief (compose, not clobber).
-                await agent.update_instructions(compose_instructions())
-                await set_kb_state(status="ready", docs=len(session_kb.docs))
+            # Coalesced distill + inject OUTSIDE the parse lock (O3 Part 2). This drains
+            # every currently-pending doc into ONE off-hot-path Ollama call; a burst that
+            # arrived during a prior in-flight distill collapses into a single batch. A
+            # typed DistillError rolls the batch back out and surfaces a clear kb.state
+            # error (the prior brief stays valid; M3 atomicity), returning False here.
+            # `fired` is True only for the TERMINAL drain of a burst, so the priming turn
+            # below runs exactly once per burst — not once per coalesced-away file.
+            fired = await kb_distiller.drain_and_distill()
+            if not fired:
+                return
         except Exception:
             # Unexpected failure anywhere in the ingest: log with traceback and surface a
             # generic error state so the panel unsticks. Then RETURN so the priming turn

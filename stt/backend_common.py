@@ -25,13 +25,14 @@ INT16_FULL_SCALE = 32768.0
 
 # RNNT decoder-stall watchdog (09-RESEARCH §1, PITFALL B2). Named constants, no
 # magic values. If cumulative text stops growing for STALL_FRAMES while audio is
-# STILL arriving, recycle decoder state and CONTINUE — the server NEVER auto-emits
-# FINAL (the turn detector owns finalize). STT_RECYCLE_* bound the recycle so it
-# stays stall-recovery only. BOTH backends import these so the watchdog thresholds
+# STILL arriving AND at least RECYCLE_MIN_CHARS are held, recycle decoder state and
+# CONTINUE (folding the held text forward so nothing committed is lost — F22). The
+# server owns autonomous FINAL (the ENDPOINT_SILENCE_MS energy path), so the recycle
+# is stall-recovery only, never a finalize. RECYCLE_MIN_CHARS keeps short partials
+# from tripping the recycle. BOTH backends import these so the watchdog thresholds
 # (and thus the stall semantics) are identical across the GPU and CPU runtimes.
 STALL_FRAMES = int(os.environ.get("STT_STALL_FRAMES", "50"))
 RECYCLE_MIN_CHARS = int(os.environ.get("STT_RECYCLE_MIN_CHARS", "120"))
-RECYCLE_HARD_CHARS = int(os.environ.get("STT_RECYCLE_HARD_CHARS", "400"))
 
 # Diagnosis switch for the Item-1 trailing-word cut-off (15a). When truthy, the GPU
 # NeMo backend (backend_nemo) logs the drained transcript + held-token count at finalize
@@ -51,11 +52,13 @@ THREAD_PRED_OUT = os.environ.get("STT_THREAD_PRED_OUT", "0") == "1"
 # context attention window — the hard end-of-speech cutoff otherwise leaves the
 # trailing right-context frames without the future frames they were trained with, so
 # the RNNT can emit blanks for the last words. Default OFF (GPU-measured, unofficial
-# workaround). FINALIZE_PAD_MS defaults to 560 ms = one STREAM_CHUNK_MS step — the exact
-# chunk size the cache-aware encoder already processes live, so the drain never feeds an
-# oversized step the streaming caches were not sized for. 560 ms covers up to a [70,6]
-# right context (6 encoder frames x 80 ms = 480 ms); the shipped att_context_size is
-# [70,1] (80 ms) so this is generous — tune down via STT_FINALIZE_PAD_MS if desired.
+# workaround). FINALIZE_PAD_MS defaults to 560 ms, sized to cover the right-context
+# lookahead: up to a [70,6] right context (6 encoder frames x 80 ms = 480 ms), so
+# 560 ms drains it fully. NB (F28): 560 ms is LARGER than one live STREAM_CHUNK_MS
+# step (default 320 ms — compose), so this is a single oversized drain frame appended
+# once at finalize, NOT a live-sized step; that is fine because it is fed only on the
+# trailing-silence drain, not into the steady cache-aware stream. The shipped
+# att_context_size is [70,1] (80 ms) so 560 ms is generous — tune via STT_FINALIZE_PAD_MS.
 FINALIZE_PAD = os.environ.get("STT_FINALIZE_PAD", "0") == "1"
 FINALIZE_PAD_MS = int(os.environ.get("STT_FINALIZE_PAD_MS", "560"))
 
@@ -63,6 +66,24 @@ FINALIZE_PAD_MS = int(os.environ.get("STT_FINALIZE_PAD_MS", "560"))
 def finalize_pad_pcm() -> bytes:
     """Zero int16 mono PCM of FINALIZE_PAD_MS at SAMPLE_RATE — the trailing-silence drain frame."""
     return b"\x00\x00" * (SAMPLE_RATE * FINALIZE_PAD_MS // 1000)
+
+
+def join_committed(prefix: str, since_reset: str) -> str:
+    """F22: join the folded-forward committed prefix with the current since-reset decode.
+
+    On a stall recycle the decoder's cumulative restarts from empty (prev_hyps/dec_state
+    are cleared), so the pre-recycle text — only ever emitted as interim deltas, never
+    committed by LiveKit — would be lost from the turn AND the first post-recycle decode
+    would return empty (flipping the server's _final_pending False, wedging a turn that
+    ends right after). Both backends fold the held text into `committed_prefix` at recycle
+    and return prefix+since_reset from decode_chunk/finalize, so the transcript is never
+    lost and decode_chunk stays non-empty. Space-join, skipping empties so no leading/
+    trailing/double space appears across the boundary."""
+    if not prefix:
+        return since_reset
+    if not since_reset:
+        return prefix
+    return f"{prefix} {since_reset}"
 
 
 # R3 buffered/energy-EOU (no numpy: stdlib array+math keeps server.py sandbox-safe).

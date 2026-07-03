@@ -1,8 +1,8 @@
 # OPTIONAL — only needed to serve OTHER LAN devices over https://<lan-ip>.
 # A local install (browser on the same machine) does NOT use this: localhost is
 # a secure context, so the browser talks to web:3000 / livekit-server:7880
-# directly over plain HTTP/WS with no TLS. See README.md "Serving other LAN
-# devices (optional TLS)".
+# directly over plain HTTP/WS with no TLS. See docs/lan-exposure.md (the LAN TLS
+# reverse-proxy runbook).
 #
 # To enable: mint a LAN cert (certs/README.md), set PROXY_BIND_IP + LIVEKIT_NODE_IP
 # + NEXT_PUBLIC_LIVEKIT_URL in .env to the host LAN IP (NEXT_PUBLIC_LIVEKIT_URL

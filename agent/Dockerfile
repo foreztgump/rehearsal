@@ -20,8 +20,11 @@ ENV VIRTUAL_ENV=/app/.venv
 ENV PATH="/app/.venv/bin:${PATH}"
 
 COPY requirements.txt ./
+# O10: --no-cache drops uv's wheel/download cache. In a single-shot image build the
+# cache is never reused, so keeping it only bloats the layer — smaller image, faster
+# pulls, zero functional change.
 RUN uv venv /app/.venv \
-    && uv pip install --python /app/.venv/bin/python -r requirements.txt
+    && uv pip install --no-cache --python /app/.venv/bin/python -r requirements.txt
 
 # Pre-fetch VAD + turn-detector weights into the image (offline-capable).
 RUN python -m livekit.agents download-files
@@ -41,6 +44,8 @@ COPY nemo_stt.py placement.py captioned_tts.py ./
 # predicate (transcript_gate.py). main.py + captioned_tts.py import them at module
 # load — without them the worker ImportErrors at startup.
 COPY endpointing.py captioned_gate.py transcript_gate.py transcript_debug.py ./
+# The coalescing KB batch distiller (O3) — flat livekit-free module imported by main.py.
+COPY kb_ingest.py ./
 # The KB parser package (Plan 04-01) — pure, livekit-free; copied as a directory.
 COPY kb/ ./kb/
 
