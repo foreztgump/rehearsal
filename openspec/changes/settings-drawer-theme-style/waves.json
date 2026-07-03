@@ -1,0 +1,36 @@
+{
+  "base": "master",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Red: settingsDrawerTheme.test.mjs asserts shared theme classes + themed scrim",
+      "depends_on": [],
+      "files_modified": [
+        "web/app/settingsDrawerTheme.test.mjs"
+      ],
+      "droid": "frontend-impl-droid",
+      "autonomous": true
+    },
+    {
+      "id": "T2",
+      "title": "Green: reskin scrim/panel/close/End onto .drawer-scrim/.surface/.btn-ghost[.danger]/.btn-apply.danger",
+      "depends_on": ["T1"],
+      "files_modified": [
+        "web/app/SettingsDrawer.tsx",
+        "web/app/globals.css"
+      ],
+      "droid": "frontend-impl-droid",
+      "autonomous": true
+    },
+    {
+      "id": "T3",
+      "title": "Verify web suite + tsc unchanged; add CHANGELOG [Unreleased] Changed entry",
+      "depends_on": ["T2"],
+      "files_modified": [
+        "CHANGELOG.md"
+      ],
+      "droid": "frontend-impl-droid",
+      "autonomous": true
+    }
+  ]
+}
