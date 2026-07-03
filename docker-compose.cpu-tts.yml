@@ -1,6 +1,6 @@
 # Rehearsal CPU TTS override — Kokoro-FastAPI CPU image (ONNX-optimized, no GPU).
 # Use with:
-#   COMPOSE_FILE=docker-compose.yml:docker-compose.cpu-tts.yml docker compose up -d
+#   docker compose -f docker-compose.yml -f docker-compose.cpu-tts.yml up -d
 #
 # Drop-in for the default GPU kokoro: same port 8880, same KOKORO_BASE_URL contract,
 # preserves /v1/audio/speech + /dev/captioned_speech (word-timestamped). Used by the

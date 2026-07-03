@@ -48,7 +48,7 @@ import time
 import wave
 from typing import Any
 
-from fastapi import FastAPI, Response, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Response, UploadFile, WebSocket, WebSocketDisconnect
 from backend_common import BUFFERED_MAX_S, ENERGY_SILENCE_RMS, rms_int16
 
 logger = logging.getLogger("nemo-stt")
@@ -121,6 +121,17 @@ _ENDPOINT_SILENCE_CHUNKS = max(1, -(-ENDPOINT_SILENCE_MS // STREAM_CHUNK_MS))  #
 _ACCUMULATE_PCM = getattr(_final, "STREAMS", True) is False   # server owns _turn_pcm for buffered finals
 _PRIMARY_STREAMS = getattr(_primary, "STREAMS", True)
 _MAX_BUFFER_BYTES = SAMPLE_RATE * BUFFERED_MAX_S * _BYTES_PER_SAMPLE
+# Buffered pre-voice lead-in (F7): while a turn has not yet gone voiced, keep only
+# this much trailing pre-voice audio as a ring so the finalize buffer starts at the
+# turn (plus a small lead-in for the attack transient), NOT at every inter-turn
+# silence chunk since the last final. One streaming chunk of lead-in is plenty.
+_BUFFERED_LEADIN_BYTES = _STREAM_CHUNK_BYTES
+# Offline /v1/audio/transcriptions request-size ceiling (F8). The endpoint is
+# published per LAN_BIND_IP, so an unbounded file.read() lets an unauthenticated
+# multi-GB POST OOM the container. Bound the read to a generous but finite size —
+# BUFFERED_MAX_S of 16 kHz mono int16 plus WAV header slack — the same audio
+# horizon the live buffered turn already caps at.
+_OFFLINE_MAX_BYTES = _MAX_BUFFER_BYTES + 4096
 STT_DEBUG_HYBRID = os.environ.get("STT_DEBUG_HYBRID") == "1"
 _DEBUG_SAMPLE_LIMIT = max(1, int(os.environ.get("STT_DEBUG_SAMPLE_LIMIT", "5")))
 _debug_samples: list[dict[str, Any]] = []
@@ -495,16 +506,37 @@ async def _emit_streaming(websocket: WebSocket, state: dict, pcm: bytes) -> None
 
 async def _emit_buffered(websocket: WebSocket, state: dict, pcm: bytes) -> None:
     """No partials. Accumulate PCM; fire ONE final after ENDPOINT silence of low RMS
-    following voiced audio, or when the max-buffer cap is hit."""
-    state.setdefault("_turn_pcm", bytearray()).extend(pcm)
-    if len(state["_turn_pcm"]) >= _MAX_BUFFER_BYTES:
-        await _run_finalize(websocket, state)
-        return
-    if rms_int16(pcm) >= ENERGY_SILENCE_RMS:
+    following voiced audio, or when the max-buffer cap is hit.
+
+    F7: LiveKit pushes mic audio continuously between turns, so accumulating EVERY
+    chunk since the last final would refill the buffer with inter-turn silence (agent
+    speaking time, idle gaps). finalize would then decode that leading silence + the
+    speech under the global decode lock — seconds of wasted latency after a long agent
+    turn. While the turn has NOT yet gone voiced, keep only a small trailing lead-in
+    ring so the finalize buffer starts at the turn, not at the last final. Once voiced,
+    accumulate every chunk (the turn is live)."""
+    turn_pcm = state.setdefault("_turn_pcm", bytearray())
+    turn_pcm.extend(pcm)
+    is_voiced = rms_int16(pcm) >= ENERGY_SILENCE_RMS
+    if is_voiced:
         state["_voiced"] = True
         state["_silent_chunks"] = 0
+    elif not state.get("_voiced"):
+        # Pre-voice: trim the buffer to the trailing lead-in ring so inter-turn
+        # silence never accumulates into the next finalize.
+        if len(turn_pcm) > _BUFFERED_LEADIN_BYTES:
+            del turn_pcm[:-_BUFFERED_LEADIN_BYTES]
+    if len(turn_pcm) >= _MAX_BUFFER_BYTES:
+        if state.get("_voiced"):
+            # A real (voiced) turn overran the cap — finalize what we have.
+            await _run_finalize(websocket, state)
+        else:
+            # Never-voiced overrun is impossible once the pre-voice ring is bounded,
+            # but guard anyway (O2): reset without a pure-silence decode + spurious final.
+            turn_pcm.clear()
+            state["_silent_chunks"] = 0
         return
-    if not state.get("_voiced"):
+    if is_voiced or not state.get("_voiced"):
         return
     state["_silent_chunks"] = state.get("_silent_chunks", 0) + 1
     if state["_silent_chunks"] >= _ENDPOINT_SILENCE_CHUNKS:
@@ -513,21 +545,63 @@ async def _emit_buffered(websocket: WebSocket, state: dict, pcm: bytes) -> None:
 
 @app.post("/v1/audio/transcriptions")
 async def transcribe_file(file: UploadFile) -> dict:
-    """Optional whole-file OpenAI-compat path (mirrors warm_whisper) for VERIFY."""
-    raw = await file.read()
-    text = await asyncio.to_thread(_transcribe_wav, raw)
+    """Optional whole-file OpenAI-compat path (mirrors warm_whisper) for VERIFY.
+
+    F8: this endpoint is published per LAN_BIND_IP and is unauthenticated, so it
+    (a) bounds the read to _OFFLINE_MAX_BYTES (an unbounded read lets a multi-GB POST
+    OOM the container), (b) validates the WAV is 16 kHz mono int16 (a 44.1 kHz stereo
+    file would otherwise be decoded as 16 kHz mono garbage), and (c) decodes under
+    _gpu_lock (below) so it can't run the model concurrently with the WS path.
+    """
+    # Read one byte past the cap so we can distinguish "exactly at cap" from "over".
+    raw = await file.read(_OFFLINE_MAX_BYTES + 1)
+    if len(raw) > _OFFLINE_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="audio file too large")
+    _validate_wav_params(raw)
+    text = await _transcribe_wav(raw)
     return {"text": text}
 
 
-def _transcribe_wav(raw: bytes) -> str:
+def _validate_wav_params(raw: bytes) -> None:
+    """Reject non-16 kHz / non-mono / non-int16 WAVs with HTTP 400 (F8).
+
+    The decode loop assumes 16 kHz mono int16 PCM; feeding it anything else silently
+    produces garbage (wrong rate) or misframed samples (wrong width/channels).
+    """
+    try:
+        with wave.open(io.BytesIO(raw), "rb") as wav:
+            framerate = wav.getframerate()
+            nchannels = wav.getnchannels()
+            sampwidth = wav.getsampwidth()
+    except (wave.Error, EOFError) as exc:
+        raise HTTPException(status_code=400, detail=f"not a valid WAV: {exc}") from exc
+    if (framerate, nchannels, sampwidth) != (SAMPLE_RATE, 1, _BYTES_PER_SAMPLE):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"WAV must be {SAMPLE_RATE} Hz mono int16, got "
+                f"{framerate} Hz, {nchannels} ch, {sampwidth * 8}-bit"
+            ),
+        )
+
+
+async def _transcribe_wav(raw: bytes) -> str:
     """Decode a 16 kHz mono int16 WAV through the same per-chunk decode loop.
 
     The file PCM is sliced into fixed OFFLINE_CHUNK_MS windows and fed through the
     backend's decode_chunk one at a time — the SAME cache-aware per-chunk path the
-    live websocket loop uses — instead of one multi-second step.
+    live websocket loop uses — instead of one multi-second step. Decode + finalize
+    run under _gpu_lock (F8/F11) so an offline call can't run the model concurrently
+    with a WS decode (which would arm the _quiet_nemo process-global stream race).
     """
     with wave.open(io.BytesIO(raw), "rb") as wav:
         pcm = wav.readframes(wav.getnframes())
+    async with _gpu_lock:
+        return await asyncio.to_thread(_decode_wav_pcm, pcm)
+
+
+def _decode_wav_pcm(pcm: bytes) -> str:
+    """Blocking per-chunk decode of whole-file PCM; call only under _gpu_lock."""
     state = _primary.new_stream_state(_primary_model)
     step = (SAMPLE_RATE * OFFLINE_CHUNK_MS // 1000) * _BYTES_PER_SAMPLE
     for start in range(0, len(pcm), step):

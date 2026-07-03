@@ -24,8 +24,16 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 # Standalone output bundles a self-contained server + only the deps it needs.
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
+# F34: own the copied files as the built-in non-root `node` user so the runtime
+# runs unprivileged (the Next standalone server needs no root).
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/public ./public
 EXPOSE 3000
+# F34: run as the non-root `node` user shipped in the base image.
+USER node
+# F34: liveness probe on the standalone server. Node's global fetch (24) avoids a
+# curl dependency; a non-200 or a throw exits non-zero → unhealthy.
+HEALTHCHECK --start-period=20s --interval=30s --timeout=5s --retries=3 \
+    CMD ["node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
 CMD ["node", "server.js"]

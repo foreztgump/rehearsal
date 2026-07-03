@@ -1,0 +1,90 @@
+# Minimal CI (G1) — runs the checks that already exist in-repo but were never
+# automated, so regressions of the F1/F2/F5 class (a broken import, a bad topology,
+# an install dead-end) are caught on PRs instead of by hand.
+#
+# Deliberately no docker BUILD and no GPU: the agent tests self-stub livekit via
+# sys.modules and the shell/compose harnesses skip cleanly when docker is absent —
+# exactly as they do in the dev sandbox. Heavy security scanners (osv/syft/grype)
+# and the real model pulls stay OUT of CI (operator-run), matching the repo posture.
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Cancel superseded runs on the same ref so a rapid push series doesn't queue up.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: python (lint + type + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dev + test deps
+        # ruff + basedpyright come from requirements-dev.txt (pinned there). The agent
+        # test suite stubs livekit but genuinely imports httpx + aiohttp, and the STT
+        # stub tests exercise backend_parakeet's real int16->float32 PCM body (numpy) —
+        # install just those runtime deps, NOT the full livekit stack (kept out of CI).
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff==0.15.20 basedpyright==1.39.9 pytest~=9.0 httpx~=0.28 aiohttp~=3.14 numpy~=1.26
+      - name: Ruff (syntax + undefined-name gate)
+        run: ruff check .
+      - name: basedpyright (type check)
+        run: basedpyright
+      - name: Agent test suite
+        run: python -m pytest tests/ -q
+      - name: STT stub tests
+        # These self-check without sherpa (stubbed via sys.modules) — same as the dev
+        # sandbox invocation. numpy is real (the int16->float32 PCM body); installed above.
+        run: |
+          python stt/test_engine.py
+          python stt/test_dispatch.py
+
+  web:
+    name: web (node --test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Web tests (source-inspection + pure-logic, type-stripped .mjs)
+        # Node 22 type-strips the .ts imports; the suite needs no node_modules.
+        working-directory: web
+        run: node --test app/*.test.mjs
+
+  shell:
+    name: shell (harnesses + shellcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: shellcheck (error severity only — matches the repo baseline)
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          shellcheck -S error install.sh down.sh up.sh \
+            ollama/pull-and-pin.sh ollama/verify-build.sh \
+            scripts/test_install.sh scripts/test_compose_topology.sh scripts/test_pull_and_pin.sh
+      - name: Installer harness (isolated PATH, stubbed docker/openssl/git)
+        run: bash scripts/test_install.sh
+      - name: pull-and-pin harness (stubbed docker/curl/verify-build)
+        run: bash scripts/test_pull_and_pin.sh
+      - name: Compose topology (docker compose config render; skips if unavailable)
+        # ubuntu-latest ships docker + compose v2, so this renders for real. It needs
+        # a .env for interpolation — .env.example is a complete, secretless template.
+        run: |
+          cp .env.example .env
+          bash scripts/test_compose_topology.sh

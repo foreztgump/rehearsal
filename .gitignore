@@ -45,6 +45,12 @@ AGENTS.md
 CLAUDE.md
 CODE_PRINCIPLES.md
 opencode.json
-docs/
+# Planning workspace is local-only, but the LAN-exposure runbook + Windows-AMD
+# field report are shipping docs the proxy override depends on (F10). Ignore the
+# tree's CONTENTS (docs/*, not docs/ — a dir exclude would block re-inclusion)
+# then carve those two back in.
+docs/*
+!docs/lan-exposure.md
+!docs/windows-amd-install-field-report.md
 design-mockups/
 .worktrees/

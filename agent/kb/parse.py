@@ -73,6 +73,15 @@ KB_AGGREGATE_MAX_TOKENS: int = KB_MAX_TOKENS
 KB_MAX_RAW_BYTES: int = 25 * 1024 * 1024          # 25 MB upload ceiling
 DOCX_MAX_UNCOMPRESSED_BYTES: int = 50 * 1024 * 1024  # 50 MB inflated-zip ceiling
 
+# PDF page ceiling (F16), enforced on doc.page_count BEFORE pymupdf4llm.to_markdown
+# walks every page. PDF content streams are Flate-compressed, so a small-on-the-wire
+# PDF (within KB_MAX_RAW_BYTES) can declare ~100k pages; to_markdown runs per-page
+# layout analysis via asyncio.to_thread while holding ingest_lock, and threads are
+# UNCANCELLABLE — one pathological PDF pins a CPU indefinitely and blocks every later
+# upload. The token guard only runs AFTER full extraction, so it can't help here.
+# A real doc is far under this; over it → the oversize typed error (readable, too big).
+PDF_MAX_PAGES: int = 2000
+
 # Extension → kind map for the few cases where the name is authoritative.
 _EXT_KIND: dict[str, str] = {
     "pdf": "pdf",
@@ -188,13 +197,31 @@ def _extract(kind: str, raw: bytes) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
+def _pdf_pages_over_cap(page_count: int) -> bool:
+    """PURE: True iff a PDF's declared page count exceeds PDF_MAX_PAGES (F16).
+
+    Split out so the page-ceiling decision is unit-testable without PyMuPDF (which is
+    a lazy, sandbox-absent dep) — mirrors the DOCX zip-directory size check shape.
+    """
+    return page_count > PDF_MAX_PAGES
+
+
 def _extract_pdf(raw: bytes) -> str:
-    """PDF → markdown via pymupdf4llm over an in-memory PyMuPDF document (no temp file)."""
+    """PDF → markdown via pymupdf4llm over an in-memory PyMuPDF document (no temp file).
+
+    Page-count guard (F16): reject BEFORE to_markdown when doc.page_count exceeds
+    PDF_MAX_PAGES. page_count is O(1) from the PDF page tree (no per-page layout
+    work), so the pathological many-page PDF is bounced before the uncancellable
+    per-page walk can pin a CPU under ingest_lock. Over-cap raises _OversizeExtraction
+    (mapped to the oversize typed error by parse), exactly like the DOCX zip bomb.
+    """
     import fitz  # PyMuPDF; lazy so the pure path imports without it
     import pymupdf4llm
 
     doc = fitz.open(stream=raw, filetype="pdf")
     try:
+        if _pdf_pages_over_cap(doc.page_count):
+            raise _OversizeExtraction(doc.page_count)
         return pymupdf4llm.to_markdown(doc)
     finally:
         # PyMuPDF holds an open handle on the in-memory stream; close it so no

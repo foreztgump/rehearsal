@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 
 import AgentStatePill from "./AgentStatePill";
 import SegmentedToggle from "./SegmentedToggle";
-import SettingsDrawer from "./SettingsDrawer";
+import SettingsDrawer, { END_CONFIRM } from "./SettingsDrawer";
 import Transcript from "./Transcript";
 import Visualizer from "./Visualizer";
 import type { LiveConfigField, SessionConfig } from "./VoiceRoom";
@@ -72,6 +72,10 @@ export default function TalkingScreen({
   ) => void;
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // F33: the top-bar End is destructive (disconnect + clear held state), so it
+  // gets the SAME deliberate two-step confirm as SettingsDrawer's End session —
+  // a stray click on a persistent top-bar button must not nuke the session.
+  const [confirmEnd, setConfirmEnd] = useState(false);
   // Full-screen avatar: the avatar fills the stage and the transcript is hidden.
   const [avatarFullscreen, setAvatarFullscreen] = useState(false);
   const showAvatar = avatarOn && !!avatar;
@@ -95,9 +99,27 @@ export default function TalkingScreen({
           <button type="button" className="btn-ghost" onClick={() => setSettingsOpen(true)}>
             Settings
           </button>
-          <button type="button" className="btn-ghost danger" onClick={onEnd}>
-            End
-          </button>
+          {/* F33: two-step End. First click arms the confirm (title carries the
+              same copy as SettingsDrawer); a second, explicit Confirm calls onEnd. */}
+          {confirmEnd ? (
+            <>
+              <button
+                type="button"
+                className="btn-ghost danger"
+                title={END_CONFIRM}
+                onClick={onEnd}
+              >
+                Confirm end
+              </button>
+              <button type="button" className="btn-ghost" onClick={() => setConfirmEnd(false)}>
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button type="button" className="btn-ghost danger" onClick={() => setConfirmEnd(true)}>
+              End
+            </button>
+          )}
         </div>
       </div>
 

@@ -71,6 +71,11 @@ const MIC_BLOCKED_MESSAGE =
 // Friendly copy for a token/connect failure (the technical reason is logged, not shown).
 const CONNECT_ERROR_MESSAGE =
   "Couldn't reach the session server. Check the stack is running, then try again.";
+// G5: shown on a TERMINAL disconnect (not an intentional End/New) — the room is
+// gone and the reconnect budget is spent, so return to setup and let the user
+// re-Start with their choices intact.
+const DISCONNECT_ERROR_MESSAGE =
+  "The session disconnected. Your setup is saved — press Start to reconnect.";
 
 /**
  * Orchestrator shell for the two-screen flow. Holds the held `sessionConfig`, the
@@ -87,6 +92,11 @@ export default function VoiceRoom() {
   const [sessionEpoch, setSessionEpoch] = useState(0);
   const sessionEpochRef = useRef(sessionEpoch);
   const liveApplyVersionRef = useRef<LiveApplyVersions>({ persona: 0, mode: 0, model: 0 });
+  // G5: distinguish an intentional teardown (End/New drop the token, which
+  // unmounts <LiveKitRoom> and fires onDisconnected) from a terminal disconnect
+  // (server restart, network death past the reconnect budget). Only the latter
+  // should surface the recovery note — an End must not look like a lost link.
+  const intentionalTeardownRef = useRef(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // SESS-02 transcript reset marker: a wall-clock timestamp bumped on Reset so the
@@ -176,6 +186,7 @@ export default function VoiceRoom() {
   // history, and the per-connection STT cache all die); resetting the config clears KB
   // files, model, persona, and avatarOn in the UI.
   function endSession() {
+    intentionalTeardownRef.current = true; // G5: expected unmount, not a lost link
     advanceSessionEpoch();
     setToken(null);
     setSessionConfig(DEFAULT_SESSION_CONFIG);
@@ -190,12 +201,34 @@ export default function VoiceRoom() {
   // SESS-01 New: fresh room/token, KEEP the user's setup choices. Drop the token so
   // <LiveKitRoom> fully unmounts, then re-Start on the next tick.
   function newSession() {
+    intentionalTeardownRef.current = true; // G5: expected unmount before the re-Start
     advanceSessionEpoch();
     setToken(null);
     setResetMarker(0);
     setTimeout(() => {
       void start();
     }, 0);
+  }
+
+  // G5: <LiveKitRoom> teardown. An intentional End/New already dropped the token
+  // and flagged the ref — consume it and stay quiet. Anything else is a terminal
+  // disconnect: return to setup (drop the token) with a recovery note, KEEPING
+  // sessionConfig so the user can re-Start with one click. connecting is cleared
+  // so the Start button isn't stuck disabled.
+  function handleRoomDisconnected() {
+    if (intentionalTeardownRef.current) {
+      intentionalTeardownRef.current = false;
+      return;
+    }
+    advanceSessionEpoch();
+    setToken(null);
+    setConnecting(false);
+    setError(DISCONNECT_ERROR_MESSAGE);
+  }
+
+  function handleRoomError(err: Error) {
+    console.error("LiveKit room error:", err);
+    handleRoomDisconnected();
   }
 
   // SESS-02 Reset: same room. The drawer fires the session.reset RPC (clears the
@@ -223,6 +256,10 @@ export default function VoiceRoom() {
       connect
       audio
       video={false}
+      // G5: recover from a terminal disconnect (server restart / network death)
+      // instead of stranding a dead TalkingScreen whose only exit is End.
+      onDisconnected={handleRoomDisconnected}
+      onError={handleRoomError}
       options={{
         audioCaptureDefaults: {
           ...AUDIO_CAPTURE_DEFAULTS,

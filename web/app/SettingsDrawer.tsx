@@ -16,7 +16,8 @@ import type { LiveConfigField, SessionConfig } from "./VoiceRoom";
 
 // UI-SPEC Copywriting table — verbatim destructive-confirm copy (SESS-03 End is the
 // two-step inline confirm; SESS-01 New / SESS-02 Reset use a native confirm).
-const END_CONFIRM =
+// Exported so the top-bar End (TalkingScreen) reuses the exact same copy (F33).
+export const END_CONFIRM =
   "End this conversation and return to setup? Your transcript will clear.";
 const NEW_CONFIRM = "Start a fresh session? The current conversation clears.";
 const RESET_CONFIRM = "Clear the conversation but keep your setup?";

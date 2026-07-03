@@ -220,6 +220,91 @@ def _assert_buffered_eou() -> None:
     assert isinstance(msgs[-1]["dur_ms"], int) and msgs[-1]["dur_ms"] >= 0
 
 
+def _run_buffered_leading_silence_exchange():
+    """Buffered engine with MANY inter-turn silence chunks BEFORE the voiced turn.
+    The finalized PCM must reflect the turn (+ a small pre-voice lead-in), not every
+    silence chunk accumulated since the last final (F7). The stub finalize encodes
+    the turn-PCM byte count so the test can assert on what Parakeet would decode."""
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub, _FakeWebSocket, _run_async
+
+    stub = types.ModuleType("backend_parakeet")
+    stub.STREAMS = False
+    stub.load_model = lambda: {}
+    stub.new_stream_state = lambda m: {"_turn_pcm": bytearray()}
+    stub.decode_chunk = lambda m, s, pcm: ""
+    stub.finalize = lambda m, s: f"buffered:{len(s['_turn_pcm'])}"
+    stub.reset_turn_state = lambda s: s.update(_turn_pcm=bytearray())
+    sys.modules["backend_parakeet"] = stub
+    _install_fastapi_stub()
+    os.environ["STT_ENGINE"] = "buffered"; os.environ["STT_RUNTIME"] = "cpu"
+    os.environ["STT_ONNX_MODEL"] = "x"; os.environ["STT_PARAKEET_MODEL"] = "x"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    chunk = server._STREAM_CHUNK_BYTES
+    voiced = b"\x40\x10" * (chunk // 2)   # exactly one stream chunk, loud
+    silence = b"\x00\x00" * (chunk // 2)  # exactly one stream chunk, silent
+    # 10 inter-turn silence chunks, then 2 voiced, then silence across the EOU window.
+    frames = [{"bytes": silence} for _ in range(10)] + \
+             [{"bytes": voiced}, {"bytes": voiced}] + \
+             [{"bytes": silence} for _ in range(server._ENDPOINT_SILENCE_CHUNKS + 1)] + \
+             [{"type": "websocket.disconnect"}]
+    ws = _FakeWebSocket(frames)
+    _run_async(server.ws_stream(ws))
+    return server, [m for m in ws.sent if m.get("type") in ("delta", "final")]
+
+
+def _assert_buffered_trims_leading_silence() -> None:
+    server, msgs = _run_buffered_leading_silence_exchange()
+    kinds = [m["type"] for m in msgs]
+    assert kinds.count("final") == 1, f"buffered must emit exactly one final, got {kinds}"
+    chunk = server._STREAM_CHUNK_BYTES
+    final_bytes = int(msgs[-1]["text"].split(":")[1])
+    assert final_bytes >= 2 * chunk, (
+        f"buffered final must retain the voiced turn, got {final_bytes} bytes (<2 chunks)")
+    assert final_bytes < 8 * chunk, (
+        f"buffered final must trim the 10 leading-silence chunks, got {final_bytes} bytes (>=8 chunks)")
+
+
+def _assert_buffered_never_voiced_stays_bounded() -> None:
+    """Never-voiced silence must neither fire a spurious final at the max-buffer cap
+    nor grow the buffer unboundedly (F7/O2). Drives _emit_buffered directly so the
+    per-connection turn buffer is observable after the run."""
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub, _FakeWebSocket, _run_async
+
+    stub = types.ModuleType("backend_parakeet")
+    stub.STREAMS = False
+    stub.load_model = lambda: {}
+    stub.new_stream_state = lambda m: {"_turn_pcm": bytearray()}
+    stub.decode_chunk = lambda m, s, pcm: ""
+    stub.finalize = lambda m, s: f"buffered:{len(s['_turn_pcm'])}"
+    stub.reset_turn_state = lambda s: s.update(_turn_pcm=bytearray())
+    sys.modules["backend_parakeet"] = stub
+    _install_fastapi_stub()
+    os.environ["STT_ENGINE"] = "buffered"; os.environ["STT_RUNTIME"] = "cpu"
+    os.environ["STT_ONNX_MODEL"] = "x"; os.environ["STT_PARAKEET_MODEL"] = "x"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    chunk = server._STREAM_CHUNK_BYTES
+    silence = b"\x00\x00" * (chunk // 2)
+    # Enough pure-silence chunks to exceed _MAX_BUFFER_BYTES under the buggy
+    # unconditional-accumulate code, which would then fire a spurious silence final.
+    n = server._MAX_BUFFER_BYTES // chunk + 5
+    ws = _FakeWebSocket([])
+    state = server._primary.new_stream_state(None)
+
+    async def _drive():
+        for _ in range(n):
+            await server._emit_buffered(ws, state, silence)
+
+    _run_async(_drive())
+    assert not any(m.get("type") == "final" for m in ws.sent), (
+        f"never-voiced silence must emit no final, got {ws.sent!r}")
+    assert len(state["_turn_pcm"]) <= 2 * chunk, (
+        f"never-voiced buffer must stay ring-bounded, grew to {len(state['_turn_pcm'])} bytes")
+
+
 def _run_hybrid_exchange():
     """Streaming stub primary (emits growing deltas + stalls) + buffered stub final.
     Deltas must come from primary; the final must come from the buffered final over
@@ -435,6 +520,130 @@ def _assert_buffered_debug_sample_is_retained() -> None:
     assert server._debug_samples[-1]["parakeet_transcript"] == "buffered words"
 
 
+def _load_server_with_buffered_stub(finalize=None):
+    """Import server with a buffered backend_parakeet stub for offline-route tests (F8)."""
+    import importlib, types
+    from test_dispatch import _install_fastapi_stub
+
+    stub = types.ModuleType("backend_parakeet")
+    stub.STREAMS = False
+    stub.load_model = lambda: {}
+    stub.new_stream_state = lambda m: {"_turn_pcm": bytearray()}
+    stub.decode_chunk = lambda m, s, pcm: ""  # server owns _turn_pcm via _ACCUMULATE_PCM
+    stub.finalize = finalize or (lambda m, s: f"buffered:{len(s['_turn_pcm'])}")
+    stub.reset_turn_state = lambda s: s.update(_turn_pcm=bytearray())
+    sys.modules["backend_parakeet"] = stub
+    _install_fastapi_stub()
+    os.environ["STT_ENGINE"] = "buffered"; os.environ["STT_RUNTIME"] = "cpu"
+    os.environ["STT_ONNX_MODEL"] = "x"; os.environ["STT_PARAKEET_MODEL"] = "x"
+    sys.modules.pop("server", None)
+    server = importlib.import_module("server")
+    server._primary_model = server._primary.load_model()
+    server._final_model = server._primary_model
+    return server
+
+
+def _wav_bytes(*, framerate=16000, nchannels=1, sampwidth=2, frames=1600) -> bytes:
+    """Build a small in-memory WAV with the given parameters."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav:
+        wav.setnchannels(nchannels)
+        wav.setsampwidth(sampwidth)
+        wav.setframerate(framerate)
+        wav.writeframes(b"\x00\x01" * (frames * nchannels * (sampwidth // 2)))
+    return buf.getvalue()
+
+
+def _assert_offline_valid_wav_transcribes() -> None:
+    server = _load_server_with_buffered_stub()
+
+    class _Upload:
+        def __init__(self, data): self._data = data
+        async def read(self, *a): return self._data
+
+    result = _run_async_return(lambda: server.transcribe_file(_Upload(_wav_bytes())))
+    assert result["text"].startswith("buffered:"), f"valid WAV must transcribe, got {result!r}"
+
+
+def _assert_offline_rejects_oversize_upload() -> None:
+    server = _load_server_with_buffered_stub()
+    fastapi = sys.modules["fastapi"]
+
+    class _Upload:
+        # read(limit) returns limit+1 bytes so the route sees it exceeded the cap
+        async def read(self, *a):
+            return b"\x00" * (server._OFFLINE_MAX_BYTES + 1)
+
+    raised = None
+    try:
+        _run_async_return(lambda: server.transcribe_file(_Upload()))
+    except fastapi.HTTPException as exc:
+        raised = exc
+    assert raised is not None and raised.status_code == 413, (
+        f"oversize upload must raise HTTP 413, got {raised!r}")
+
+
+def _assert_offline_rejects_wrong_wav_params() -> None:
+    server = _load_server_with_buffered_stub()
+    fastapi = sys.modules["fastapi"]
+
+    class _Upload:
+        def __init__(self, data): self._data = data
+        async def read(self, *a): return self._data
+
+    for label, wav in (
+        ("44.1kHz", _wav_bytes(framerate=44100)),
+        ("stereo", _wav_bytes(nchannels=2)),
+        ("8-bit", _wav_bytes(sampwidth=1)),
+    ):
+        raised = None
+        try:
+            _run_async_return(lambda: server.transcribe_file(_Upload(wav)))
+        except fastapi.HTTPException as exc:
+            raised = exc
+        assert raised is not None and raised.status_code == 400, (
+            f"{label} WAV must raise HTTP 400, got {raised!r}")
+
+
+def _assert_offline_decode_holds_gpu_lock() -> None:
+    """F8/F11: the offline decode must run under _gpu_lock, like the WS path — otherwise
+    an offline+WS overlap runs the model from two threads and arms the _quiet_nemo race."""
+    observed = {"locked_during_finalize": None}
+
+    def _finalize(m, s):
+        observed["locked_during_finalize"] = server._gpu_lock.locked()
+        return "ok"
+
+    server = _load_server_with_buffered_stub(finalize=_finalize)
+
+    class _Upload:
+        def __init__(self, data): self._data = data
+        async def read(self, *a): return self._data
+
+    _run_async_return(lambda: server.transcribe_file(_Upload(_wav_bytes())))
+    assert observed["locked_during_finalize"] is True, (
+        "offline finalize must run while _gpu_lock is held")
+
+
+def _run_async_return(make_coro):
+    """Like test_dispatch._run_async but returns the coroutine result."""
+    import asyncio
+    loop = asyncio.new_event_loop()
+    original_to_thread = asyncio.to_thread
+
+    async def inline_to_thread(func, /, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    try:
+        asyncio.to_thread = inline_to_thread
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(make_coro())
+    finally:
+        asyncio.to_thread = original_to_thread
+        asyncio.set_event_loop(None)
+        loop.close()
+
+
 def _run_finalize_error_exchange():
     """I1 proof: stub finalize RAISES → ws_stream must emit both error + final (turn unblocks)."""
     import importlib, types
@@ -603,6 +812,12 @@ def _self_check() -> None:
     _assert_default_engine_is_buffered()
     _assert_gpu_buffered_uses_nemo_parakeet()
     _assert_buffered_eou()
+    _assert_buffered_trims_leading_silence()
+    _assert_buffered_never_voiced_stays_bounded()
+    _assert_offline_valid_wav_transcribes()
+    _assert_offline_rejects_oversize_upload()
+    _assert_offline_rejects_wrong_wav_params()
+    _assert_offline_decode_holds_gpu_lock()
     _assert_hybrid()
     _assert_hybrid_stall_waits_for_silence()
     _assert_hybrid_skips_leading_silence_for_final_pcm()
@@ -612,7 +827,7 @@ def _self_check() -> None:
     _assert_reset_turn_pcm_safe()
     _assert_streaming_eou_dur_ms()
     _assert_raw_silence_endpoint_is_not_chunk_quantized()
-    print("engine _self_check OK — seam, GPU buffered Parakeet, hybrid, voiced-stall EOU, trimmed PCM, debug WAV, I1 finalize-boundary, M2 reset-pcm, F2 streaming-dur-ms, raw-silence EOU",
+    print("engine _self_check OK — seam, GPU buffered Parakeet, hybrid, voiced-stall EOU, trimmed PCM, debug WAV, I1 finalize-boundary, M2 reset-pcm, F2 streaming-dur-ms, raw-silence EOU, F7 buffered-silence-trim, F8 offline-lock+size+wav-validation",
           file=sys.stderr)
 
 

@@ -36,11 +36,18 @@ def _install_fastapi_stub() -> None:
     class WebSocketDisconnect(Exception):
         pass
 
+    class HTTPException(Exception):
+        def __init__(self, status_code, detail=None) -> None:
+            self.status_code = status_code
+            self.detail = detail
+            super().__init__(f"{status_code}: {detail}")
+
     mod.FastAPI = _App
     mod.Response = type("Response", (), {})
     mod.UploadFile = type("UploadFile", (), {})
     mod.WebSocket = type("WebSocket", (), {})
     mod.WebSocketDisconnect = WebSocketDisconnect
+    mod.HTTPException = HTTPException
     sys.modules["fastapi"] = mod
 
 

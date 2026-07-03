@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useRoomContext, useVoiceAssistant } from "@livekit/components-react";
 
+import {
+  AVATAR_UPDATE_RETRY_MS,
+  retryTickForSend,
+  shouldScheduleRetry,
+} from "./avatarRetry";
+
 const AVATAR_UPDATE_METHOD = "avatar.update";
-// The agent registers avatar.update late in its entrypoint (after connect), so an
-// initial send can land before the method exists and reject. Retry a bounded number
-// of times so the avatar's lip-sync gate isn't silently stuck OFF for the session.
-const AVATAR_UPDATE_MAX_RETRIES = 5;
-const AVATAR_UPDATE_RETRY_MS = 500;
 
 // Owns ALL avatar.update sends (initial state after connect + every toggle change),
 // so the gate's source of truth is SessionConfig.avatarOn and nothing double-sends.
@@ -16,6 +17,11 @@ export default function ApplyAvatarMode({ avatarOn }: { avatarOn: boolean }) {
   const room = useRoomContext();
   const { agent } = useVoiceAssistant();
   const lastSent = useRef<boolean | null>(null);
+  // The target value the current retry budget belongs to. When avatarOn differs
+  // from it, the send is a NEW toggle and the budget resets (F32) — otherwise a
+  // spent budget from an earlier toggle would leave a later toggle with at most
+  // one attempt and could permanently desync the lip-sync gate from avatarOn.
+  const budgetFor = useRef<boolean | null>(null);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [retryTick, setRetryTick] = useState(0);
   const agentIdentity = agent?.identity;
@@ -24,6 +30,13 @@ export default function ApplyAvatarMode({ avatarOn }: { avatarOn: boolean }) {
     if (!agentIdentity) return; // wait for the agent to join
     if (lastSent.current === avatarOn) return;
     lastSent.current = avatarOn;
+
+    // A new toggle collapses the running budget to 0; a same-target retry keeps it.
+    const isNewTarget = budgetFor.current !== avatarOn;
+    budgetFor.current = avatarOn;
+    const tick = retryTickForSend(retryTick, isNewTarget);
+    if (isNewTarget && retryTick !== 0) setRetryTick(0);
+
     room.localParticipant
       .performRpc({
         destinationIdentity: agentIdentity,
@@ -37,9 +50,9 @@ export default function ApplyAvatarMode({ avatarOn }: { avatarOn: boolean }) {
         // Non-fatal: lip-sync degrades to Path-A / no-publish; never break the room.
         console.warn("avatar.update failed", err);
         lastSent.current = null; // allow the resend below (or a later toggle) to retry
-        if (retryTick < AVATAR_UPDATE_MAX_RETRIES) {
+        if (shouldScheduleRetry(tick)) {
           retryTimer.current = setTimeout(
-            () => setRetryTick((tick) => tick + 1),
+            () => setRetryTick((prev) => prev + 1),
             AVATAR_UPDATE_RETRY_MS,
           );
         }

@@ -40,7 +40,9 @@ from collections.abc import Awaitable, Callable
 import aiohttp
 from livekit.agents import (
     DEFAULT_API_CONNECT_OPTIONS,
+    APIConnectionError,
     APIConnectOptions,
+    APITimeoutError,
     NotGivenOr,
     stt,
 )
@@ -117,30 +119,55 @@ class NemoSpeechStream(stt.RecognizeStream):
         self._ws_url = ws_url
         self._language = language
         self._correction_cb = correction_cb
+        # Keep our own handle to conn_options for the connect timeout + retry budget
+        # (F9/G3) rather than reaching into the base class's private attribute.
+        self._conn_options = conn_options
         # Wall-clock start of the flush→final finalize span (set on the flush
         # sentinel). None until the first flush so _emit_final guards it.
         self._flush_started: float | None = None
 
     async def _run(self) -> None:
-        """Forward audio + flush over the websocket; receive transcripts."""
-        async with aiohttp.ClientSession() as session:
-            async with session.ws_connect(self._ws_url) as ws:
-                await ws.send_json({"type": "config", "language": self._language})
-                recv = asyncio.create_task(self._recv_loop(ws))
-                async for data in self._input_ch:
-                    if isinstance(data, self._FlushSentinel):
-                        # Mark the finalize-latency start, then ask the server to
-                        # drain. The server replies `final` only in response.
-                        self._flush_started = time.perf_counter()
-                        await ws.send_json({"type": "flush"})
-                        continue
-                    # int16 PCM, already resampled to 16 kHz mono by push_frame.
-                    await ws.send_bytes(data.data.tobytes())
-                # Input exhausted (session ending). The server holds the ws open
-                # after `final`, so unconditionally awaiting recv would hang
-                # forever — close the ws so _recv_loop drains to its CLOSED break.
-                await ws.close()
-                await recv
+        """Forward audio + flush over the websocket; receive transcripts.
+
+        F9/G3: RecognizeStream._main_task retries ONLY on APIError — any other
+        exception is treated as fatal (recoverable=False) and permanently kills STT
+        for the session. Bare aiohttp raises ClientError/OSError/ConnectionResetError
+        and asyncio.TimeoutError, none of which are APIError, so a nemo-stt restart or
+        transient WS drop mid-session would silently never reconnect. Map those
+        transport failures to APITimeoutError / APIConnectionError (both APIError
+        subclasses) to opt into the configured conn_options retry budget — mirroring
+        captioned_tts.py. Also apply conn_options.timeout to the connect + session so
+        a hung (not closed) socket can't stall the stream forever (G3).
+        """
+        timeout = aiohttp.ClientTimeout(total=self._conn_options.timeout)
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.ws_connect(self._ws_url) as ws:
+                    await self._pump(ws)
+        except (asyncio.TimeoutError, TimeoutError):
+            raise APITimeoutError() from None
+        except (aiohttp.ClientError, OSError) as exc:
+            raise APIConnectionError() from exc
+
+    async def _pump(self, ws) -> None:
+        """Config→forward audio/flush→drain. Split from _run so the error mapping in
+        _run wraps connect AND send/recv without deepening nesting (AGENTS.md ≤3)."""
+        await ws.send_json({"type": "config", "language": self._language})
+        recv = asyncio.create_task(self._recv_loop(ws))
+        async for data in self._input_ch:
+            if isinstance(data, self._FlushSentinel):
+                # Mark the finalize-latency start, then ask the server to
+                # drain. The server replies `final` only in response.
+                self._flush_started = time.perf_counter()
+                await ws.send_json({"type": "flush"})
+                continue
+            # int16 PCM, already resampled to 16 kHz mono by push_frame.
+            await ws.send_bytes(data.data.tobytes())
+        # Input exhausted (session ending). The server holds the ws open
+        # after `final`, so unconditionally awaiting recv would hang
+        # forever — close the ws so _recv_loop drains to its CLOSED break.
+        await ws.close()
+        await recv
 
     async def _recv_loop(self, ws) -> None:
         """Map server messages → INTERIM (delta) / FINAL (final) SpeechEvents."""
@@ -172,7 +199,13 @@ class NemoSpeechStream(stt.RecognizeStream):
             elif kind == "correction" and self._correction_cb:
                 text = evt.get("text", "")
                 if text:
-                    await self._correction_cb(text)
+                    # F24: never let a raising correction consumer kill _recv_loop —
+                    # that would silently stop ALL later transcripts (interims + finals)
+                    # for the rest of the session. Log and continue.
+                    try:
+                        await self._correction_cb(text)
+                    except Exception:  # noqa: BLE001
+                        logger.exception("nemo-stt correction callback failed")
             elif kind == "error":
                 # Log only; do NOT synthesize a transcript event on error.
                 logger.error("nemo-stt error: %s", evt.get("message", ""))

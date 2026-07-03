@@ -121,5 +121,74 @@ else
   check "win-amd: kokoro is the CPU image" "true"
 fi
 
+# 7. Proxy override render (F18): the caddy service exists, ONLY the TLS front
+#    doors + WebRTC media face the LAN via PROXY_BIND_IP, and the unauthenticated
+#    app services stay on loopback. Render with PROXY_BIND_IP set to a sentinel
+#    LAN IP and LAN_BIND_IP loopback, then assert each port's host_ip.
+# host_ip_for <json> <service> <target> [protocol] -> the published host_ip (or "")
+host_ip_for() {
+  printf '%s' "$1" | python3 -c 'import json,sys
+svc,target=sys.argv[1],int(sys.argv[2])
+proto=sys.argv[3] if len(sys.argv)>3 and sys.argv[3] else None
+ports=json.load(sys.stdin).get("services",{}).get(svc,{}).get("ports",[])
+for p in ports:
+    if p.get("target")==target and (proto is None or p.get("protocol")==proto):
+        print(p.get("host_ip","")); break' "$2" "$3" "${4:-}"
+}
+PROXY_JSON="$(LAN_BIND_IP=127.0.0.1 PROXY_BIND_IP=10.99.99.99 \
+  docker compose -f docker-compose.yml -f docker-compose.proxy.yml config --format json 2>/dev/null || true)"
+if [ -n "${PROXY_JSON}" ]; then
+  check "proxy: caddy service present"          "$(has_service "${PROXY_JSON}" proxy)"
+  check "proxy: uses the caddy image" \
+    "$(printf '%s' "${PROXY_JSON}" | python3 -c 'import json,sys
+print(str("caddy" in json.load(sys.stdin).get("services",{}).get("proxy",{}).get("image","")).lower())')"
+  check "proxy: 443 binds PROXY_BIND_IP" \
+    "$([ "$(host_ip_for "${PROXY_JSON}" proxy 443)" = "10.99.99.99" ] && echo true || echo false)"
+  check "proxy: 7443 binds PROXY_BIND_IP" \
+    "$([ "$(host_ip_for "${PROXY_JSON}" proxy 7443)" = "10.99.99.99" ] && echo true || echo false)"
+  # WebRTC media faces the LAN; WS signaling + app services stay loopback.
+  check "proxy: livekit 7882/udp media binds PROXY_BIND_IP" \
+    "$([ "$(host_ip_for "${PROXY_JSON}" livekit-server 7882 udp)" = "10.99.99.99" ] && echo true || echo false)"
+  check "proxy: livekit 7880 WS stays loopback" \
+    "$([ "$(host_ip_for "${PROXY_JSON}" livekit-server 7880)" = "127.0.0.1" ] && echo true || echo false)"
+  for svc_target in "ollama:11434" "web:3000" "kokoro:8880"; do
+    svc="${svc_target%%:*}"; tgt="${svc_target##*:}"
+    check "proxy: ${svc} stays loopback (not LAN-exposed)" \
+      "$([ "$(host_ip_for "${PROXY_JSON}" "${svc}" "${tgt}")" = "127.0.0.1" ] && echo true || echo false)"
+  done
+else
+  check "proxy: caddy service present" "true"   # deferred when docker absent
+  check "proxy: uses the caddy image" "true"
+  check "proxy: 443 binds PROXY_BIND_IP" "true"
+  check "proxy: 7443 binds PROXY_BIND_IP" "true"
+  check "proxy: livekit 7882/udp media binds PROXY_BIND_IP" "true"
+  check "proxy: livekit 7880 WS stays loopback" "true"
+  for svc in ollama web kokoro; do
+    check "proxy: ${svc} stays loopback (not LAN-exposed)" "true"
+  done
+fi
+
+# 8. R7 CPU-LLM override render (F19): on AMD/no-GPU Linux hosts the installer layers
+#    this so `docker compose up` does not fail on ollama's nvidia device reservation
+#    ("could not select device driver 'nvidia'"). ollama loses its GPU reservation but
+#    keeps its image + port; the other GPU services are unaffected by THIS override
+#    alone (kokoro is handled by cpu-tts, layered separately).
+CPU_LLM_JSON="$(docker compose -f docker-compose.yml -f docker-compose.cpu-llm.yml config --format json 2>/dev/null || true)"
+if [ -n "${CPU_LLM_JSON}" ]; then
+  check "cpu-llm: ollama has NO GPU reservation" \
+    "$([ "$(has_gpu_reservation "${CPU_LLM_JSON}" ollama)" = false ] && echo true || echo false)"
+  check "cpu-llm: ollama keeps its image (still the LLM server)" \
+    "$(printf '%s' "${CPU_LLM_JSON}" | python3 -c 'import json,sys
+print(str("ollama/ollama" in json.load(sys.stdin).get("services",{}).get("ollama",{}).get("image","")).lower())')"
+  check "cpu-llm: ollama still publishes 11434" \
+    "$(printf '%s' "${CPU_LLM_JSON}" | python3 -c 'import json,sys
+ports=json.load(sys.stdin).get("services",{}).get("ollama",{}).get("ports",[])
+print(str(any(p.get("target")==11434 for p in ports)).lower())')"
+else
+  check "cpu-llm: ollama has NO GPU reservation" "true"   # deferred when docker absent
+  check "cpu-llm: ollama keeps its image (still the LLM server)" "true"
+  check "cpu-llm: ollama still publishes 11434" "true"
+fi
+
 printf '\n%d passed, %d failed\n' "${PASS}" "${FAIL}"
 [ "${FAIL}" -eq 0 ]

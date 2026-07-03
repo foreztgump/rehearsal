@@ -1,0 +1,41 @@
+# Rehearsal OPTIONAL LAN TLS reverse proxy (Caddy).
+# Fronts the web shell on 443 and LiveKit signaling on 7443 (wss) using the
+# mkcert-minted LAN cert in ./certs (see certs/README.md). Needed only to serve
+# OTHER LAN devices over https://<lan-ip>: a raw LAN IP is not a secure context,
+# so navigator.mediaDevices is undefined and the mic cannot be requested without
+# TLS. localhost is already a secure context, so this file is NOT used for a
+# local (same-box) install.
+#
+# Use alongside the base stack and any platform overrides. Windows AMD example:
+#   docker compose -f docker-compose.yml -f docker-compose.windows-amd.yml \
+#     -f docker-compose.cpu-tts.yml -f docker-compose.proxy.yml up -d
+#
+# Prereqs (see certs/README.md):
+#   - mkcert installed + CA trusted on every client device that will use the mic
+#   - certs/lan.pem + certs/lan-key.pem minted covering the host LAN IP + hostname
+#   - .env: PROXY_BIND_IP and LIVEKIT_NODE_IP set to the host LAN IP (PROXY_BIND_IP
+#     exposes ONLY 443/7443 + the LiveKit media ports to the LAN; the app services
+#     stay on LAN_BIND_IP=127.0.0.1 — see F18 in docs/lan-exposure.md)
+#   - .env: NEXT_PUBLIC_LIVEKIT_URL=wss://<lan-ip>:7443  (baked into web -> needs
+#     `docker compose build web`)
+services:
+  proxy:
+    # Caddy is the LAN TLS terminator — keep it current (2.8 -> 2.11.4, 2026-06-03).
+    image: caddy:2.11.4
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+    ports:
+      # Only the TLS front doors face the LAN, via PROXY_BIND_IP (F18). Caddy
+      # reaches web:3000 / livekit-server:7880 over the internal network, so the
+      # app services never need a LAN host bind.
+      - "${PROXY_BIND_IP:-127.0.0.1}:443:443"
+      - "${PROXY_BIND_IP:-127.0.0.1}:7443:7443"
+    networks:
+      - rehearsal
+    depends_on:
+      web:
+        condition: service_started
+      livekit-server:
+        condition: service_started
+    restart: unless-stopped

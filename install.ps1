@@ -187,6 +187,27 @@ function Write-ModelEnv {
   Set-Content .env $envContent
 }
 
+# CPU override layering for no-GPU hosts (F19, mirrors install.sh layer_cpu_overrides).
+# On Docker Desktop without an NVIDIA GPU, the base compose's ollama nvidia reservation
+# makes `docker compose up` dead-end; persist a COMPOSE_FILE layering the cpu-llm +
+# cpu-tts overrides so every later compose call runs ollama + kokoro on CPU. Only on
+# GPU=none, only when COMPOSE_FILE is absent (idempotent). NB: AMD on Windows uses the
+# separate windows-amd override (native host Ollama), so this targets 'none'.
+function Layer-CpuOverrides {
+  param([string]$Gpu)
+  if ($Gpu -ne "none") { return }
+  $envContent = Get-Content .env -Raw
+  if ($envContent -match "(?m)^COMPOSE_FILE=") {
+    Log "COMPOSE_FILE already set in .env — leaving it untouched."
+    return
+  }
+  # ';'-separated on Windows per Compose's COMPOSE_PATH_SEPARATOR default.
+  $cpuStack = "docker-compose.yml;docker-compose.cpu-llm.yml;docker-compose.cpu-tts.yml"
+  $envContent = Set-EnvKey $envContent "COMPOSE_FILE" $cpuStack
+  Set-Content .env $envContent
+  Log "No NVIDIA GPU — layered CPU overrides via COMPOSE_FILE in .env (ollama + kokoro on CPU)."
+}
+
 # --- 4. Plan + confirmation --------------------------------------------------
 function Print-Plan {
   param([string]$Gpu, [string]$Models)
@@ -201,7 +222,9 @@ function Print-Plan {
     Log "STT placement: CPU-ONNX by default (STT_FORCE_CPU=1, VRAM-safe). GPU STT is"
     Log "  opt-in after the co-residency matrix passes (docker compose --profile stt-gpu)."
   } else {
-    Log "No NVIDIA GPU detected. STT runs on CPU-ONNX."
+    Log "No NVIDIA GPU detected ($Gpu). STT runs on CPU-ONNX; the installer layers the"
+    Log "  CPU overrides (cpu-llm + cpu-tts) so ollama + kokoro run on CPU and the stack"
+    Log "  BOOTS — but CPU inference will NOT hit the P50<1.0s latency target."
   }
   Log "================================================="
 }
@@ -271,6 +294,7 @@ if ($Gpu -eq "nvidia" -and -not $SkipDoctor) {
   & (Join-Path $CheckoutDir "scripts\gpu-doctor.ps1") 2>$null  # advise-only; never blocks
 }
 Scaffold-Env
+Layer-CpuOverrides -Gpu $Gpu
 Prompt-Models -Gpu $Gpu
 Print-Plan -Gpu $Gpu -Models $script:InstallModels
 if (-not (Confirm)) {

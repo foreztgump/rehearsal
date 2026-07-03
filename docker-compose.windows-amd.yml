@@ -1,6 +1,6 @@
 # Rehearsal Windows AMD override — native Ollama off-stack, CPU services in Docker.
 # Use with:
-#   COMPOSE_FILE=docker-compose.yml:docker-compose.windows-amd.yml:docker-compose.cpu-tts.yml docker compose up -d
+#   docker compose -f docker-compose.yml -f docker-compose.windows-amd.yml -f docker-compose.cpu-tts.yml up -d
 #
 # Native Ollama serves the LLM on localhost:11434 (host). Docker services reach it
 # through host.docker.internal:11434. The in-stack ollama service is reduced to a
@@ -15,6 +15,12 @@ services:
     # Upgrade path: if Compose adds per-key depends_on removal, drop this + the dep.
     image: alpine:3.21
     command: ["sleep", "infinity"]
+    # The base compose publishes 127.0.0.1:11434 for the in-container Ollama. On
+    # Windows AMD the real LLM is native host Ollama, which already owns that
+    # port — so the stub's port publish collides ("Only one usage of each socket
+    # address") and the stack fails to start. Reset ports to [] (the stub serves
+    # nothing; the agent reaches host Ollama outbound via host.docker.internal).
+    ports: !reset []
     deploy:
       resources:
         reservations:

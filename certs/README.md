@@ -46,7 +46,7 @@ read-only at `/certs` (see `proxy/Caddyfile`).
 ## Bring it up and verify
 
 ```bash
-docker compose up proxy web
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d proxy web
 ```
 
 Then, on a LAN device **with the CA trusted**, open:

@@ -4,9 +4,12 @@
 # directly over plain HTTP/WS with no TLS. See README.md "Serving other LAN
 # devices (optional TLS)".
 #
-# To enable: mint a LAN cert (certs/README.md), then add a `proxy` service to
-# docker-compose.yml using image caddy:2.8, mounting this file at
-# /etc/caddy/Caddyfile and ./certs at /certs (read-only), publishing 443 + 7443.
+# To enable: mint a LAN cert (certs/README.md), set PROXY_BIND_IP + LIVEKIT_NODE_IP
+# + NEXT_PUBLIC_LIVEKIT_URL in .env to the host LAN IP (NEXT_PUBLIC_LIVEKIT_URL
+# becomes wss://<lan-ip>:7443 and needs `docker compose build web`; leave
+# LAN_BIND_IP at 127.0.0.1 so the app services stay off the LAN — F18), then bring
+# up the docker-compose.proxy.yml override alongside the base stack, e.g.
+#   docker compose -f docker-compose.yml ... -f docker-compose.proxy.yml up -d
 #
 # Rehearsal TLS reverse proxy (Caddy). Terminates the mkcert-minted LAN cert and
 # fronts the web shell; a second TLS vhost passes the LiveKit WS endpoint
