@@ -10,7 +10,7 @@ import PersonaPanel from "./PersonaPanel";
 import ThemeDots from "./ThemeDots";
 import { normalizeTranscriptSegments } from "./transcriptSegments";
 import { downloadTranscript, formatTranscript, TranscriptEntry } from "./transcriptExport";
-import { font, palette, radius, space } from "./ui/tokens";
+import { font, palette, space } from "./ui/tokens";
 import { useTranscriptionSegments } from "./useTranscriptionSegments";
 import type { LiveConfigField, SessionConfig } from "./VoiceRoom";
 
@@ -43,10 +43,10 @@ const FOCUSABLE =
  * Persona/Interview/Model/KB panels in their UNCHANGED uncontrolled live-RPC mode
  * (they have room context; Apply tweaks the running agent).
  *
- * A clearly-destructive "End session" affordance (#f85149) opens a confirm; only on
- * confirm does it call `onEnd` (disconnect + clear held state in the shell). It also
- * hosts New/Reset session actions and transcript export. Escape closes the drawer;
- * focus is trapped while open; every control shows the #58a6ff focus ring.
+ * A clearly-destructive "End session" affordance (themed --destructive) opens a
+ * confirm; only on confirm does it call `onEnd` (disconnect + clear held state in the
+ * shell). It also hosts New/Reset session actions and transcript export. Escape closes
+ * the drawer; focus is trapped while open; every control shows the themed focus ring.
  */
 export default function SettingsDrawer({
   open,
@@ -213,13 +213,11 @@ export default function SettingsDrawer({
       // Scrim + overlay. Clicking the scrim closes (a Cancel affordance); the panel
       // stops propagation so clicks inside it don't close.
       onClick={onClose}
+      className="drawer-scrim"
       style={{
-        position: "fixed",
-        inset: 0,
         zIndex: 50,
         display: "flex",
         justifyContent: "flex-end",
-        background: "rgba(0,0,0,0.55)",
       }}
     >
       <div
@@ -227,14 +225,12 @@ export default function SettingsDrawer({
         role="dialog"
         aria-modal="true"
         aria-label="Session settings"
-        className="screen-enter"
+        className="screen-enter surface"
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "min(420px, 100%)",
           height: "100%",
           overflowY: "auto",
-          background: palette.panel,
-          borderLeft: `1px solid ${palette.border}`,
           padding: space.lg,
           display: "flex",
           flexDirection: "column",
@@ -245,18 +241,9 @@ export default function SettingsDrawer({
           <strong style={{ fontSize: font.size.heading, color: palette.text }}>Settings</strong>
           <button
             type="button"
-            className="transition-hover"
+            className="btn-ghost"
             onClick={onClose}
             aria-label="Close settings"
-            style={{
-              padding: `${space.xs} ${space.sm}`,
-              borderRadius: radius.control,
-              border: `1px solid ${palette.border}`,
-              background: "transparent",
-              color: palette.text,
-              fontWeight: font.weight.semibold,
-              cursor: "pointer",
-            }}
           >
             Close
           </button>
@@ -342,35 +329,17 @@ export default function SettingsDrawer({
               <div style={{ display: "flex", gap: space.sm }}>
                 <button
                   type="button"
-                  className="transition-hover"
+                  className="btn-apply danger"
                   onClick={onEnd}
-                  style={{
-                    flex: 1,
-                    padding: `${space.sm} ${space.md}`,
-                    borderRadius: radius.control,
-                    border: "none",
-                    background: palette.destructive,
-                    color: palette.bg,
-                    fontWeight: font.weight.semibold,
-                    cursor: "pointer",
-                  }}
+                  style={{ flex: 1 }}
                 >
                   End session
                 </button>
                 <button
                   type="button"
-                  className="transition-hover"
+                  className="btn-ghost"
                   onClick={() => setConfirmLeave(false)}
-                  style={{
-                    flex: 1,
-                    padding: `${space.sm} ${space.md}`,
-                    borderRadius: radius.control,
-                    border: `1px solid ${palette.border}`,
-                    background: "transparent",
-                    color: palette.text,
-                    fontWeight: font.weight.semibold,
-                    cursor: "pointer",
-                  }}
+                  style={{ flex: 1 }}
                 >
                   Cancel
                 </button>
@@ -379,18 +348,9 @@ export default function SettingsDrawer({
           ) : (
             <button
               type="button"
-              className="transition-hover"
+              className="btn-ghost danger"
               onClick={() => setConfirmLeave(true)}
-              style={{
-                alignSelf: "flex-start",
-                padding: `${space.sm} ${space.md}`,
-                borderRadius: radius.control,
-                border: `1px solid ${palette.destructive}`,
-                background: "transparent",
-                color: palette.destructive,
-                fontWeight: font.weight.semibold,
-                cursor: "pointer",
-              }}
+              style={{ alignSelf: "flex-start" }}
             >
               End session
             </button>
