@@ -1,0 +1,55 @@
+name: pr-agent
+
+# Auto-review every pull request with PR-Agent, powered by Ollama Cloud.
+# Ollama Cloud is a REMOTE API (https://ollama.com), so this runs on a stock
+# GitHub-hosted runner — no self-hosted runner or local Ollama needed.
+# Model: glm-5.2 (primary) with kimi-k2.7-code:cloud as fallback. Review-only.
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+  issue_comment:
+
+# Cancel a superseded run on the same PR so a rapid push series doesn't queue up.
+concurrency:
+  group: pr-agent-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr_agent:
+    if: ${{ github.event.sender.type != 'Bot' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+      contents: read
+    name: PR-Agent review (Ollama Cloud · glm-5.2)
+    steps:
+      - name: PR-Agent
+        # Pinned to the 0.38.0 release by digest (no :latest — repo convention).
+        uses: docker://pragent/pr-agent@sha256:ea2ea90f072fd97708755e59827a317272f66097a1ef349eca23d39160bb0baf
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # --- Ollama Cloud via its OpenAI-compatible endpoint (the robust path
+          #     for structured review output; avoids litellm's native ollama/
+          #     provider auth/streaming quirks against ollama.com). ---
+          config.model: "openai/glm-5.2"
+          config.fallback_models: '["openai/kimi-k2.7-code:cloud"]'
+          # Keep in step with the models' context (both are large-context). PR-Agent
+          # requires this for non-catalog models or output can truncate unexpectedly.
+          config.custom_model_max_tokens: "131072"
+          # Duplicate the in-prompt examples — steadies structured output on open models.
+          config.duplicate_examples: "true"
+          OPENAI__API_BASE: "https://ollama.com/v1"
+          OPENAI__KEY: ${{ secrets.OLLAMA_API_KEY }}
+          # --- Static reasoning level: request a HIGH thinking budget. Best-effort:
+          #     PR-Agent's native reasoning_effort only reaches OpenAI o3/o4 models,
+          #     so we pass the hint via litellm extra_body. If Ollama Cloud's /v1
+          #     ignores it, glm-5.2 still reasons on its own (it is a thinking model)
+          #     — only the explicit level may not apply; review quality is unaffected.
+          litellm.extra_body: '{"reasoning_effort": "high", "think": "high"}'
+          # --- Review only (no describe / no improve). ---
+          github_action_config.auto_review: "true"
+          github_action_config.auto_describe: "false"
+          github_action_config.auto_improve: "false"
+          github_action_config.pr_actions: '["opened", "reopened", "ready_for_review", "synchronize"]'
