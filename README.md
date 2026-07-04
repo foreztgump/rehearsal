@@ -47,6 +47,7 @@ AI-agent install prompt are in [INSTALLATION.md](INSTALLATION.md).
 | Windows NVIDIA | Supported with Docker Desktop WSL2 and a current NVIDIA driver. |
 | Linux AMD | Best effort via the ROCm compose override. |
 | Windows AMD | Best effort: native Windows Ollama plus Docker CPU services. |
+| macOS (Apple Silicon) | Best effort: native host Ollama (Metal/MLX) plus Docker CPU services. |
 | No supported GPU | Best effort only; not expected to hit live voice latency targets. |
 
 On AMD / no-GPU Linux hosts the installer automatically layers the CPU compose

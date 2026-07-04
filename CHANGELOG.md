@@ -7,8 +7,39 @@ All notable changes to Rehearsal are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `compose`: `docker-compose.macos.yml` — macOS (Apple Silicon) override for the
+  native-host-Ollama topology. Docker Desktop on Mac has no GPU passthrough, so the
+  LLM runs in the native Ollama Mac app (Metal/MLX) and the Docker services reach it
+  via `host.docker.internal:11434`; the in-stack ollama is an `alpine` no-op stub.
+  Same split as `windows-amd`; pair with `docker-compose.cpu-tts.yml`.
+- `install.sh` detects macOS (`uname -s = Darwin`) and prints the exact manual
+  steps — install the Ollama Mac app, `launchctl setenv OLLAMA_HOST "0.0.0.0:11434"`
+  (+ restart), `ollama pull`, scaffold `.env`, then bring the stack up with the
+  `macos` + `cpu-tts` overrides — then stops, instead of running the wrong
+  all-in-container CPU topology.
+- `gpu-doctor.sh` gains a macOS branch: it recognizes `Darwin` as the native-Ollama
+  + Metal path (not a misleading "no GPU" degrade) and advises the `OLLAMA_HOST`
+  bind widen, the macOS compose invocation, and CPU-STT `.env` settings.
+- `docs`: INSTALLATION.md gains a "macOS (Apple Silicon)" section — native host
+  Ollama on Metal, the `OLLAMA_HOST=0.0.0.0` bind step, the abliterated-GGUF default
+  vs the stock/content-filtered MLX-tag opt-in (`gemma4:e2b-nvfp4` /
+  `gemma4:e4b-mlx-bf16`) tradeoff, an ordered M5 validation checklist, and a
+  measured CPU-TTS latency caveat (native Ollama LLM TTFT P50 ~640 ms, but CPU
+  Kokoro TTS TTFB ~1.5–2.0 s dominates voice-to-voice; native Kokoro is an
+  unmeasured future optimization). README Platform Support and SECURITY_PROVENANCE
+  updated to match.
+- `test`: `scripts/test_compose_topology.sh` asserts the macOS override render
+  (agent → `host.docker.internal`, ollama no-GPU stub, kokoro CPU image).
 - `ci`: automated code review on every pull request. Review-only
   (describe/improve off). Requires the review API key repo secret.
+
+### Security
+- `docs`: the macOS `OLLAMA_HOST=0.0.0.0:11434` bind step (INSTALLATION.md and
+  `install.sh` guidance) now warns that it exposes Ollama's **unauthenticated** API
+  to the LAN — required only because the Docker VM's `host.docker.internal` cannot
+  reach a `127.0.0.1`-only bind. Advises keeping the macOS firewall on and never
+  port-forwarding `11434` to the WAN (same posture as the `127.0.0.1` default-port
+  rule for the rest of the stack).
 
 ## [0.2.2] - 2026-07-03
 

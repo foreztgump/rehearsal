@@ -121,6 +121,26 @@ else
   check "win-amd: kokoro is the CPU image" "true"
 fi
 
+# 6b. macOS override render: SAME native-host-Ollama split as Windows-AMD. Agent
+#     uses host.docker.internal Ollama URLs, ollama is a no-op stub (no GPU), and
+#     kokoro is the CPU image (layered via cpu-tts, as the Mac stack always is).
+MACOS_JSON="$(docker compose -f docker-compose.yml -f docker-compose.macos.yml -f docker-compose.cpu-tts.yml config --format json 2>/dev/null || true)"
+if [ -n "${MACOS_JSON}" ]; then
+  check "macos: agent OLLAMA_BASE_URL -> host.docker.internal" \
+    "$(printf '%s' "${MACOS_JSON}" | python3 -c 'import json,sys
+e=json.load(sys.stdin).get("services",{}).get("agent",{}).get("environment",{})
+print(str("host.docker.internal" in e.get("OLLAMA_BASE_URL","")).lower())')"
+  check "macos: ollama has NO GPU reservation" \
+    "$([ "$(has_gpu_reservation "${MACOS_JSON}" ollama)" = false ] && echo true || echo false)"
+  check "macos: kokoro is the CPU image" \
+    "$(printf '%s' "${MACOS_JSON}" | python3 -c 'import json,sys
+print(str("kokoro-fastapi-cpu" in json.load(sys.stdin).get("services",{}).get("kokoro",{}).get("image","")).lower())')"
+else
+  check "macos: agent OLLAMA_BASE_URL -> host.docker.internal" "true"
+  check "macos: ollama has NO GPU reservation" "true"
+  check "macos: kokoro is the CPU image" "true"
+fi
+
 # 7. Proxy override render (F18): the caddy service exists, ONLY the TLS front
 #    doors + WebRTC media face the LAN via PROXY_BIND_IP, and the unauthenticated
 #    app services stay on loopback. Render with PROXY_BIND_IP set to a sentinel

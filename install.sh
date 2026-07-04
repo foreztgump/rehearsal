@@ -107,6 +107,53 @@ delegate_windows() {
 }
 delegate_windows
 
+# --- 0c. macOS: detect + guide + stop ---------------------------------------
+# macOS is a DIFFERENT topology this installer can't drive: Docker Desktop on Mac
+# runs Linux containers in a VM with NO GPU passthrough, so the Apple GPU
+# (Metal/MPS) is unreachable from any container. The ONLY GPU-accelerated LLM path
+# is NATIVE host Ollama (the Ollama Mac app, Metal/MLX), with the Docker services
+# reaching it via host.docker.internal — exactly the Windows-AMD split. The
+# GUI-app install + `launchctl` bind widen + `ollama pull` are inherently manual,
+# and pull-and-pin.sh drives `docker compose exec ollama` (a no-op stub here), so
+# we DETECT + GUIDE (print the exact manual steps) and STOP — never silently run
+# the wrong all-in-container CPU topology (mirrors install.ps1 Windows-AMD).
+show_macos_guidance_and_exit() {
+  log ""
+  log "================ macOS (Apple Silicon) detected — manual path ================"
+  log "The one-line installer does NOT drive the macOS topology. Docker Desktop on Mac"
+  log "cannot pass the Apple GPU into a container, so the LLM runs in NATIVE host Ollama"
+  log "(Metal/MLX-accelerated) and only the CPU services run in Docker (the in-stack"
+  log "ollama is a no-op stub). Follow these steps:"
+  log ""
+  log "  1. Install the native Ollama Mac app (https://ollama.com/download), then"
+  log "     confirm it is on PATH in a fresh terminal:  ollama --version"
+  log "  2. Widen Ollama's bind so containers can reach it via host.docker.internal"
+  log "     (native Ollama binds 127.0.0.1 by default), then restart the Ollama app:"
+  log "       launchctl setenv OLLAMA_HOST \"0.0.0.0:11434\""
+  log "     NOTE: this exposes Ollama's UNAUTHENTICATED API to your LAN. Keep the"
+  log "     macOS firewall on and never port-forward 11434 to the WAN."
+  log "  3. Pull the recommended model into NATIVE Ollama (not the container), then"
+  log "     verify it is loaded:"
+  log "       ollama pull evalengine/unbound-e2b:latest   # abliterated GGUF, GPU on Metal"
+  log "       ollama ps"
+  log "     Recommended tier: fast (8 GB Macs: choose floor). MLX opt-in (max speed,"
+  log "     but STOCK/content-filtered — the persona is no longer the sole guardrail):"
+  log "       ollama pull gemma4:e2b-nvfp4      # or gemma4:e4b-mlx-bf16"
+  log "  4. Scaffold .env (copy .env.example to .env; set a random LIVEKIT_API_SECRET"
+  log "     and the single-model config — see INSTALLATION.md 'macOS (Apple Silicon)')."
+  log "  5. From the checkout, build + start with the macOS + CPU-TTS overrides:"
+  log "       cd \"$PWD\""
+  log "       docker compose -f docker-compose.yml -f docker-compose.macos.yml \\"
+  log "         -f docker-compose.cpu-tts.yml up -d --build"
+  log ""
+  log "Full walkthrough + validation checklist: INSTALLATION.md ('macOS (Apple Silicon)')."
+  log "==========================================================================="
+  exit 0
+}
+case "$(uname -s 2>/dev/null)" in
+  Darwin) show_macos_guidance_and_exit ;;
+esac
+
 # --- 1. Prerequisites: guide, do not auto-install ---------------------------
 require_docker() {
   if ! command -v docker >/dev/null 2>&1; then

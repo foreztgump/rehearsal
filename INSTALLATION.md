@@ -191,6 +191,127 @@ The Docker stack reaches native Ollama through `host.docker.internal:11434`. On 
 8 GB Vulkan card, prefer the `fast` model; the first turn is slow while the model
 loads, and it will not hit the sub-second P50 the 16 GB NVIDIA target aims for.
 
+### macOS (Apple Silicon)
+
+macOS is best effort and **manual** — the one-line installer detects macOS, prints
+these steps, then stops. Docker Desktop on Mac runs Linux containers in a VM with
+**no GPU passthrough**, so the Apple GPU (Metal/MPS) is unreachable from any
+container. The LLM therefore runs in **native host Ollama** (the Ollama Mac app,
+which is Metal/MLX-accelerated on Apple Silicon) and only the CPU services run in
+Docker — the same split as Windows AMD. The Docker stack reaches native Ollama
+through `host.docker.internal:11434`.
+
+Apple Silicon (M-series) is the recommended target. Intel Macs work too, on the
+same topology, but Ollama falls back to CPU there.
+
+1. Install the native Ollama Mac app from https://ollama.com/download, then reopen
+   a terminal so `ollama` is on `PATH`:
+
+   ```bash
+   ollama --version
+   ```
+
+2. Widen Ollama's bind so containers can reach it. Native Ollama binds `127.0.0.1`
+   by default, so `host.docker.internal` requests are refused until you set
+   `OLLAMA_HOST`, then restart the Ollama app:
+
+   ```bash
+   launchctl setenv OLLAMA_HOST "0.0.0.0:11434"
+   ```
+
+   **Security note:** this binds Ollama's *unauthenticated* API to all interfaces,
+   so model inference becomes reachable by other devices on your LAN. `0.0.0.0` is
+   required only because the Docker VM's `host.docker.internal` cannot reach a
+   `127.0.0.1`-only bind. Keep the macOS firewall on, stay off untrusted networks,
+   and never port-forward `11434` to the WAN (same posture as the `127.0.0.1`
+   default-port rule for the rest of the stack).
+
+3. Pull the recommended model into **native** Ollama (not the container), then
+   confirm it is loaded:
+
+   ```bash
+   ollama pull evalengine/unbound-e2b:latest
+   ollama ps
+   ```
+
+   The default ladder tags are **abliterated GGUF** finetunes. GGUF already runs
+   GPU-accelerated on Metal via Ollama, and — critically for a voice **persona**
+   trainer — they will not refuse a difficult persona. Recommended tier: `fast`
+   (on 8 GB Macs choose `floor`).
+
+   **MLX opt-in (advanced, max speed):** Ollama's MLX engine is even faster on
+   Apple Silicon, but its model tags are **stock Google Gemma 4 — content
+   filtered**, so the persona is no longer the sole guardrail and the model may
+   refuse a hostile/difficult character. Opt in only if you accept that tradeoff:
+
+   ```bash
+   ollama pull gemma4:e2b-nvfp4      # or gemma4:e4b-mlx-bf16 for the Better tier
+   ```
+
+4. Scaffold `.env` and pin the single installed model. When you narrow to one
+   model, write all five keys as **uncommented** active lines (leaving the
+   `.env.example` comments in place makes the picker surface empty tiers that
+   crash the agent):
+
+   ```bash
+   cp .env.example .env
+   # set a long random LIVEKIT_API_SECRET, then set the model config:
+   #   REHEARSAL_MODEL_CHOICES=fast
+   #   NEXT_PUBLIC_REHEARSAL_MODEL_LABELS=Fast
+   #   REHEARSAL_DEFAULT_MODEL=fast
+   #   OLLAMA_MODEL_FAST=evalengine/unbound-e2b:latest
+   #   OLLAMA_MODEL=evalengine/unbound-e2b:latest
+   ```
+
+5. Build and start with the macOS plus CPU TTS overrides:
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.macos.yml \
+     -f docker-compose.cpu-tts.yml up -d --build
+   ```
+
+TTS (Kokoro) runs on CPU in Docker via the `cpu-tts` override, and **it is the
+dominant latency cost on macOS**. Measured on an M5, native Ollama on Metal keeps
+the LLM fast (time-to-first-token P50 ~640 ms), but CPU Kokoro TTS time-to-first-
+byte runs ~1.5–2.0 s, pushing voice-to-voice to roughly 2–3 s — well above the
+sub-second P50 the 16 GB NVIDIA target aims for. The stack is fully usable, just
+not snappy.
+
+Most of that TTS cost appears to be Docker-VM overhead rather than the lack of a
+GPU: for an 82M model, PyTorch/MPS carries per-op dispatch overhead that can make
+it *no faster* (sometimes slower) than the ONNX CPU path, so a native Metal (MPS)
+Kokoro via the upstream `start-gpu_mac.sh` is **not** an obvious win and is out of
+scope here (it would also add a second native host service). Running Kokoro
+natively at all — even on CPU — is the more promising follow-up, but it is
+unmeasured on this stack; treat lower macOS TTS latency as a future optimization.
+The first turn is additionally slow while models warm.
+
+#### macOS validation checklist
+
+Run these in order after `docker compose ... up -d` to confirm the topology end to
+end (verified on an M5):
+
+1. **Ollama recent + bind widened:** `ollama --version`, then confirm the bind —
+   `launchctl getenv OLLAMA_HOST` prints `0.0.0.0:11434`, and the Ollama app was
+   restarted after step 2.
+2. **Model loaded on Metal:** `ollama ps` lists the pulled tag with a non-zero
+   size (loaded), not just present in `ollama list`.
+3. **Reachable host → container** (this is the step the `OLLAMA_HOST` bind fixes):
+
+   ```bash
+   curl -s http://localhost:11434/v1/models        # from the host
+   docker run --rm curlimages/curl \
+     -s http://host.docker.internal:11434/v1/models # from inside a container
+   ```
+
+   Both must return the model list. A refused container-side request means
+   `OLLAMA_HOST` is still `127.0.0.1` (redo step 2 and restart Ollama).
+4. **Services healthy on arm64:** `docker compose ps` shows `livekit-server`,
+   `agent`, `kokoro`, `nemo-stt-cpu`, and `web` up; `agent` logs reach
+   `registered worker` (`docker compose logs -f agent`).
+5. **One voice-to-voice turn:** open `http://localhost:3000`, grant the mic, pick a
+   persona, and complete a spoken turn (mic → transcript → spoken reply).
+
 ### No Supported GPU
 
 No-GPU mode is best effort only. CPU STT is the default, but local LLM and TTS
@@ -212,7 +333,7 @@ unpacks layers and keeps build cache, so on-disk usage is much larger.
 | `ghcr.io/astral-sh/uv:python3.12-bookworm-slim` | 68 MB | Agent build base. |
 | `node:24-bookworm-slim` | 80 MB | Web build/runtime base. |
 | `python:3.11-slim` | 45 MB | CPU STT runtime stage. |
-| `alpine:3.21` | 4 MB | Windows AMD Ollama stub. |
+| `alpine:3.21` | 4 MB | Windows AMD / macOS Ollama stub. |
 | `nvcr.io/nvidia/nemo:25.11` | 19.44 GB | GPU STT runtime and CPU STT export builder. |
 | Sherpa ONNX Parakeet int8 bundle | 482 MB | Baked into STT images. |
 
@@ -232,6 +353,7 @@ Practical first-run expectations:
 | GPU STT opt-in | Adds the heavy NeMo GPU STT runtime and baked model path. |
 | Linux AMD ROCm | Large ROCm TTS image; keep 100 GB free disk. |
 | Windows AMD | Smaller Docker stack, but native Ollama model storage still lives on the host. |
+| macOS (Apple Silicon) | Smaller Docker stack (arm64 images); native Ollama model storage lives on the host. |
 
 ## First Run
 

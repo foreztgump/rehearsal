@@ -1,0 +1,44 @@
+# Rehearsal macOS (Apple Silicon) override — native host Ollama on Metal, CPU
+# services in Docker. SAME topology as docker-compose.windows-amd.yml (they only
+# differ by platform name): Docker Desktop on macOS runs Linux containers in a VM
+# with NO GPU passthrough, so the Apple GPU (Metal/MPS) is unreachable from any
+# container. The ONLY GPU-accelerated LLM path is native host Ollama (the Ollama
+# Mac app, which uses Metal/MLX on Apple Silicon); the Docker services reach it
+# through host.docker.internal:11434.
+#
+# Use explicit -f flags (the COMPOSE_FILE colon form works on macOS too, but -f
+# matches the Windows-AMD doc style and is unambiguous):
+#   docker compose -f docker-compose.yml -f docker-compose.macos.yml -f docker-compose.cpu-tts.yml up -d
+#
+# PREREQ (macOS-specific): native Ollama binds 127.0.0.1 by default, so a container
+# reaching it via host.docker.internal is refused until you widen the bind:
+#   launchctl setenv OLLAMA_HOST "0.0.0.0:11434"   # then restart the Ollama app
+# See INSTALLATION.md ("macOS (Apple Silicon)") for the full walkthrough + checklist.
+#
+# The in-stack ollama service is reduced to a no-op stub (alpine sleep) so the base
+# agent.depends_on:ollama still resolves at config time — the real LLM is the native
+# host Ollama, not this container. TTS uses the CPU Kokoro override (loaded
+# alongside). STT stays on nemo-stt-cpu (unchanged); its arm64 image builds natively.
+services:
+  ollama:
+    # ponytail: no-op stub — the real LLM is native host Ollama (Metal). Kept as a
+    # sleep container so the base agent.depends_on:ollama resolves at config time
+    # (profile-gating ollama out makes depends_on reference an undefined service).
+    # Upgrade path: if Compose adds per-key depends_on removal, drop this + the dep.
+    image: alpine:3.21
+    command: ["sleep", "infinity"]
+    # The base compose publishes 127.0.0.1:11434 for the in-container Ollama. On
+    # macOS the real LLM is native host Ollama, which already owns that port — so
+    # the stub's port publish would collide and the stack fails to start. Reset
+    # ports to [] (the stub serves nothing; the agent reaches host Ollama outbound
+    # via host.docker.internal).
+    ports: !reset []
+    deploy:
+      resources:
+        reservations:
+          devices: !reset []
+
+  agent:
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
+      - OLLAMA_GENERATE_URL=http://host.docker.internal:11434/api/generate

@@ -38,7 +38,7 @@ provenance scrutiny before public access.
 | `nvcr.io/nvidia/nemo:25.11` | `stt/Dockerfile`, `stt/Dockerfile.cpu` export stage | https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo | tag-pinned | NeMo/STT build and GPU runtime base. |
 | `python:3.11-slim` | `stt/Dockerfile.cpu` runtime stage | https://hub.docker.com/_/python | tag-pinned | CPU STT runtime base. |
 | `node:24-bookworm-slim` | `web/Dockerfile` | https://hub.docker.com/_/node | tag-pinned | Next.js build/runtime base. |
-| `alpine:3.21` | `docker-compose.windows-amd.yml` | https://hub.docker.com/_/alpine | tag-pinned | Windows AMD Ollama no-op stub. |
+| `alpine:3.21` | `docker-compose.windows-amd.yml`, `docker-compose.macos.yml` | https://hub.docker.com/_/alpine | tag-pinned | Windows AMD / macOS Ollama no-op stub. |
 | `caddy:2.11.4` | `docker-compose.proxy.yml` | https://hub.docker.com/_/caddy | tag-pinned | Optional LAN TLS reverse proxy (terminates the mkcert cert on 443/7443). |
 
 ## Downloaded Model And Tarball Artifacts
