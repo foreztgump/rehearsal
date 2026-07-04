@@ -6,6 +6,17 @@ All notable changes to Rehearsal are documented here. The format follows
 
 ## [Unreleased]
 
+### Docs
+- `docs`/`install`: the macOS Ollama bind-widen step now documents the Ollama Mac
+  app's **Settings → "Expose Ollama to the network"** GUI toggle (v0.10+) as an
+  equivalent to `launchctl setenv OLLAMA_HOST "0.0.0.0:11434"` — either binds
+  `0.0.0.0`. Explains why some Macs reach `host.docker.internal:11434` without ever
+  setting `OLLAMA_HOST` (the GUI toggle was already on). The macOS validation
+  checklist step 1 no longer treats an empty `launchctl getenv OLLAMA_HOST` as a
+  failure (a false negative when the GUI toggle was used) — the container-side curl
+  (step 3) is the source of truth. Updated in INSTALLATION.md, `install.sh`,
+  `docker-compose.macos.yml`, and `scripts/gpu-doctor.sh`.
+
 ## [0.3.0] - 2026-07-04
 
 macOS (Apple Silicon) gets a real GPU voice path: TTS now runs in native-host

@@ -212,14 +212,20 @@ same topology, but Ollama falls back to CPU there.
    ```
 
 2. Widen Ollama's bind so containers can reach it. Native Ollama binds `127.0.0.1`
-   by default, so `host.docker.internal` requests are refused until you set
-   `OLLAMA_HOST`, then restart the Ollama app:
+   by default, so `host.docker.internal` requests are refused until you widen it to
+   `0.0.0.0`. Either way, restart the Ollama app afterward. Two equivalent options:
 
-   ```bash
-   launchctl setenv OLLAMA_HOST "0.0.0.0:11434"
-   ```
+   - **GUI (Ollama app v0.10+):** enable **Settings → "Expose Ollama to the
+     network"**. This binds `0.0.0.0` without an env var; if it is already on, the
+     `launchctl` step below is unnecessary (this is why some Macs reach
+     `host.docker.internal:11434` without ever setting `OLLAMA_HOST`).
+   - **Env var (all versions):** set `OLLAMA_HOST`, then restart the app:
 
-   **Security note:** this binds Ollama's *unauthenticated* API to all interfaces,
+     ```bash
+     launchctl setenv OLLAMA_HOST "0.0.0.0:11434"
+     ```
+
+   **Security note:** either option binds Ollama's *unauthenticated* API to all interfaces,
    so model inference becomes reachable by other devices on your LAN. `0.0.0.0` is
    required only because the Docker VM's `host.docker.internal` cannot reach a
    `127.0.0.1`-only bind. Keep the macOS firewall on, stay off untrusted networks,
@@ -305,9 +311,10 @@ models warm. Full measurements: `docs/macos-tts-benchmark-results.md`.
 Run these in order after `docker compose ... up -d` to confirm the topology end to
 end (verified on an M5):
 
-1. **Ollama recent + bind widened:** `ollama --version`, then confirm the bind —
-   `launchctl getenv OLLAMA_HOST` prints `0.0.0.0:11434`, and the Ollama app was
-   restarted after step 2.
+1. **Ollama recent + bind widened:** `ollama --version`, and confirm the Ollama app
+   was restarted after step 2. If you widened via the env var, `launchctl getenv
+   OLLAMA_HOST` prints `0.0.0.0:11434`; if you used the GUI toggle instead it prints
+   nothing — that is expected, so step 3 (the container-side curl) is the real proof.
 2. **Model loaded on Metal:** `ollama ps` lists the pulled tag with a non-zero
    size (loaded), not just present in `ollama list`.
 3. **Reachable host → container** (this is the step the `OLLAMA_HOST` bind fixes):
@@ -318,8 +325,8 @@ end (verified on an M5):
      -s http://host.docker.internal:11434/v1/models # from inside a container
    ```
 
-   Both must return the model list. A refused container-side request means
-   `OLLAMA_HOST` is still `127.0.0.1` (redo step 2 and restart Ollama).
+   Both must return the model list. A refused container-side request means the bind
+   is still `127.0.0.1` — redo step 2 (env var or GUI toggle) and restart Ollama.
 4. **Native Kokoro reachable host → container** (mirrors the Ollama check — native
    Kokoro binds `0.0.0.0:8880` for exactly this):
 
