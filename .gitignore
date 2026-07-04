@@ -53,3 +53,7 @@ docs/*
 !docs/lan-exposure.md
 design-mockups/
 .worktrees/
+
+# Local develop-engine workflow artifacts (never repo content)
+WRAP_UP.md
+.factory-state/
