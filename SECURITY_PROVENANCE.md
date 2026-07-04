@@ -23,6 +23,7 @@ provenance scrutiny before public access.
 | Hugging Face STT revision | `STT_MODEL_REVISION` defaults to `main` unless overridden. | Pin a commit SHA in `.env.example` after final model choice is frozen. |
 | Ollama community models | Ladder rung-1s use `:latest`/remote GGUF refs, BUT `pull-and-pin.sh` now records each resolved tier's manifest digest (`OLLAMA_MODEL_*_DIGEST`, sha256 from `/api/tags`) at install and runs `ollama/verify-build.sh` on the community rungs (FAIL → stock rung) — F20. | Replace the community `:latest` refs with immutable `@sha256` references once Ollama exposes a stable one for the source; diff the recorded digest across installs to detect upstream repoints. |
 | Vendored browser assets | Assets are committed under `web/public/vendor/`; upstream/version is known from project research. | Add per-file checksums if those files change again. |
+| Native macOS Kokoro (source) | `scripts/kokoro-native-macos.sh` clones `remsky/Kokoro-FastAPI` at the `v0.5.0` tag (same source as the pinned CPU/GPU images) and `uv pip install -e ".[cpu]"` builds its Python deps from PyPI ranges on the host — macOS-only, never in a shipped image. | Pin the clone to the tag's commit SHA (`git clone` then `git checkout <sha>`) and add `--generate-hashes` lock for its deps if host-side traceability becomes required. |
 
 ## Docker Images
 
@@ -38,7 +39,7 @@ provenance scrutiny before public access.
 | `nvcr.io/nvidia/nemo:25.11` | `stt/Dockerfile`, `stt/Dockerfile.cpu` export stage | https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo | tag-pinned | NeMo/STT build and GPU runtime base. |
 | `python:3.11-slim` | `stt/Dockerfile.cpu` runtime stage | https://hub.docker.com/_/python | tag-pinned | CPU STT runtime base. |
 | `node:24-bookworm-slim` | `web/Dockerfile` | https://hub.docker.com/_/node | tag-pinned | Next.js build/runtime base. |
-| `alpine:3.21` | `docker-compose.windows-amd.yml`, `docker-compose.macos.yml` | https://hub.docker.com/_/alpine | tag-pinned | Windows AMD / macOS Ollama no-op stub. |
+| `alpine:3.21` | `docker-compose.windows-amd.yml`, `docker-compose.macos.yml` | https://hub.docker.com/_/alpine | tag-pinned | Windows AMD / macOS no-op stub (Ollama, plus Kokoro on macOS). |
 | `caddy:2.11.4` | `docker-compose.proxy.yml` | https://hub.docker.com/_/caddy | tag-pinned | Optional LAN TLS reverse proxy (terminates the mkcert cert on 443/7443). |
 
 ## Downloaded Model And Tarball Artifacts
