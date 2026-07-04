@@ -258,8 +258,9 @@ print_macos_advice() {
   ok "macOS detected — native host Ollama on Metal is the intended, GPU-accelerated path."
   printf 'Docker Desktop on Mac cannot pass the Apple GPU into a container, so the LLM\n'
   printf 'runs in NATIVE host Ollama (Metal/MLX) and the CPU services run in Docker.\n\n'
-  printf 'One-time: native Ollama binds 127.0.0.1, so widen it for host.docker.internal\n'
-  printf '(then restart the Ollama app):\n'
+  printf 'One-time: native Ollama binds 127.0.0.1, so widen it to 0.0.0.0 for\n'
+  printf 'host.docker.internal (then restart the Ollama app). Either enable Settings >\n'
+  printf '"Expose Ollama to the network" in the Ollama app (v0.10+), or set the env var:\n'
   printf '  launchctl setenv OLLAMA_HOST "0.0.0.0:11434"\n\n'
   printf 'Start the stack with the macOS override (TTS is native Kokoro now,\n'
   printf 'no cpu-tts override):\n\n'
