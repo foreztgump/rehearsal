@@ -35,6 +35,8 @@ KOKORO_PORT=8880
 UVICORN_MATCH="uvicorn api.src.main:app"  # pkill pattern for the server process
 HEALTH_URL="http://localhost:${KOKORO_PORT}/health"
 PYTHON_VERSION="3.10"
+HEALTH_MAX_TRIES=40                       # health-poll bound: tries × interval = total wait
+HEALTH_POLL_INTERVAL_S=3                  # first MPS boot loads weights, so allow ~2 min
 
 log() { printf '%s\n' "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
@@ -105,12 +107,12 @@ nohup .venv/bin/uvicorn api.src.main:app --host 0.0.0.0 --port "$KOKORO_PORT" \
   > "$KOKORO_DIR/kokoro-native.log" 2>&1 &
 
 # --- health gate -------------------------------------------------------------
-for _ in $(seq 1 40); do
+for _ in $(seq 1 "$HEALTH_MAX_TRIES"); do
   if curl -sf "$HEALTH_URL" >/dev/null 2>&1; then
     log "Native Kokoro ($BACKEND) is healthy at $HEALTH_URL"
     log "Logs: $KOKORO_DIR/kokoro-native.log   Stop: scripts/kokoro-native-macos.sh stop"
     exit 0
   fi
-  sleep 3
+  sleep "$HEALTH_POLL_INTERVAL_S"
 done
-die "Kokoro did not become healthy within ~120s — check $KOKORO_DIR/kokoro-native.log"
+die "Kokoro did not become healthy within ~$((HEALTH_MAX_TRIES * HEALTH_POLL_INTERVAL_S))s — check $KOKORO_DIR/kokoro-native.log"
