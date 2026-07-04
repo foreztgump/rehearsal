@@ -7,7 +7,7 @@ reference documents, and speak with the agent in your browser. STT, LLM, TTS,
 LiveKit, and browser assets run locally or on your LAN; audio, transcripts, KB
 files, and prompts are not sent to cloud inference services.
 
-Current release: `0.2.2`
+Current release: `0.3.0`
 
 ## Quick Start
 

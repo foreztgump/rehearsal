@@ -6,6 +6,15 @@ All notable changes to Rehearsal are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-04
+
+macOS (Apple Silicon) gets a real GPU voice path: TTS now runs in native-host
+Kokoro-FastAPI on Metal (default, ~256 ms P50 vs ~799 ms for the old CPU container),
+joining the already-native Ollama LLM so both GPU services run on the host. Includes
+the bring-up helper, the compose override, installer/doc/provenance updates, and two
+fixes surfaced by M5 live testing (model-weights download, CPU-STT pinning) — the
+topology is validated end-to-end with a working voice-to-voice turn.
+
 ### Added
 - `compose`: `docker-compose.macos.yml` — macOS (Apple Silicon) override for the
   native-host topology. Docker Desktop on Mac has no GPU passthrough, so both GPU
