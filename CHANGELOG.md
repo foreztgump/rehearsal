@@ -8,30 +8,44 @@ All notable changes to Rehearsal are documented here. The format follows
 
 ### Added
 - `compose`: `docker-compose.macos.yml` — macOS (Apple Silicon) override for the
-  native-host-Ollama topology. Docker Desktop on Mac has no GPU passthrough, so the
-  LLM runs in the native Ollama Mac app (Metal/MLX) and the Docker services reach it
-  via `host.docker.internal:11434`; the in-stack ollama is an `alpine` no-op stub.
-  Same split as `windows-amd`; pair with `docker-compose.cpu-tts.yml`.
+  native-host topology. Docker Desktop on Mac has no GPU passthrough, so both GPU
+  services run natively — the LLM in the Ollama Mac app (Metal/MLX) and TTS in native
+  Kokoro-FastAPI (Metal/MPS) — with the Docker services reaching them via
+  `host.docker.internal:11434` and `:8880`; the in-stack ollama and kokoro are
+  `alpine` no-op stubs. No `cpu-tts` override on macOS anymore.
+- `install`: `scripts/kokoro-native-macos.sh` — bring-up helper for native-host Kokoro
+  TTS. Clones Kokoro-FastAPI pinned to `v0.5.0`, creates the venv, and launches on
+  Metal/MPS by default (`--cpu` selects the CPU fallback; `stop` halts it). Encodes the
+  macOS-specific fixes (brew `espeak-ng` data path, upstream install-before-venv
+  ordering). Measured on an M5: native Metal ~256 ms P50 vs ~799 ms for the CPU
+  container (see `docs/adr/0002` + `docs/macos-tts-benchmark-results.md`).
 - `install.sh` detects macOS (`uname -s = Darwin`) and prints the exact manual
   steps — install the Ollama Mac app, `launchctl setenv OLLAMA_HOST "0.0.0.0:11434"`
-  (+ restart), `ollama pull`, scaffold `.env`, then bring the stack up with the
-  `macos` + `cpu-tts` overrides — then stops, instead of running the wrong
-  all-in-container CPU topology.
+  (+ restart), `ollama pull`, scaffold `.env`, start native Kokoro TTS, then bring
+  the stack up with the `macos` override (TTS is native now, no `cpu-tts`) — then
+  stops, instead of running the wrong all-in-container CPU topology.
 - `gpu-doctor.sh` gains a macOS branch: it recognizes `Darwin` as the native-Ollama
   + Metal path (not a misleading "no GPU" degrade) and advises the `OLLAMA_HOST`
   bind widen, the macOS compose invocation, and CPU-STT `.env` settings.
 - `docs`: INSTALLATION.md gains a "macOS (Apple Silicon)" section — native host
-  Ollama on Metal, the `OLLAMA_HOST=0.0.0.0` bind step, the abliterated-GGUF default
-  vs the stock/content-filtered MLX-tag opt-in (`gemma4:e2b-nvfp4` /
-  `gemma4:e4b-mlx-bf16`) tradeoff, an ordered M5 validation checklist, and a
-  measured CPU-TTS latency caveat (native Ollama LLM TTFT P50 ~640 ms, but CPU
-  Kokoro TTS TTFB ~1.5–2.0 s dominates voice-to-voice; native Kokoro is an
-  unmeasured future optimization). README Platform Support and SECURITY_PROVENANCE
+  Ollama AND Kokoro on Metal, the `OLLAMA_HOST=0.0.0.0` bind step, the native-Kokoro
+  bring-up + health check, the abliterated-GGUF default vs the stock/content-filtered
+  MLX-tag opt-in (`gemma4:e2b-nvfp4` / `gemma4:e4b-mlx-bf16`) tradeoff, an ordered M5
+  validation checklist, and the measured TTS latency (native Metal Kokoro ~256 ms P50,
+  vs ~799 ms for the CPU container). README Platform Support and SECURITY_PROVENANCE
   updated to match.
 - `test`: `scripts/test_compose_topology.sh` asserts the macOS override render
-  (agent → `host.docker.internal`, ollama no-GPU stub, kokoro CPU image).
+  (agent → `host.docker.internal` for both Ollama and Kokoro; ollama + kokoro no-op
+  stubs).
 - `ci`: automated code review on every pull request. Review-only
   (describe/improve off). Requires the review API key repo secret.
+
+### Changed
+- `compose`/`install`: macOS (Apple Silicon) default TTS is now **native-host Kokoro on
+  Metal**, not the `cpu-tts` container. The macOS `docker compose … up` command drops
+  `-f docker-compose.cpu-tts.yml` (the `macos` override now stubs the `kokoro` container
+  and points `KOKORO_BASE_URL` at `host.docker.internal:8880`). native-CPU Kokoro remains
+  a documented one-flag fallback (`scripts/kokoro-native-macos.sh --cpu`).
 
 ### Security
 - `docs`: the macOS `OLLAMA_HOST=0.0.0.0:11434` bind step (INSTALLATION.md and

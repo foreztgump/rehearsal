@@ -196,10 +196,10 @@ loads, and it will not hit the sub-second P50 the 16 GB NVIDIA target aims for.
 macOS is best effort and **manual** — the one-line installer detects macOS, prints
 these steps, then stops. Docker Desktop on Mac runs Linux containers in a VM with
 **no GPU passthrough**, so the Apple GPU (Metal/MPS) is unreachable from any
-container. The LLM therefore runs in **native host Ollama** (the Ollama Mac app,
-which is Metal/MLX-accelerated on Apple Silicon) and only the CPU services run in
-Docker — the same split as Windows AMD. The Docker stack reaches native Ollama
-through `host.docker.internal:11434`.
+container. Both GPU services therefore run as **native host processes** — the LLM in
+the Ollama Mac app and TTS in native Kokoro-FastAPI, both Metal-accelerated — while
+only the CPU services (STT, agent, web, LiveKit) run in Docker. The Docker stack
+reaches them through `host.docker.internal:11434` (Ollama) and `:8880` (Kokoro).
 
 Apple Silicon (M-series) is the recommended target. Intel Macs work too, on the
 same topology, but Ollama falls back to CPU there.
@@ -263,28 +263,37 @@ same topology, but Ollama falls back to CPU there.
    #   OLLAMA_MODEL=evalengine/unbound-e2b:latest
    ```
 
-5. Build and start with the macOS plus CPU TTS overrides:
+5. Start native Kokoro TTS on Metal. Like the LLM, TTS needs the Apple GPU, which
+   is unreachable from a container — so it runs as a native host process too. The
+   helper installs nothing globally beyond two brew formulae, clones Kokoro-FastAPI
+   pinned to `v0.5.0`, and launches it on Metal:
 
    ```bash
-   docker compose -f docker-compose.yml -f docker-compose.macos.yml \
-     -f docker-compose.cpu-tts.yml up -d --build
+   brew install uv espeak-ng
+   scripts/kokoro-native-macos.sh          # Metal default; add --cpu for the fallback
+   curl -sf http://localhost:8880/health   # expect {"status":"healthy"}
    ```
 
-TTS (Kokoro) runs on CPU in Docker via the `cpu-tts` override, and **it is the
-dominant latency cost on macOS**. Measured on an M5, native Ollama on Metal keeps
-the LLM fast (time-to-first-token P50 ~640 ms), but CPU Kokoro TTS time-to-first-
-byte runs ~1.5–2.0 s, pushing voice-to-voice to roughly 2–3 s — well above the
-sub-second P50 the 16 GB NVIDIA target aims for. The stack is fully usable, just
-not snappy.
+   The server binds `0.0.0.0:8880` so the Docker VM can reach it via
+   `host.docker.internal` — the **same** unauthenticated-LAN caveat as the
+   `OLLAMA_HOST` bind above: keep the macOS firewall on and never port-forward
+   `8880` to the WAN. Stop it later with `scripts/kokoro-native-macos.sh stop`.
 
-Most of that TTS cost appears to be Docker-VM overhead rather than the lack of a
-GPU: for an 82M model, PyTorch/MPS carries per-op dispatch overhead that can make
-it *no faster* (sometimes slower) than the ONNX CPU path, so a native Metal (MPS)
-Kokoro via the upstream `start-gpu_mac.sh` is **not** an obvious win and is out of
-scope here (it would also add a second native host service). Running Kokoro
-natively at all — even on CPU — is the more promising follow-up, but it is
-unmeasured on this stack; treat lower macOS TTS latency as a future optimization.
-The first turn is additionally slow while models warm.
+6. Build and start with the macOS override (TTS is native Kokoro now, so there is
+   no `cpu-tts` override):
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.macos.yml up -d --build
+   ```
+
+Both GPU services now run natively on Metal. Measured on an M5: native Ollama keeps
+the LLM fast (time-to-first-token P50 ~640 ms) and **native Metal Kokoro TTS reaches
+~256 ms P50** (vs ~799 ms for the old CPU container) — even under load, while Ollama
+is generating on the same GPU, it holds ~344 ms. This brings macOS voice-to-voice
+close to the sub-second target rather than the 2–3 s the CPU container cost. If you
+hit MPS trouble (upstream Mac issues remsky/Kokoro-FastAPI#270), re-run the helper
+with `--cpu` for the CPU fallback (~433 ms P50). The first turn is still slower while
+models warm. Full measurements: `docs/macos-tts-benchmark-results.md`.
 
 #### macOS validation checklist
 
@@ -306,10 +315,21 @@ end (verified on an M5):
 
    Both must return the model list. A refused container-side request means
    `OLLAMA_HOST` is still `127.0.0.1` (redo step 2 and restart Ollama).
-4. **Services healthy on arm64:** `docker compose ps` shows `livekit-server`,
-   `agent`, `kokoro`, `nemo-stt-cpu`, and `web` up; `agent` logs reach
-   `registered worker` (`docker compose logs -f agent`).
-5. **One voice-to-voice turn:** open `http://localhost:3000`, grant the mic, pick a
+4. **Native Kokoro reachable host → container** (mirrors the Ollama check — native
+   Kokoro binds `0.0.0.0:8880` for exactly this):
+
+   ```bash
+   curl -sf http://localhost:8880/health         # from the host
+   docker run --rm curlimages/curl \
+     -sf http://host.docker.internal:8880/health # from inside a container
+   ```
+
+   Both must return `{"status":"healthy"}`. A refused container-side request means
+   the native Kokoro server isn't running — re-run `scripts/kokoro-native-macos.sh`.
+5. **Services healthy on arm64:** `docker compose ps` shows `livekit-server`,
+   `agent`, `kokoro`, `nemo-stt-cpu`, and `web` up (`kokoro` is the no-op stub); the
+   `agent` logs reach `registered worker` (`docker compose logs -f agent`).
+6. **One voice-to-voice turn:** open `http://localhost:3000`, grant the mic, pick a
    persona, and complete a spoken turn (mic → transcript → spoken reply).
 
 ### No Supported GPU

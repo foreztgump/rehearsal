@@ -51,6 +51,10 @@ opencode.json
 # The Windows-AMD field report is kept local-only (untracked).
 docs/*
 !docs/lan-exposure.md
+# Architecture decision records + the macOS TTS benchmark they cite are the durable,
+# versioned decision trail for the native-Kokoro topology — keep them tracked.
+!docs/adr/
+!docs/macos-tts-benchmark-results.md
 design-mockups/
 .worktrees/
 

@@ -1,24 +1,28 @@
-# Rehearsal macOS (Apple Silicon) override — native host Ollama on Metal, CPU
-# services in Docker. SAME topology as docker-compose.windows-amd.yml (they only
-# differ by platform name): Docker Desktop on macOS runs Linux containers in a VM
-# with NO GPU passthrough, so the Apple GPU (Metal/MPS) is unreachable from any
-# container. The ONLY GPU-accelerated LLM path is native host Ollama (the Ollama
-# Mac app, which uses Metal/MLX on Apple Silicon); the Docker services reach it
-# through host.docker.internal:11434.
+# Rehearsal macOS (Apple Silicon) override — native host Ollama AND Kokoro on Metal,
+# CPU services in Docker. Docker Desktop on macOS runs Linux containers in a VM with
+# NO GPU passthrough, so the Apple GPU (Metal/MPS) is unreachable from any container.
+# BOTH GPU-accelerated services therefore run natively on the host: the LLM in the
+# Ollama Mac app (Metal/MLX) and TTS in native Kokoro-FastAPI (Metal/MPS via
+# scripts/kokoro-native-macos.sh). The Docker services reach them through
+# host.docker.internal:11434 (Ollama) and :8880 (Kokoro).
 #
 # Use explicit -f flags (the COMPOSE_FILE colon form works on macOS too, but -f
-# matches the Windows-AMD doc style and is unambiguous):
-#   docker compose -f docker-compose.yml -f docker-compose.macos.yml -f docker-compose.cpu-tts.yml up -d
+# matches the Windows-AMD doc style and is unambiguous). NOTE: no cpu-tts override —
+# TTS is native host Kokoro now, not the CPU container:
+#   docker compose -f docker-compose.yml -f docker-compose.macos.yml up -d
 #
-# PREREQ (macOS-specific): native Ollama binds 127.0.0.1 by default, so a container
-# reaching it via host.docker.internal is refused until you widen the bind:
-#   launchctl setenv OLLAMA_HOST "0.0.0.0:11434"   # then restart the Ollama app
+# PREREQ (macOS-specific):
+#   - native Ollama binds 127.0.0.1 by default, so a container reaching it via
+#     host.docker.internal is refused until you widen the bind:
+#       launchctl setenv OLLAMA_HOST "0.0.0.0:11434"   # then restart the Ollama app
+#   - start native Kokoro before `up`:  scripts/kokoro-native-macos.sh
+#     (binds 0.0.0.0:8880 so the container can reach it via host.docker.internal).
 # See INSTALLATION.md ("macOS (Apple Silicon)") for the full walkthrough + checklist.
 #
-# The in-stack ollama service is reduced to a no-op stub (alpine sleep) so the base
-# agent.depends_on:ollama still resolves at config time — the real LLM is the native
-# host Ollama, not this container. TTS uses the CPU Kokoro override (loaded
-# alongside). STT stays on nemo-stt-cpu (unchanged); its arm64 image builds natively.
+# Both in-stack ollama and kokoro services are reduced to no-op stubs (alpine sleep)
+# so the base agent.depends_on:{ollama,kokoro} still resolves at config time — the
+# real LLM/TTS are the native host processes, not these containers. STT stays on
+# nemo-stt-cpu (unchanged); its arm64 image builds natively.
 services:
   ollama:
     # ponytail: no-op stub — the real LLM is native host Ollama (Metal). Kept as a
@@ -38,7 +42,27 @@ services:
         reservations:
           devices: !reset []
 
+  kokoro:
+    # ponytail: no-op stub — the real TTS is native host Kokoro-FastAPI (Metal/MPS).
+    # Kept as a sleep container so the base agent.depends_on:kokoro resolves at config
+    # time (profile-gating kokoro out makes depends_on reference an undefined service).
+    # Same pattern as the ollama stub above.
+    image: alpine:3.21
+    command: ["sleep", "infinity"]
+    # The base compose publishes 127.0.0.1:8880 for the in-container Kokoro. On macOS
+    # the real TTS is native host Kokoro, which already owns that port — so the stub's
+    # port publish would collide. Reset ports to [] (the stub serves nothing; the agent
+    # reaches host Kokoro outbound via host.docker.internal).
+    ports: !reset []
+    deploy:
+      resources:
+        reservations:
+          devices: !reset []
+
   agent:
     environment:
       - OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
       - OLLAMA_GENERATE_URL=http://host.docker.internal:11434/api/generate
+      # TTS is native host Kokoro on Metal (not the cpu-tts container). captioned_tts.py
+      # strips the /v1 suffix and calls /dev/captioned_speech at the server root.
+      - KOKORO_BASE_URL=http://host.docker.internal:8880/v1

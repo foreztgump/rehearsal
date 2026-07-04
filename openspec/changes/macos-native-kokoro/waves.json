@@ -1,0 +1,29 @@
+{
+  "change": "macos-native-kokoro",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "scripts/kokoro-native-macos.sh — bring-up + stop helper (Metal default, --cpu fallback)",
+      "files_modified": ["scripts/kokoro-native-macos.sh"],
+      "depends_on": []
+    },
+    {
+      "id": "T2",
+      "title": "docker-compose.macos.yml — stub kokoro container + KOKORO_BASE_URL host override",
+      "files_modified": ["docker-compose.macos.yml"],
+      "depends_on": []
+    },
+    {
+      "id": "T3",
+      "title": "install.sh — native-Kokoro macOS guidance + 2-file up command",
+      "files_modified": ["install.sh"],
+      "depends_on": ["T2"]
+    },
+    {
+      "id": "T4",
+      "title": "Docs — INSTALLATION.md + CHANGELOG.md + .gitignore carve-in (Metal default)",
+      "files_modified": ["INSTALLATION.md", "CHANGELOG.md", ".gitignore"],
+      "depends_on": ["T2"]
+    }
+  ]
+}
