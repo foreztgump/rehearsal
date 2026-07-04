@@ -58,7 +58,12 @@ advise() { printf 'ADVISE: %s\n' "$*"; DEGRADED=1; }
 hr()     { printf -- '----------------------------------------------------------------------\n'; }
 
 detect_gpu_vendor() {
-  if command -v nvidia-smi >/dev/null 2>&1; then
+  # macOS first: a Mac has no nvidia-smi and no /dev/kfd, so without this it would
+  # fall through to "none" and print a misleading CPU-degraded block — when native
+  # host Ollama on Metal is actually the correct, GPU-accelerated Mac path.
+  if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+    GPU_VENDOR="macos"
+  elif command -v nvidia-smi >/dev/null 2>&1; then
     GPU_VENDOR="nvidia"
   elif [ -e "${AMD_DEVICE_ROOT}/kfd" ] && [ -d "${AMD_DEVICE_ROOT}/dri" ]; then
     GPU_VENDOR="amd"
@@ -248,6 +253,26 @@ print_amd_advice() {
   hr
 }
 
+print_macos_advice() {
+  hr
+  ok "macOS detected — native host Ollama on Metal is the intended, GPU-accelerated path."
+  printf 'Docker Desktop on Mac cannot pass the Apple GPU into a container, so the LLM\n'
+  printf 'runs in NATIVE host Ollama (Metal/MLX) and the CPU services run in Docker.\n\n'
+  printf 'One-time: native Ollama binds 127.0.0.1, so widen it for host.docker.internal\n'
+  printf '(then restart the Ollama app):\n'
+  printf '  launchctl setenv OLLAMA_HOST "0.0.0.0:11434"\n\n'
+  printf 'Start the stack with the macOS + CPU-TTS overrides:\n\n'
+  printf '  docker compose -f docker-compose.yml -f docker-compose.macos.yml \\\n'
+  printf '    -f docker-compose.cpu-tts.yml up -d\n\n'
+  printf 'Recommended .env settings:\n'
+  printf '  STT_ENGINE=buffered\n'
+  printf '  STT_BUFFERED_DEVICE=cpu\n'
+  printf '  STT_FORCE_CPU=1\n\n'
+  printf 'See INSTALLATION.md ("macOS (Apple Silicon)") for the model tiers (abliterated\n'
+  printf 'GGUF default vs MLX opt-in) and the validation checklist.\n'
+  hr
+}
+
 advise_summary() {
   printf 'One or more checks need attention. The stack still runs VRAM-safe on CPU\n'
   printf 'STT + the Fast model. Copy these into .env (this script does NOT edit .env):\n\n'
@@ -270,6 +295,8 @@ main() {
       check_cuda_floor
       check_vram_floor
       print_advice ;;
+    macos)
+      print_macos_advice ;;
     amd)
       print_amd_advice ;;
     *)
