@@ -6,6 +6,10 @@ All notable changes to Rehearsal are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `ci`: automated code review on every pull request. Review-only
+  (describe/improve off). Requires the review API key repo secret.
+
 ## [0.2.2] - 2026-07-03
 
 Field-report follow-through: the Windows AMD install path, VRAM-aware model

@@ -53,3 +53,12 @@ docs/*
 !docs/lan-exposure.md
 design-mockups/
 .worktrees/
+
+# Local develop-engine workflow artifacts (never repo content)
+WRAP_UP.md
+.factory-state/
+
+# Machine-specific live-test compose overrides (header: "LIVE-TEST ONLY").
+# The committed docker-compose.*.yml are the shipping topology; these bridge a
+# local operator's pre-rename volumes and must stay untracked.
+docker-compose.livetest-*.yml
