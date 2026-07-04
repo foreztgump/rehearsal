@@ -37,6 +37,8 @@ HEALTH_URL="http://localhost:${KOKORO_PORT}/health"
 PYTHON_VERSION="3.10"
 HEALTH_MAX_TRIES=40                       # health-poll bound: tries × interval = total wait
 HEALTH_POLL_INTERVAL_S=3                  # first MPS boot loads weights, so allow ~2 min
+MODEL_WEIGHTS_DIR="api/src/models/v1_0"   # where upstream expects the v1.0 weights
+MODEL_WEIGHTS="$MODEL_WEIGHTS_DIR/kokoro-v1_0.pth"  # the file whose absence crashes startup
 
 log() { printf '%s\n' "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
@@ -92,6 +94,15 @@ if [ ! -x .venv/bin/uvicorn ]; then
   log "Creating venv + installing Kokoro CPU deps (torch 2.8.0; MPS built in) ..."
   uv venv --python "$PYTHON_VERSION" .venv
   uv pip install --python .venv/bin/python -e ".[cpu]"
+fi
+
+# --- model weights (upstream start-*.sh download these; we launch uvicorn
+# directly, so we must fetch them ourselves or startup dies with
+# "File not found: v1_0/kokoro-v1_0.pth"). Idempotent: skip if already present. --
+if [ ! -f "$MODEL_WEIGHTS" ]; then
+  log "Downloading Kokoro v1.0 model weights (~327 MB) ..."
+  .venv/bin/python docker/scripts/download_model.py --output "$MODEL_WEIGHTS_DIR"
+  [ -f "$MODEL_WEIGHTS" ] || die "model download did not produce $MODEL_WEIGHTS"
 fi
 
 # --- launch ------------------------------------------------------------------
