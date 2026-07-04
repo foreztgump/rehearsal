@@ -261,6 +261,11 @@ same topology, but Ollama falls back to CPU there.
    #   REHEARSAL_DEFAULT_MODEL=fast
    #   OLLAMA_MODEL_FAST=evalengine/unbound-e2b:latest
    #   OLLAMA_MODEL=evalengine/unbound-e2b:latest
+   # Leave STT on CPU. `.env.example` already ships STT_FORCE_CPU=1 (the safe
+   # default) — do NOT set it to 0 on a Mac: Docker here has no container GPU, so
+   # the GPU-STT placement path points at a `nemo-stt` service that never starts and
+   # the agent hangs on "Listening to you...".
+   #   STT_FORCE_CPU=1   # keep as-is
    ```
 
 5. Start native Kokoro TTS on Metal. Like the LLM, TTS needs the Apple GPU, which
@@ -428,7 +433,7 @@ upgrading you may see two issues:
 | Browser cannot connect after WSL restart | Docker port proxies are stale. | Run `docker compose down`, then `docker compose up -d`. |
 | Agent crash-loops with `ws_url is required` | Missing `LIVEKIT_URL`. | Fixed in compose (agent sets `LIVEKIT_URL`); rebuild from the latest tree. |
 | Agent loops during prewarm | Cold model load exceeded worker init timeout. | `AGENT_INIT_TIMEOUT_S` defaults to 300s; raise it further on very slow hosts. |
-| Agent stuck on "Listening to you..."; logs show `Connection error.` | `.env` selects GPU STT (`STT_FORCE_CPU=0` + `STT_HEADROOM_MEASURED=1`) but the opt-in `stt-gpu` profile is not running. | Start it: `docker compose --profile stt-gpu up -d nemo-stt` (or `COMPOSE_PROFILES=stt-gpu ./up.sh -d`). `up.sh`/`up.ps1` warn about this. |
+| Agent stuck on "Listening to you..."; logs show `Connection error.` (`Cannot connect to host nemo-stt:8000`) | `.env` selects GPU STT (`STT_FORCE_CPU=0` + `STT_HEADROOM_MEASURED=1`) but no `nemo-stt` GPU service is running. | **NVIDIA:** start the opt-in profile — `docker compose --profile stt-gpu up -d nemo-stt` (or `COMPOSE_PROFILES=stt-gpu ./up.sh -d`); `up.sh`/`up.ps1` warn about this. **macOS/Windows-AMD (no container GPU):** GPU STT can't run at all — set `STT_FORCE_CPU=1` in `.env` and recreate the agent (`docker compose … up -d --force-recreate agent`). |
 | First turn slow / not sub-second on a small GPU | Cold STT/LLM/TTS warmup and/or sub-16GB VRAM. | Expected. The installer defaults `<=8GB` NVIDIA cards to the `floor` model; wait for `registered worker` in the agent logs. |
 | `./down.sh` stops nothing after upgrading | Pre-rename containers ran under the old `voice-trainer` compose project (now `rehearsal`). | Stop the old project once: `docker compose -p voice-trainer down`. See "Upgrading from a pre-rename install". |
 

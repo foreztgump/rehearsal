@@ -47,6 +47,21 @@ All notable changes to Rehearsal are documented here. The format follows
   and points `KOKORO_BASE_URL` at `host.docker.internal:8880`). native-CPU Kokoro remains
   a documented one-flag fallback (`scripts/kokoro-native-macos.sh --cpu`).
 
+### Fixed
+- `install`: `scripts/kokoro-native-macos.sh` now downloads the Kokoro v1.0 model
+  weights (`docker/scripts/download_model.py`) before launching uvicorn. Because the
+  script launches uvicorn directly (rather than via upstream's `start-*.sh`, which
+  fetch the weights), the server previously crashed on startup with
+  `FileNotFoundError: v1_0/kokoro-v1_0.pth` and never became healthy. Idempotent —
+  skips the ~327 MB download when the weights already exist. Found in M5 live testing.
+- `docs`: the macOS `.env` guidance (INSTALLATION.md step 4 and `install.sh`) now
+  calls out keeping `STT_FORCE_CPU=1` — the `.env.example` default — and the "stuck on
+  Listening to you…" troubleshooting row gains a macOS/Windows-AMD remedy. Docker on
+  Mac has no container GPU, so setting it to `0` sends STT placement to a `nemo-stt`
+  service that never starts and the agent hangs with `Cannot connect to host
+  nemo-stt:8000`. Found in M5 live testing (voice-to-voice then works end-to-end:
+  STT ~113 ms, LLM TTFT ~392 ms P50, native-Metal TTS TTFB ~907 ms P50).
+
 ### Security
 - `docs`: the macOS `OLLAMA_HOST=0.0.0.0:11434` bind step (INSTALLATION.md and
   `install.sh` guidance) now warns that it exposes Ollama's **unauthenticated** API

@@ -142,6 +142,8 @@ show_macos_guidance_and_exit() {
   log "       ollama pull gemma4:e2b-nvfp4      # or gemma4:e4b-mlx-bf16"
   log "  4. Scaffold .env (copy .env.example to .env; set a random LIVEKIT_API_SECRET"
   log "     and the single-model config — see INSTALLATION.md 'macOS (Apple Silicon)')."
+  log "     Keep STT_FORCE_CPU=1 (the .env.example default) — Docker on Mac has no"
+  log "     container GPU, so GPU STT can't run; setting it to 0 hangs the agent."
   log "  5. Start native Kokoro TTS on Metal (binds 0.0.0.0:8880 so the container can"
   log "     reach it via host.docker.internal — same LAN caveat as the Ollama bind):"
   log "       brew install uv espeak-ng"
