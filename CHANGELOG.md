@@ -21,9 +21,9 @@ All notable changes to Rehearsal are documented here. The format follows
   container (see `docs/adr/0002` + `docs/macos-tts-benchmark-results.md`).
 - `install.sh` detects macOS (`uname -s = Darwin`) and prints the exact manual
   steps — install the Ollama Mac app, `launchctl setenv OLLAMA_HOST "0.0.0.0:11434"`
-  (+ restart), `ollama pull`, scaffold `.env`, then bring the stack up with the
-  `macos` + `cpu-tts` overrides — then stops, instead of running the wrong
-  all-in-container CPU topology.
+  (+ restart), `ollama pull`, scaffold `.env`, start native Kokoro TTS, then bring
+  the stack up with the `macos` override (TTS is native now, no `cpu-tts`) — then
+  stops, instead of running the wrong all-in-container CPU topology.
 - `gpu-doctor.sh` gains a macOS branch: it recognizes `Darwin` as the native-Ollama
   + Metal path (not a misleading "no GPU" degrade) and advises the `OLLAMA_HOST`
   bind widen, the macOS compose invocation, and CPU-STT `.env` settings.
