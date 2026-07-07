@@ -7,6 +7,11 @@ All notable changes to Rehearsal are documented here. The format follows
 ## [Unreleased]
 
 ### Docs
+- `docs`/`README`: added an animated UI-preview GIF and centered hero block to the
+  top of the README (`docs/assets/rehearsal-demo.gif`), rendered from the
+  `design-mockups/v4` aurora-veil concept, so the project page shows the session
+  UI at a glance. Labeled "UI preview" — it is the interface, not a captured
+  live-latency benchmark.
 - `docs`/`install`: the macOS Ollama bind-widen step now documents the Ollama Mac
   app's **Settings → "Expose Ollama to the network"** GUI toggle (v0.10+) as an
   equivalent to `launchctl setenv OLLAMA_HOST "0.0.0.0:11434"` — either binds
