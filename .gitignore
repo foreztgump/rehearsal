@@ -55,6 +55,8 @@ docs/*
 # versioned decision trail for the native-Kokoro topology — keep them tracked.
 !docs/adr/
 !docs/macos-tts-benchmark-results.md
+# README hero asset (UI-preview GIF) is a shipping doc — keep it tracked.
+!docs/assets/
 design-mockups/
 .worktrees/
 

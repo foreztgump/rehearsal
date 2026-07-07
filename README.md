@@ -2,6 +2,12 @@
 
 Local-first, private voice practice with expert personas.
 
+<p align="center">
+  <img src="docs/assets/rehearsal-demo.gif" alt="Rehearsal UI: pick a persona, speak, and get a near-real-time spoken reply — all running locally." width="820">
+  <br>
+  <em>Pick a persona and practice out loud — fast, near-real-time replies (voice-to-voice P50 &lt; 1.0s), 100% on your LAN. <sub>(UI preview)</sub></em>
+</p>
+
 Rehearsal lets you pick a persona, choose a practice mode, optionally add local
 reference documents, and speak with the agent in your browser. STT, LLM, TTS,
 LiveKit, and browser assets run locally or on your LAN; audio, transcripts, KB
