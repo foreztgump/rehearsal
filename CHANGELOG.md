@@ -150,6 +150,11 @@ All notable changes to Rehearsal are documented here. The format follows
   normal test sweep so a prompt edit can no longer silently drift the golden string.
 
 ### Docs
+- `README`: added a **Features** section and a **Voice & avatar** subsection so the
+  front page actually surfaces the two headline optional features — the 3D avatar
+  (lip-sync, per-sentence emotion, head motion, laughter, brows) and the opt-in
+  expressive voice (Kokoro-default vs Chatterbox tradeoff, `--expressive` install) —
+  with a deep link to the INSTALLATION.md expressive-voice section.
 - `docs`/`README`: added an animated UI-preview GIF and centered hero block to the
   top of the README (`docs/assets/rehearsal-demo.gif`), rendered from the
   `design-mockups/v4` aurora-veil concept, so the project page shows the session
