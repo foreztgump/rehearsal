@@ -166,6 +166,16 @@ All notable changes to Rehearsal are documented here. The format follows
   `docker-compose.macos.yml`, and `scripts/gpu-doctor.sh`.
 
 ### Fixed
+- `web`/`install`: review-pass fixes on the avatar/voice branch — (1) updated two stale
+  avatar gaze-lock tests that still asserted the pre-"come alive" behaviour
+  (`avatarSpeakingHeadMove` 0 and head-axis locks) after Avatar A freed head motion;
+  (2) added the missing `.ts` extension on `savedPersonas.ts`'s `voiceMap` import so the
+  Node `.mjs` tests load it; (3) made the installer's `COMPOSE_PROFILES` edit
+  token-accurate in both `install.sh` and `install.ps1` so disabling expressive removes
+  only the `expressive` token and preserves any other profile (e.g. `stt-gpu`); and
+  (4) made the compose-topology default render hermetic against a persisted
+  `COMPOSE_PROFILES` in `.env`. Added `formatVoiceLabel` unit tests incl. a
+  web↔agent voice-map drift guard.
 - `agent`: the avatar no longer turns **sad on plain acknowledgment**. `"i hear you"`
   was removed from the sympathy lexicon (`agent/emotion.py`) because the coach uses it
   as an agreement opener (`"i hear you have some concerns…"`) far more often than as

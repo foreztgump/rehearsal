@@ -204,19 +204,19 @@ test("activeVisemeAt returns the scheduled viseme for the current audio time", (
   assert.equal(activeVisemeAt(active, 6), null);
 });
 
-test("speaking avatar behavior holds eye contact without head scanning", () => {
+test("speaking avatar keeps eye contact but lets the head move (not a statue)", () => {
+  // Avatar A: a strong eye-contact bias, but head motion is ON (0.4) so the avatar
+  // is not a frozen statue, and only the EYES are gaze-locked — the head-rotate axes
+  // are intentionally free so the library's speaking head sway + neck bob come through.
   assert.equal(TALKINGHEAD_SPEAKING_BEHAVIOR.avatarSpeakingEyeContact, 1);
-  assert.equal(TALKINGHEAD_SPEAKING_BEHAVIOR.avatarSpeakingHeadMove, 0);
+  assert.equal(TALKINGHEAD_SPEAKING_BEHAVIOR.avatarSpeakingHeadMove, 0.4);
   assert.deepEqual(TALKINGHEAD_SPEAKING_GAZE_LOCKS, [
     ["eyesRotateX", 0],
     ["eyesRotateY", 0],
-    ["headRotateX", 0],
-    ["headRotateY", 0],
-    ["headRotateZ", 0],
   ]);
 });
 
-test("applySpeakingGazeLock fixes and releases speaking eye/head targets", () => {
+test("applySpeakingGazeLock fixes and releases ONLY the eye targets", () => {
   const calls = [];
   const head = {
     setFixedValue(mt, val) {
@@ -230,13 +230,7 @@ test("applySpeakingGazeLock fixes and releases speaking eye/head targets", () =>
   assert.deepEqual(calls, [
     ["eyesRotateX", 0],
     ["eyesRotateY", 0],
-    ["headRotateX", 0],
-    ["headRotateY", 0],
-    ["headRotateZ", 0],
     ["eyesRotateX", null],
     ["eyesRotateY", null],
-    ["headRotateX", null],
-    ["headRotateY", null],
-    ["headRotateZ", null],
   ]);
 });

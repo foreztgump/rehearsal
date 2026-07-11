@@ -337,16 +337,29 @@ write_expressive_env() {
   fi
   if [ "$want" = "1" ]; then
     if grep -q '^COMPOSE_PROFILES=' .env 2>/dev/null; then
-      grep -q '^COMPOSE_PROFILES=.*expressive' .env || \
-        sed -i "s|^COMPOSE_PROFILES=\(.*\)|COMPOSE_PROFILES=\1,expressive|" .env
+      # Append the token only if not already present (exact token match among the
+      # comma-separated list, so a substring like "expressive2" wouldn't false-match).
+      current="$(sed -n 's|^COMPOSE_PROFILES=\(.*\)|\1|p' .env | head -n1)"
+      if ! printf '%s' "$current" | tr ',' '\n' | grep -qx 'expressive'; then
+        sed -i "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=${current},expressive|" .env
+      fi
     else
       printf 'COMPOSE_PROFILES=expressive\n' >> .env
     fi
   else
-    # Remove the profile so a later default re-run stops starting chatterbox. Drops the
-    # whole line only when it is exactly the expressive profile (leaves multi-profile
-    # setups, e.g. stt-gpu, untouched — the operator manages those).
-    sed -i '/^COMPOSE_PROFILES=expressive$/d' .env
+    # Remove ONLY the `expressive` token from the profile list (so a later default
+    # re-run stops starting chatterbox), preserving any other profiles the operator
+    # set (e.g. stt-gpu). If it was the only profile, drop the whole line.
+    if grep -q '^COMPOSE_PROFILES=' .env 2>/dev/null; then
+      current="$(sed -n 's|^COMPOSE_PROFILES=\(.*\)|\1|p' .env | head -n1)"
+      # Comma-split, drop the expressive token, re-join — order/other profiles preserved.
+      remaining="$(printf '%s' "$current" | tr ',' '\n' | grep -vx 'expressive' | paste -sd, -)"
+      if [ -n "$remaining" ]; then
+        sed -i "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=${remaining}|" .env
+      else
+        sed -i '/^COMPOSE_PROFILES=/d' .env
+      fi
+    fi
   fi
 }
 

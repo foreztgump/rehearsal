@@ -39,8 +39,11 @@ check() {
 }
 
 # Render both graphs once as JSON and interrogate with python3 (already a hard dep).
-DEFAULT_JSON="$(docker compose config --format json)"
-GPU_JSON="$(docker compose --profile stt-gpu config --format json)"
+# Force COMPOSE_PROFILES empty for the "default" render so an operator's .env (which
+# may persist e.g. `expressive` or `stt-gpu`) can't pollute the no-profile baseline the
+# default-render assertions depend on. The profiled renders opt their profile back in.
+DEFAULT_JSON="$(COMPOSE_PROFILES= docker compose config --format json)"
+GPU_JSON="$(COMPOSE_PROFILES= docker compose --profile stt-gpu config --format json)"
 
 # has_service <json> <name>  -> prints true|false
 has_service() {

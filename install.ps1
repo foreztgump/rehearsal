@@ -290,17 +290,21 @@ function Write-ExpressiveEnv {
   $want = if ($script:InstallExpressive) { "1" } else { "0" }
   $envContent = Get-Content .env -Raw
   $envContent = Set-EnvKey $envContent "NEXT_PUBLIC_REHEARSAL_EXPRESSIVE_AVAILABLE" $want
+  # Read the existing profile list (empty if the line is absent) and edit it by TOKEN,
+  # so other profiles the operator set (e.g. stt-gpu) are preserved either way.
+  $m = [regex]::Match($envContent, "(?m)^COMPOSE_PROFILES=(.*)$")
+  $tokens = @()
+  if ($m.Success) { $tokens = $m.Groups[1].Value.Split(",") | Where-Object { $_ -ne "" } }
   if ($want -eq "1") {
-    if ($envContent -match "(?m)^COMPOSE_PROFILES=") {
-      if ($envContent -notmatch "(?m)^COMPOSE_PROFILES=.*expressive") {
-        $envContent = $envContent -replace "(?m)^COMPOSE_PROFILES=(.*)", 'COMPOSE_PROFILES=$1,expressive'
-      }
-    } else {
-      $envContent = Set-EnvKey $envContent "COMPOSE_PROFILES" "expressive"
-    }
+    if ($tokens -notcontains "expressive") { $tokens += "expressive" }
   } else {
-    # Drop the profile line only when it is exactly the expressive profile.
-    $envContent = $envContent -replace "(?m)^COMPOSE_PROFILES=expressive`r?`n", ""
+    $tokens = $tokens | Where-Object { $_ -ne "expressive" }
+  }
+  if ($tokens.Count -gt 0) {
+    $envContent = Set-EnvKey $envContent "COMPOSE_PROFILES" ($tokens -join ",")
+  } elseif ($m.Success) {
+    # No profiles left — drop the line entirely.
+    $envContent = $envContent -replace "(?m)^COMPOSE_PROFILES=.*`r?`n?", ""
   }
   Set-Content .env $envContent
 }

@@ -1,5 +1,5 @@
 export const SAVED_PERSONAS_KEY = "adept.savedPersonas.v1";
-import { chatterboxVoiceName } from "./voiceMap";
+import { chatterboxVoiceName } from "./voiceMap.ts";
 
 export const PERSONA_VOICE_IDS = [
   "af_heart",
