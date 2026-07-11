@@ -171,6 +171,11 @@ All notable changes to Rehearsal are documented here. The format follows
   `docker-compose.macos.yml`, and `scripts/gpu-doctor.sh`.
 
 ### Fixed
+- `agent`: the "laugh on command" path no longer fires on **incidental mentions** of
+  laughter. `wants_laugh` now word-boundary matches (`\b(?:laugh|lol|(?:ha){2,})\b`), so
+  "I was laughing about that", "that's laughable", "we shared a lot of laughter", and
+  "lollipop" no longer force a `[laugh]` onto the reply — only a direct command
+  ("laugh", "lol", "haha…") does. Regression tests added in `tests/test_paralinguistics.py`.
 - `web`/`install`: review-pass fixes on the avatar/voice branch — (1) updated two stale
   avatar gaze-lock tests that still asserted the pre-"come alive" behaviour
   (`avatarSpeakingHeadMove` 0 and head-axis locks) after Avatar A freed head motion;

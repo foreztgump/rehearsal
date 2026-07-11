@@ -27,10 +27,21 @@ def test_strip_tags_leaves_plain_text_unchanged():
 def test_wants_laugh_detects_direct_request():
     assert paralinguistics.wants_laugh("Just laugh, please.") is True
     assert paralinguistics.wants_laugh("Okay, let me hear you laugh.") is True
+    assert paralinguistics.wants_laugh("haha that's great") is True
+    assert paralinguistics.wants_laugh("lol") is True
 
 
 def test_wants_laugh_false_on_normal_speech():
     assert paralinguistics.wants_laugh("Let's talk about my project.") is False
+
+
+def test_wants_laugh_false_on_incidental_mentions():
+    # Word-boundary matched: an inflected form or an embedded substring is NOT a command,
+    # so it must not force a [laugh] onto the reply (production on_user_turn path).
+    assert paralinguistics.wants_laugh("I was laughing about that earlier.") is False
+    assert paralinguistics.wants_laugh("That whole plan is laughable.") is False
+    assert paralinguistics.wants_laugh("We shared a lot of laughter.") is False
+    assert paralinguistics.wants_laugh("She handed me a lollipop.") is False
 
 
 def test_laugh_kind_detects_full_laugh():
@@ -56,6 +67,7 @@ if __name__ == "__main__":
     test_strip_tags_leaves_plain_text_unchanged()
     test_wants_laugh_detects_direct_request()
     test_wants_laugh_false_on_normal_speech()
+    test_wants_laugh_false_on_incidental_mentions()
     test_laugh_kind_detects_full_laugh()
     test_laugh_kind_detects_chuckle()
     test_laugh_kind_full_laugh_wins_over_chuckle()

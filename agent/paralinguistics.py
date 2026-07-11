@@ -35,9 +35,10 @@ CHUCKLE_TAG = "[chuckle]"
 _TAG_PATTERN = re.compile(r"\[(?:laugh|chuckle|cough)\]")
 
 # A direct user ask to laugh, in the user's STT transcript (Part B, command path).
-_LAUGH_REQUEST_KEYWORDS: tuple[str, ...] = (
-    "laugh", "haha", "hahaha", "lol",
-)
+# Word-boundary matched so it fires on the COMMAND ("laugh", "lol", "haha…") but not
+# on incidental mentions — "laughing"/"laughter"/"laughable" or "lol" inside
+# "lollipop" must NOT force a [laugh] onto the reply.
+_LAUGH_REQUEST_PATTERN = re.compile(r"\b(?:laugh|lol|(?:ha){2,})\b")
 
 
 def strip_tags(text: str) -> str:
@@ -50,8 +51,7 @@ def strip_tags(text: str) -> str:
 
 def wants_laugh(user_text: str) -> bool:
     """True when the user's transcript is a direct request to laugh (command path)."""
-    lowered = user_text.lower()
-    return any(k in lowered for k in _LAUGH_REQUEST_KEYWORDS)
+    return _LAUGH_REQUEST_PATTERN.search(user_text.lower()) is not None
 
 
 def laugh_kind(text: str) -> str | None:
