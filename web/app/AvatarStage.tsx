@@ -109,6 +109,11 @@ const VISEME_MORPHS = [
   "viseme_RR",
 ];
 
+// Engagement-lift brows (B2): the outer-brow morphs driven by the speech-energy
+// envelope. browOuterUp SPECIFICALLY (not browInnerUp) so the realtime override
+// doesn't stomp the mood baseline's emotional brows — see the tick's tuning note.
+const BROW_MORPHS = ["browOuterUpLeft", "browOuterUpRight"];
+
 const SPEAKING_GESTURE_INTERVAL_MS = 2600;
 const SPEAKING_GESTURE_PROBABILITY = 0.35;
 
@@ -483,6 +488,23 @@ export default function AvatarStage({
       const VISEME_ATTACK = 0.32; // shape blend-in — eased, not snapped (was 0.5 rigid, 0.4 pre-C)
       const VISEME_RELEASE = 0.22; // shape decay — gentler cross-fade (was 0.28)
 
+      // --- Engagement-lift brows (B2). A gentle, HEAVILY smoothed outer-brow raise
+      // tracking overall speech energy, so the face reads as animated/engaged rather
+      // than a still mask under a moving mouth. This is an engagement ENVELOPE, not
+      // per-word emphasis: the very slow attack/release make the brows drift over
+      // ~1s with phrase energy, never twitch per syllable. Drives browOuterUp*
+      // SPECIFICALLY (not browInnerUp): the realtime tier OVERRIDES the mood baseline
+      // (talkinghead.mjs:1622, base=null), and browInnerUp carries sad's furrow (0.6)
+      // / love's raise (0.4), so driving it would stomp those emotional brows.
+      // browOuterUp is 0 on neutral/happy and only 0.2 on sad/love, so a small lift
+      // here never fights any mood's expression. (BROW_MORPHS is module-scoped so the
+      // turn-end reset can release the same morphs.)
+      const BROW_LIFT_MAX = 0.28; // gentle cap — engaged, not surprised
+      const BROW_LIFT_GAIN = 3.5; // energy→lift slope (well below the mouth's)
+      const BROW_ATTACK = 0.06; // VERY slow rise → drifts with phrase, no per-syllable twitch
+      const BROW_RELEASE = 0.04; // even slower settle when quiet
+      let browLift = 0;
+
       // Find the dominant spectral peak (bin index) within [loHz,hiHz].
       const peakHz = (loHz: number, hiHz: number) => {
         const lo = Math.max(1, Math.floor(loHz / hz));
@@ -508,7 +530,9 @@ export default function AvatarStage({
           // skip the energy/viseme drive entirely this frame.
           releaseRealtime(h, "mouthOpen");
           for (const key of VISEME_MORPHS) releaseRealtime(h, key);
+          for (const key of BROW_MORPHS) releaseRealtime(h, key);
           smooth = 0;
+          browLift = 0;
           const idleRaf = requestAnimationFrame(tick);
           if (tapRef.current) tapRef.current.raf = idleRaf;
           return;
@@ -529,6 +553,14 @@ export default function AvatarStage({
         // this immediately, so this is the ONLY smoothing in the chain.
         const k = open > smooth ? MOUTH_ATTACK : MOUTH_RELEASE;
         smooth += (open - smooth) * k;
+
+        // --- 1b) Engagement-lift brows (B2). Same rms envelope, its own gentle slope
+        // and heavy smoothing so the outer brows drift with phrase energy (engagement)
+        // rather than snapping per syllable. Written to the realtime tier below.
+        const browGoal = mutedRef.current
+          ? 0
+          : Math.min(BROW_LIFT_MAX, Math.max(0, rms - MOUTH_OPEN_FLOOR) * BROW_LIFT_GAIN);
+        browLift += (browGoal - browLift) * (browGoal > browLift ? BROW_ATTACK : BROW_RELEASE);
 
         // --- 2) Path-B anchoring: start the first queued schedule on audible audio,
         // and chain the next one from the prior schedule end if audio stays audible.
@@ -633,6 +665,7 @@ export default function AvatarStage({
         try {
           setRealtime(h, "mouthOpen", smooth);
           for (const key of VISEME_MORPHS) setRealtime(h, key, vw[key]);
+          for (const key of BROW_MORPHS) setRealtime(h, key, browLift);
         } catch {
           /* non-fatal per-frame */
         }
@@ -725,6 +758,7 @@ export default function AvatarStage({
       try {
         releaseRealtime(head, "mouthOpen");
         for (const v of VISEME_MORPHS) releaseRealtime(head, v);
+        for (const v of BROW_MORPHS) releaseRealtime(head, v);
       } catch {
         /* non-fatal */
       }

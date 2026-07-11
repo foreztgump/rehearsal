@@ -7,6 +7,16 @@ All notable changes to Rehearsal are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `web`: the avatar's **brows now lift subtly while it speaks** so the face reads as
+  engaged rather than a still mask under a moving mouth. A heavily smoothed
+  engagement envelope drives the outer-brow morphs off the same speech-energy signal
+  the mouth uses (`web/app/AvatarStage.tsx`: `BROW_MORPHS` + `BROW_LIFT_*` constants),
+  with a very slow attack/release so the brows drift with phrase energy instead of
+  twitching per syllable. It drives `browOuterUp*` specifically (never `browInnerUp`)
+  because the realtime morph tier *overrides* the mood baseline, so touching the inner
+  brows would stomp the emotional brows (sad's furrow, love's raise); the outer brows
+  are ~0 across moods, so the lift never fights a mood's expression. Released back to
+  the mood baseline on mute/turn-end alongside the mouth morphs.
 - `web`/`agent`: the 3D avatar now **laughs on its face when the voice laughs**. In
   expressive mode the agent tags a sentence's laugh cue (`laugh`/`chuckle`, from the
   `[laugh]`/`[chuckle]` tag it already emits) onto the per-sentence `lk.avatar.mood`
