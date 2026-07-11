@@ -1,4 +1,5 @@
 export const SAVED_PERSONAS_KEY = "adept.savedPersonas.v1";
+import { chatterboxVoiceName } from "./voiceMap";
 
 export const PERSONA_VOICE_IDS = [
   "af_heart",
@@ -15,6 +16,28 @@ export const PERSONA_VOICE_IDS = [
   "bm_george",
   "bm_daniel",
 ] as const;
+
+// Humanize a persona voice id for display. The id is the on-the-wire contract
+// (persona.voice_id) so the VALUE always stays the id — only the LABEL is decoded. The
+// id encodes accent + gender in its first two chars (a*=US, b*=British; *f_=female,
+// *m_=male) followed by the voice name, e.g. "af_bella" -> "Bella — US, female".
+//
+// `expressive` makes the label HONEST for Chatterbox (Plan B): expressive mode maps
+// the persona voice to a gender-matched Chatterbox voice server-side, so the label
+// shows the ACTUAL Chatterbox name (e.g. "Olivia") to match what is heard. Only gender
+// is preserved by that mapping (not accent), so the expressive label omits the accent.
+export function formatVoiceLabel(voiceId: string, expressive = false): string {
+  const match = /^([ab])([fm])_(.+)$/.exec(voiceId);
+  if (!match) return voiceId; // unknown shape: show the raw id rather than guess
+  const [, accent, gender, name] = match;
+  const genderLabel = gender === "f" ? "female" : "male";
+  if (expressive) {
+    return `${chatterboxVoiceName(voiceId)} — ${genderLabel}`;
+  }
+  const accentLabel = accent === "a" ? "US" : "British";
+  const displayName = name.charAt(0).toUpperCase() + name.slice(1);
+  return `${displayName} — ${accentLabel}, ${genderLabel}`;
+}
 
 export const PERSONA_DIFFICULTY = ["beginner", "intermediate", "expert"] as const;
 export const PERSONA_VERBOSITY = ["terse", "balanced", "detailed"] as const;

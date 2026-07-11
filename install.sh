@@ -10,12 +10,24 @@
 #
 #   ./install.sh            # interactive, from a cloned checkout
 #   ./install.sh -y         # accept the plan non-interactively (CI / repeat)
+#   ./install.sh --expressive   # also build + enable expressive voice (Chatterbox)
 #   ASSUME_YES=1 ./install.sh
+#   INSTALL_EXPRESSIVE=1 ./install.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 
 ASSUME_YES="${ASSUME_YES:-0}"
-[ "${1:-}" = "-y" ] && ASSUME_YES=1
+# Opt-in expressive voice (Chatterbox-Turbo): OFF by default. Enable via the
+# --expressive flag or INSTALL_EXPRESSIVE=1. It is a large extra build (~19GB image)
+# and ~4.3GB resident VRAM, GPU-only, and deliberately exceeds the P50<1.0s budget —
+# so it is never installed unless explicitly requested.
+INSTALL_EXPRESSIVE="${INSTALL_EXPRESSIVE:-0}"
+for arg in "$@"; do
+  case "$arg" in
+    -y) ASSUME_YES=1 ;;
+    --expressive) INSTALL_EXPRESSIVE=1 ;;
+  esac
+done
 # Model-default + readiness tunables (single-sourced; no magic numbers inline).
 # VRAM_SMALL_MB: NVIDIA cards at/below this can't comfortably co-fit the Better tier,
 # so the installer defaults them to the smaller Floor model (field report rec #5).
@@ -288,6 +300,56 @@ write_model_env() {
   fi
 }
 
+# --- 1d-bis. Expressive-voice opt-in (Chatterbox) ---------------------------
+# GPU-only, large build, exceeds the latency budget — so it is opt-in and prompted
+# (unless --expressive/INSTALL_EXPRESSIVE=1 already set it, or the plan is accepted
+# non-interactively). On a non-NVIDIA host it is force-disabled (no CPU fallback).
+prompt_expressive() {
+  gpu="$1"
+  if [ "$gpu" != "nvidia" ]; then
+    [ "$INSTALL_EXPRESSIVE" = "1" ] && \
+      log "Expressive voice needs an NVIDIA GPU (none detected) — disabling it."
+    INSTALL_EXPRESSIVE=0
+    return 0
+  fi
+  # Already opted in (flag/env) or accepting the plan non-interactively: keep as-is.
+  [ "$INSTALL_EXPRESSIVE" = "1" ] && return 0
+  [ "$ASSUME_YES" = "1" ] && return 0
+  printf 'Install expressive voice (Chatterbox)? ~19GB extra build, +4.3GB VRAM, exceeds the P50<1.0s budget [y/N] '
+  read -r reply
+  case "$reply" in
+    y|Y|yes|Yes) INSTALL_EXPRESSIVE=1 ;;
+    *) INSTALL_EXPRESSIVE=0 ;;
+  esac
+}
+
+# --- 1d-ter. Write the expressive-voice env (baked into web + read by up.sh) -
+# Two keys: NEXT_PUBLIC_REHEARSAL_EXPRESSIVE_AVAILABLE bakes the picker into the web
+# bundle; COMPOSE_PROFILES=expressive makes up.sh (which reads COMPOSE_PROFILES) bring
+# the chatterbox service up. Both are set only when opted in; otherwise cleared to the
+# default so re-running WITHOUT --expressive turns the feature back off.
+write_expressive_env() {
+  want="$INSTALL_EXPRESSIVE"   # "1" or "0"
+  if grep -q '^NEXT_PUBLIC_REHEARSAL_EXPRESSIVE_AVAILABLE=' .env 2>/dev/null; then
+    sed -i "s|^NEXT_PUBLIC_REHEARSAL_EXPRESSIVE_AVAILABLE=.*|NEXT_PUBLIC_REHEARSAL_EXPRESSIVE_AVAILABLE=${want}|" .env
+  else
+    printf 'NEXT_PUBLIC_REHEARSAL_EXPRESSIVE_AVAILABLE=%s\n' "${want}" >> .env
+  fi
+  if [ "$want" = "1" ]; then
+    if grep -q '^COMPOSE_PROFILES=' .env 2>/dev/null; then
+      grep -q '^COMPOSE_PROFILES=.*expressive' .env || \
+        sed -i "s|^COMPOSE_PROFILES=\(.*\)|COMPOSE_PROFILES=\1,expressive|" .env
+    else
+      printf 'COMPOSE_PROFILES=expressive\n' >> .env
+    fi
+  else
+    # Remove the profile so a later default re-run stops starting chatterbox. Drops the
+    # whole line only when it is exactly the expressive profile (leaves multi-profile
+    # setups, e.g. stt-gpu, untouched — the operator manages those).
+    sed -i '/^COMPOSE_PROFILES=expressive$/d' .env
+  fi
+}
+
 # --- 1e. CPU override layering for AMD / no-GPU Linux hosts (F19) ------------
 # The base compose reserves an nvidia device for ollama (and kokoro), so on a host
 # with no NVIDIA GPU `docker compose up` dead-ends at ollama with "could not select
@@ -342,6 +404,12 @@ print_plan() {
   log "          (+ nemo-stt on GPU, opt-in via --profile stt-gpu)"
   log "GPU vendor detected: ${gpu}"
   log "Models to install: ${models}"
+  if [ "$INSTALL_EXPRESSIVE" = "1" ]; then
+    log "Expressive voice: ENABLED (Chatterbox) — large extra build + ~4.3GB VRAM;"
+    log "  voice-to-voice P50 EXCEEDS the 1.0s budget by design when expressive is used."
+  else
+    log "Expressive voice: off (Kokoro only). Re-run with --expressive to add it later."
+  fi
   log "Install guide: INSTALLATION.md (prereqs, platform notes, download sizes)"
   if [ "$gpu" = "nvidia" ]; then
     log "STT placement: CPU-ONNX by default (STT_FORCE_CPU=1, VRAM-safe). GPU STT is"
@@ -367,8 +435,19 @@ confirm() {
 
 # --- 4. Build + first-run model pull + boot ---------------------------------
 build_and_pull() {
-  log "Building images (first run pulls several GB + bakes the STT model)…"
-  docker compose build
+  # Expressive-voice env is written BEFORE the build so the web image bakes the
+  # correct NEXT_PUBLIC_REHEARSAL_EXPRESSIVE_AVAILABLE flag (availability is known
+  # up front from the flag/prompt — unlike model choices, it has no pull dependency).
+  write_expressive_env
+  if [ "$INSTALL_EXPRESSIVE" = "1" ]; then
+    log "Building images incl. expressive voice (Chatterbox — large first build)…"
+    # --profile expressive so the profiled chatterbox service is built too; the web
+    # image bakes AVAILABLE=1 from the .env line just written.
+    docker compose --profile expressive build
+  else
+    log "Building images (first run pulls several GB + bakes the STT model)…"
+    docker compose build
+  fi
   log "Starting ollama to pull + pin the selected models…"
   docker compose up -d ollama
   INSTALL_MODELS="${INSTALL_MODELS}" REHEARSAL_DEFAULT_MODEL="${INSTALL_MODELS%%,*}" \
@@ -423,6 +502,7 @@ scaffold_env
 layer_cpu_overrides "$GPU"
 VRAM_MB="$(detect_nvidia_vram_mb)"
 prompt_models "$GPU" "$VRAM_MB"
+prompt_expressive "$GPU"
 print_plan "$GPU" "$INSTALL_MODELS"
 confirm
 build_and_pull

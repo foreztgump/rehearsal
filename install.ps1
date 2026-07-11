@@ -8,11 +8,13 @@
 #
 #   .\install.ps1            # interactive
 #   .\install.ps1 -Yes       # accept the plan non-interactively (CI / repeat)
+#   .\install.ps1 -Expressive   # also build + enable expressive voice (Chatterbox)
 #   $env:ASSUME_YES=1; .\install.ps1
 [CmdletBinding()]
 param(
   [switch]$Yes,
-  [switch]$SkipDoctor
+  [switch]$SkipDoctor,
+  [switch]$Expressive
 )
 $ErrorActionPreference = "Stop"
 
@@ -71,6 +73,9 @@ Set-Location $CheckoutDir
 
 if ($Yes) { $env:ASSUME_YES = "1" }
 $AssumeYes = ($env:ASSUME_YES -eq "1")
+# Opt-in expressive voice (Chatterbox). OFF unless -Expressive or INSTALL_EXPRESSIVE=1.
+if ($Expressive) { $env:INSTALL_EXPRESSIVE = "1" }
+$script:InstallExpressive = ($env:INSTALL_EXPRESSIVE -eq "1")
 
 # Model-default + readiness tunables (single-sourced; mirror install.sh).
 # VramSmallMb: NVIDIA cards at/below this default to the smaller Floor model.
@@ -263,6 +268,43 @@ function Write-ModelEnv {
   Set-Content .env $envContent
 }
 
+# Expressive-voice opt-in (Chatterbox), mirrors install.sh prompt_expressive. GPU-only,
+# large build, exceeds the latency budget — so it is prompted unless already opted in
+# (flag/env) or accepting the plan non-interactively. Force-disabled off NVIDIA.
+function Prompt-Expressive {
+  param([string]$Gpu)
+  if ($Gpu -ne "nvidia") {
+    if ($script:InstallExpressive) { Log "Expressive voice needs an NVIDIA GPU (none detected) — disabling it." }
+    $script:InstallExpressive = $false
+    return
+  }
+  if ($script:InstallExpressive) { return }
+  if ($AssumeYes) { return }
+  $reply = Read-Host "Install expressive voice (Chatterbox)? ~19GB extra build, +4.3GB VRAM, exceeds the P50<1.0s budget [y/N]"
+  $script:InstallExpressive = ($reply -match '^(y|Y)')
+}
+
+# Write the expressive-voice env, mirrors install.sh write_expressive_env. Bakes the
+# web picker flag and (when on) the COMPOSE_PROFILES=expressive that up.sh honors.
+function Write-ExpressiveEnv {
+  $want = if ($script:InstallExpressive) { "1" } else { "0" }
+  $envContent = Get-Content .env -Raw
+  $envContent = Set-EnvKey $envContent "NEXT_PUBLIC_REHEARSAL_EXPRESSIVE_AVAILABLE" $want
+  if ($want -eq "1") {
+    if ($envContent -match "(?m)^COMPOSE_PROFILES=") {
+      if ($envContent -notmatch "(?m)^COMPOSE_PROFILES=.*expressive") {
+        $envContent = $envContent -replace "(?m)^COMPOSE_PROFILES=(.*)", 'COMPOSE_PROFILES=$1,expressive'
+      }
+    } else {
+      $envContent = Set-EnvKey $envContent "COMPOSE_PROFILES" "expressive"
+    }
+  } else {
+    # Drop the profile line only when it is exactly the expressive profile.
+    $envContent = $envContent -replace "(?m)^COMPOSE_PROFILES=expressive`r?`n", ""
+  }
+  Set-Content .env $envContent
+}
+
 # CPU override layering for no-GPU hosts (F19, mirrors install.sh layer_cpu_overrides).
 # On Docker Desktop without an NVIDIA GPU, the base compose's ollama nvidia reservation
 # makes `docker compose up` dead-end; persist a COMPOSE_FILE layering the cpu-llm +
@@ -293,6 +335,12 @@ function Print-Plan {
   Log "          (+ nemo-stt on GPU, opt-in via --profile stt-gpu)"
   Log "GPU vendor detected: $Gpu"
   Log "Models to install: $Models"
+  if ($script:InstallExpressive) {
+    Log "Expressive voice: ENABLED (Chatterbox) — large extra build + ~4.3GB VRAM;"
+    Log "  voice-to-voice P50 EXCEEDS the 1.0s budget by design when expressive is used."
+  } else {
+    Log "Expressive voice: off (Kokoro only). Re-run with -Expressive to add it later."
+  }
   Log "Install guide: INSTALLATION.md (prereqs, platform notes, download sizes)"
   if ($Gpu -eq "nvidia") {
     Log "STT placement: CPU-ONNX by default (STT_FORCE_CPU=1, VRAM-safe). GPU STT is"
@@ -327,11 +375,19 @@ function Find-GitBash {
 
 # --- 5. Build + first-run model pull + boot ----------------------------------
 function Build-AndPull {
-  Log "Building images (first run pulls several GB + bakes the STT model)…"
+  # Expressive-voice env is written BEFORE the build so the web image bakes the
+  # correct NEXT_PUBLIC_REHEARSAL_EXPRESSIVE_AVAILABLE flag.
+  Write-ExpressiveEnv
   # PowerShell does NOT throw on a native command's non-zero exit (even under
   # ErrorActionPreference=Stop), so every docker step must be gated on $LASTEXITCODE
   # explicitly — otherwise a failed build sails through to "the stack is up".
-  docker compose build
+  if ($script:InstallExpressive) {
+    Log "Building images incl. expressive voice (Chatterbox — large first build)…"
+    docker compose --profile expressive build
+  } else {
+    Log "Building images (first run pulls several GB + bakes the STT model)…"
+    docker compose build
+  }
   if ($LASTEXITCODE -ne 0) { Err "Image build failed (docker compose build)."; exit 1 }
   Log "Starting ollama to pull + pin the selected models…"
   docker compose up -d ollama
@@ -401,6 +457,7 @@ Scaffold-Env
 Layer-CpuOverrides -Gpu $Gpu
 $VramMb = Detect-NvidiaVramMb
 Prompt-Models -Gpu $Gpu -VramMb $VramMb
+Prompt-Expressive -Gpu $Gpu
 Print-Plan -Gpu $Gpu -Models $script:InstallModels
 if (-not (Confirm)) {
   Log "Aborted — nothing built. Re-run .\install.ps1 when ready."

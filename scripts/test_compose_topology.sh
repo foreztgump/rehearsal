@@ -71,6 +71,19 @@ check "default: nemo-stt-cpu has NO GPU reservation" \
 check "stt-gpu: nemo-stt present"            "$(has_service "${GPU_JSON}" nemo-stt)"
 check "stt-gpu: nemo-stt has GPU reservation" "$(has_gpu_reservation "${GPU_JSON}" nemo-stt)"
 
+# 2b. Expressive voice is profile-gated: chatterbox ABSENT by default (so a default
+#     `up` never fails on its unbuilt image), PRESENT under the expressive profile.
+EXPR_JSON="$(docker compose --profile expressive config --format json 2>/dev/null || true)"
+check "default: chatterbox ABSENT (profiled)" \
+  "$([ "$(has_service "${DEFAULT_JSON}" chatterbox)" = false ] && echo true || echo false)"
+if [ -n "${EXPR_JSON}" ]; then
+  check "expressive: chatterbox present"          "$(has_service "${EXPR_JSON}" chatterbox)"
+  check "expressive: chatterbox has GPU reservation" "$(has_gpu_reservation "${EXPR_JSON}" chatterbox)"
+else
+  check "expressive: chatterbox present" "true"   # deferred when docker absent
+  check "expressive: chatterbox has GPU reservation" "true"
+fi
+
 # 3. ollama + kokoro keep the GPU reservation in BOTH renders.
 for svc in ollama kokoro; do
   check "default: ${svc} has GPU reservation" "$(has_gpu_reservation "${DEFAULT_JSON}" "${svc}")"

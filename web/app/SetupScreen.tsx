@@ -8,6 +8,7 @@ import { PersonaFields, SavedPersonaControls } from "./PersonaPanel";
 import PersonaPresetPicker from "./PersonaPresetPicker";
 import SegmentedToggle from "./SegmentedToggle";
 import ThemeDots from "./ThemeDots";
+import { EXPRESSIVE_AVAILABLE, VOICE_ENGINE_OPTIONS } from "./voiceEngine";
 import type { SessionConfig } from "./VoiceRoom";
 
 // UI-SPEC Copywriting table — verbatim copy slots.
@@ -20,10 +21,7 @@ const AVATAR_OPTIONS = [
   { label: "Avatar", value: "avatar" },
 ] as const;
 
-const EXPRESSIVE_OPTIONS = [
-  { label: "Standard", value: "standard" },
-  { label: "Expressive", value: "expressive" },
-] as const;
+
 
 /**
  * Landing / setup screen (Screen A, D-01/D-02). A single centered card holding
@@ -98,7 +96,11 @@ export default function SetupScreen({
 
           <SavedPersonaControls value={config.persona} onLoad={updatePersona} />
 
-          <PersonaFields value={config.persona} onChange={updatePersona} />
+          <PersonaFields
+            value={config.persona}
+            onChange={updatePersona}
+            expressive={EXPRESSIVE_AVAILABLE && config.expressiveVoice}
+          />
 
           <ModelPanel value={config.model} onChange={(model) => onChange({ ...config, model })} />
 
@@ -117,15 +119,20 @@ export default function SetupScreen({
             />
           </div>
 
-          <div className="field">
-            <label className="field-label">Expressive voice (more emotional, slightly slower)</label>
-            <SegmentedToggle
-              ariaLabel="Standard / Expressive voice"
-              options={EXPRESSIVE_OPTIONS}
-              value={config.expressiveVoice ? "expressive" : "standard"}
-              onChange={(v) => onChange({ ...config, expressiveVoice: v === "expressive" })}
-            />
-          </div>
+          {/* Voice engine — only rendered when the expressive engine was installed
+              (else the flag is baked "0" and this whole field is hidden, so users
+              never see a toggle that routes to a service that isn't running). */}
+          {EXPRESSIVE_AVAILABLE && (
+            <div className="field">
+              <label className="field-label">Voice (Chatterbox is more emotional, slightly slower)</label>
+              <SegmentedToggle
+                ariaLabel="Kokoro (fast) / Chatterbox (expressive) voice"
+                options={VOICE_ENGINE_OPTIONS}
+                value={config.expressiveVoice ? "chatterbox" : "kokoro"}
+                onChange={(v) => onChange({ ...config, expressiveVoice: v === "chatterbox" })}
+              />
+            </div>
+          )}
 
           <KbPanel
             files={config.kbFiles}

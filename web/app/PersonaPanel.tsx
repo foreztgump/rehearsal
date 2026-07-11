@@ -9,6 +9,7 @@ import {
   PERSONA_DIFFICULTY,
   PERSONA_VERBOSITY,
   PERSONA_VOICE_IDS,
+  formatVoiceLabel,
   deleteSavedPersonaResult,
   readSavedPersonas,
   saveSavedPersonaResult,
@@ -39,10 +40,14 @@ export function PersonaFields({
   value,
   onChange,
   disabled,
+  expressive = false,
 }: {
   value: Persona;
   onChange: (p: Persona) => void;
   disabled?: boolean;
+  // When the expressive engine is the active voice, the Voice picker labels show the
+  // TRUE Chatterbox voice name so they match what is heard (Plan B). Display-only.
+  expressive?: boolean;
 }) {
   function set<K extends keyof Persona>(key: K, fieldValue: string) {
     onChange({ ...value, [key]: fieldValue });
@@ -140,7 +145,7 @@ export function PersonaFields({
           onChange={(e) => set("voice_id", e.target.value)}
         >
           {PERSONA_VOICE_IDS.map((v) => (
-            <option key={v} value={v}>{v}</option>
+            <option key={v} value={v}>{formatVoiceLabel(v, expressive)}</option>
           ))}
         </select>
       </div>
@@ -301,10 +306,12 @@ function PersonaPanelLive({
   initialPersona = DEFAULT_PERSONA,
   onApplyStart,
   onApplied,
+  expressive = false,
 }: {
   initialPersona?: Persona;
   onApplyStart?: () => number;
   onApplied?: (persona: Persona, version: number) => void;
+  expressive?: boolean;
 }) {
   const room = useRoomContext();
   const { agent } = useVoiceAssistant();
@@ -367,6 +374,7 @@ function PersonaPanelLive({
           value={persona}
           onChange={setLocalPersona}
           disabled={status === "applying"}
+          expressive={expressive}
         />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
@@ -395,20 +403,25 @@ export default function PersonaPanel({
   onChange,
   onApplyStart,
   onApplied,
+  expressive = false,
 }: {
   value?: Persona;
   onChange?: (p: Persona) => void;
   onApplyStart?: () => number;
   onApplied?: (p: Persona, version: number) => void;
+  expressive?: boolean;
 }) {
   if (onChange) {
-    return <PersonaFields value={value ?? DEFAULT_PERSONA} onChange={onChange} />;
+    return (
+      <PersonaFields value={value ?? DEFAULT_PERSONA} onChange={onChange} expressive={expressive} />
+    );
   }
   return (
     <PersonaPanelLive
       initialPersona={value ?? DEFAULT_PERSONA}
       onApplyStart={onApplyStart}
       onApplied={onApplied}
+      expressive={expressive}
     />
   );
 }

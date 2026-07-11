@@ -11,6 +11,7 @@ import { DEFAULT_MODEL, ModelChoice } from "./ModelPanel";
 import { DEFAULT_PERSONA, Persona } from "./PersonaPanel";
 import SetupScreen from "./SetupScreen";
 import TalkingScreen from "./TalkingScreen";
+import { EXPRESSIVE_AVAILABLE } from "./voiceEngine";
 import {
   invalidateLiveApplyVersions,
   nextLiveApplyVersion,
@@ -282,8 +283,11 @@ export default function VoiceRoom() {
       <ApplyAvatarMode avatarOn={sessionConfig.avatarOn} />
       {/* Sends tts.update (initial + on every toggle) so the agent swaps its TTS
           engine (Kokoro ↔ Chatterbox) for expressive speech. Mirrors ApplyAvatarMode:
-          SessionConfig.expressiveVoice is the single source of truth, no double-send. */}
-      <ApplyExpressiveMode expressive={sessionConfig.expressiveVoice} />
+          SessionConfig.expressiveVoice is the single source of truth, no double-send.
+          Clamped to false when the expressive engine was not installed, so a held
+          value can never send a Chatterbox tts.update to a stack that has no chatterbox
+          service (the picker is hidden in that build, but this is the belt-and-braces). */}
+      <ApplyExpressiveMode expressive={EXPRESSIVE_AVAILABLE && sessionConfig.expressiveVoice} />
       <TalkingScreen
         avatarOn={sessionConfig.avatarOn}
         onToggleAvatar={(on) => setSessionConfig((c) => ({ ...c, avatarOn: on }))}

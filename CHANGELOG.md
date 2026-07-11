@@ -7,6 +7,22 @@ All notable changes to Rehearsal are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `web`/`compose`/`install`: **expressive voice is now a real, install-aware option.**
+  The setup screen shows a named **Voice** picker — **Kokoro · fast** vs
+  **Chatterbox · expressive** — instead of a generic toggle, so the active engine is
+  explicit rather than reading as "stuck on Kokoro". The picker is baked in only when
+  the expressive engine was actually installed (`NEXT_PUBLIC_REHEARSAL_EXPRESSIVE_AVAILABLE`,
+  set by the installer); otherwise it is hidden entirely and `expressiveVoice` is clamped
+  off so a held value can never route a Chatterbox `tts.update` to a stack that has no
+  chatterbox service. New `web/app/voiceEngine.ts`; wired through `SetupScreen.tsx` and
+  `VoiceRoom.tsx`, with a matching web build-arg in `web/Dockerfile`.
+- `install`: **opt-in expressive-voice install** via `./install.sh --expressive` /
+  `.\install.ps1 -Expressive` (or `INSTALL_EXPRESSIVE=1`). NVIDIA-gated and off by
+  default (large ~19 GB build, +4.3 GB VRAM, exceeds the P50<1.0s budget). When enabled
+  the installer builds the `chatterbox` service, writes
+  `NEXT_PUBLIC_REHEARSAL_EXPRESSIVE_AVAILABLE=1` + `COMPOSE_PROFILES=expressive` to
+  `.env`, and rebuilds web so the picker appears; re-running without the flag turns it
+  back off. Documented in `INSTALLATION.md` (new "Expressive Voice (Opt-In)" section).
 - `web`: the avatar's **brows now lift subtly while it speaks** so the face reads as
   engaged rather than a still mask under a moving mouth. A heavily smoothed
   engagement envelope drives the outer-brow morphs off the same speech-energy signal
@@ -70,6 +86,23 @@ All notable changes to Rehearsal are documented here. The format follows
   an unknown label).
 
 ### Changed
+- `web`: the persona **Voice picker now shows human-readable, engine-honest names**
+  instead of raw ids like `af_bella`. In standard mode it reads "Bella — US, female"
+  (decoded from the id's accent/gender prefix by a new `formatVoiceLabel` helper in
+  `web/app/savedPersonas.ts`). In **expressive** mode it shows the *actual* Chatterbox
+  voice the agent maps to — e.g. "Olivia — female" — so the label matches what is heard
+  rather than promising a Kokoro voice Chatterbox doesn't have (the expressive map
+  preserves gender only, not accent). A new `web/app/voiceMap.ts` mirrors the agent's
+  canonical `agent/voice_map.py` for display; the option VALUE is unchanged (still the
+  `voice_id` contract). Applies to the picker in both the setup screen and the drawer.
+- `compose`: the `chatterbox` (expressive voice) service is now **behind the
+  `expressive` profile and buildable via `docker compose build`**. Previously it was in
+  the agent's hard `depends_on` yet had no build context, so a default `docker compose
+  up` would fail on the missing image; now it is only built/started when the profile is
+  enabled, and its image is produced from a pinned remote-git build context
+  (devnen/Chatterbox-TTS-Server `Dockerfile.cu128`) instead of a manual out-of-band
+  build. The agent no longer hard-depends on it (it reaches Chatterbox lazily via
+  `tts.update`), so the default Kokoro stack is unaffected.
 - `web`: **sharper, more fluid mouth articulation** during speech. The energy-driven
   lip-sync now opens wider on loud syllables and forms lip shapes on softer ones
   (`web/app/AvatarStage.tsx`: `MOUTH_OPEN_MAX` 0.6→0.75, `VISEME_INTENSITY` 0.7→0.85,
