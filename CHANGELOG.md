@@ -60,6 +60,12 @@ All notable changes to Rehearsal are documented here. The format follows
   an unknown label).
 
 ### Changed
+- `web`: **sharper, more fluid mouth articulation** during speech. The energy-driven
+  lip-sync now opens wider on loud syllables and forms lip shapes on softer ones
+  (`web/app/AvatarStage.tsx`: `MOUTH_OPEN_MAX` 0.6→0.75, `VISEME_INTENSITY` 0.7→0.85,
+  Path-A viseme gate 0.06→0.045), while the open/close *timing* is eased (not sped up)
+  so the motion flows instead of snapping mechanically. Magnitude and timing are tuned
+  separately: visible articulation without the rigid, hinge-like look.
 - `agent`: expressive voice now adds a **mood-scaled breath between sentences** so
   multi-sentence replies stop running together. Each Chatterbox sentence clip gets a
   short trailing pad of pure silence (`agent/wav_pad.py`, sized by

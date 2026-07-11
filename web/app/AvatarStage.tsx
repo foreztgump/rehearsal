@@ -470,14 +470,18 @@ export default function AvatarStage({
       // --- Mouth-feel tuning (natural, not exaggerated). The jaw opens GENTLY and
       // the viseme shapes sit BELOW the jaw envelope so the mouth never gapes or
       // snaps. These are perception knobs — nudge up if too subtle, down if overdone. ---
-      const MOUTH_OPEN_GAIN = 6; // loudness→openness slope (was 8)
-      const MOUTH_OPEN_MAX = 0.6; // cap so the mouth never gapes wide (was 0.9)
+      const MOUTH_OPEN_GAIN = 7; // loudness→openness slope (more responsive; gape bug was 8)
+      const MOUTH_OPEN_MAX = 0.75; // cap so the mouth articulates but never gapes (gape bug was 0.9)
       const MOUTH_OPEN_FLOOR = 0.01; // ignore room/noise below this rms
-      const MOUTH_ATTACK = 0.5; // jaw open speed (was 0.9 — snapped open)
-      const MOUTH_RELEASE = 0.3; // jaw close speed (was 0.45)
-      const VISEME_INTENSITY = 0.7; // lip shapes sit below the jaw envelope (was 1.0)
-      const VISEME_ATTACK = 0.4; // shape blend-in (was 0.6 — too snappy)
-      const VISEME_RELEASE = 0.28; // shape decay (was 0.35)
+      // Attack/release are SPEED (timing), separate from OPEN_MAX (magnitude). Fast
+      // attack snaps the jaw to target each frame and reads RIGID/mechanical, so these
+      // are softened BELOW the pre-C values for flowing motion, while the wider
+      // OPEN_MAX/INTENSITY magnitude from C is kept for visible articulation.
+      const MOUTH_ATTACK = 0.4; // jaw open speed — eased, not snapped (was 0.6 rigid, 0.5 pre-C)
+      const MOUTH_RELEASE = 0.22; // jaw close speed — gentler so it doesn't snap shut (was 0.3)
+      const VISEME_INTENSITY = 0.85; // crisper lip shapes below the jaw envelope (gape bug was 1.0)
+      const VISEME_ATTACK = 0.32; // shape blend-in — eased, not snapped (was 0.5 rigid, 0.4 pre-C)
+      const VISEME_RELEASE = 0.22; // shape decay — gentler cross-fade (was 0.28)
 
       // Find the dominant spectral peak (bin index) within [loHz,hiHz].
       const peakHz = (loHz: number, hiHz: number) => {
@@ -592,7 +596,10 @@ export default function AvatarStage({
         const scheduledViseme = activeVisemeAt(activeRef.current, ctx.currentTime);
         if (scheduledViseme) {
           target = scheduledViseme;
-        } else if (!mutedRef.current && smooth > 0.06) {
+        } else if (!mutedRef.current && smooth > 0.045) {
+          // Gate lowered (0.06→0.045) so vowel shapes engage on softer syllables too,
+          // not just loud ones — the mouth articulates instead of only bobbing. The
+          // f2.mag>60 voiced-energy guard below still keeps noise from forming shapes.
           analyser.getByteFrequencyData(freq);
           const f1 = peakHz(250, 900);
           const f2 = peakHz(900, 2700);
