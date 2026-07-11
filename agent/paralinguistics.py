@@ -54,6 +54,20 @@ def wants_laugh(user_text: str) -> bool:
     return any(k in lowered for k in _LAUGH_REQUEST_KEYWORDS)
 
 
+def laugh_kind(text: str) -> str | None:
+    """Which laugh tag the agent's reply carries, for the avatar's facial reaction.
+
+    Returns "laugh" if the text contains [laugh], "chuckle" if it contains [chuckle]
+    (full laugh wins when both appear), else None. The web maps this to a transient
+    laugh/smile expression; the audio laugh comes from Chatterbox vocalizing the tag.
+    """
+    if LAUGH_TAG in text:
+        return "laugh"
+    if CHUCKLE_TAG in text:
+        return "chuckle"
+    return None
+
+
 def _collapse_spaces(text: str) -> str:
     """Tidy the double spaces / stray edge space left after tag removal."""
     return re.sub(r"\s{2,}", " ", text).strip()

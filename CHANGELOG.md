@@ -7,6 +7,19 @@ All notable changes to Rehearsal are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `web`/`agent`: the 3D avatar now **laughs on its face when the voice laughs**. In
+  expressive mode the agent tags a sentence's laugh cue (`laugh`/`chuckle`, from the
+  `[laugh]`/`[chuckle]` tag it already emits) onto the per-sentence `lk.avatar.mood`
+  packet (`agent/paralinguistics.py` `laugh_kind`, published in `agent/expressive_tts.py`),
+  and `web/app/AvatarStage.tsx` plays a transient TalkingHead emoji gesture (😂 full
+  laugh / 🙂 chuckle) at the audio anchor so the expression lands in sync with the
+  vocalized laugh, then settles back. Avatar-gated (no data when Avatar is OFF); the
+  Kokoro path is unaffected (it strips laugh tags, so there is no laugh to mirror).
+- `web`: the avatar is **no longer a frozen statue while speaking**. It now shows the
+  library's subtle speaking head motion — occasional gentle head turns plus a
+  volume-synced neck bob — while keeping a strong eye-contact bias
+  (`web/app/avatarConfig.ts`: `avatarSpeakingHeadMove` 0 → 0.4, and the speaking gaze
+  lock narrowed to the eyes so the head is free to move).
 - `agent`/`web`/`compose`: opt-in **expressive voice** mode. A new toggle swaps the
   default Kokoro TTS for **Chatterbox-Turbo** (`agent/expressive_tts.py`). Turbo has no
   numeric emotion knob (it ignores `exaggeration`), so expressiveness rides its two

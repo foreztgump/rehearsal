@@ -32,6 +32,7 @@ import httpx
 
 import emotion
 import emotion_voice
+import paralinguistics
 import voice_map
 import wav_pad
 from livekit import rtc
@@ -116,13 +117,20 @@ class ExpressiveTTS(tts.TTS):
         """Enable/disable per-sentence mood publishing for the avatar (AVTR-12)."""
         self._avatar_enabled = bool(on)
 
-    async def _publish_mood(self, mood: str) -> None:
-        """Send one sentence's mood to the browser avatar over the data channel."""
+    async def _publish_mood(self, mood: str, laugh: str | None = None) -> None:
+        """Send one sentence's mood (and optional laugh cue) to the browser avatar.
+
+        `laugh` ("laugh"/"chuckle"/None) rides the SAME reliable mood packet so the face
+        can play a transient laugh expression in sync with the audio the model vocalizes
+        from the [laugh]/[chuckle] tag. Absent when the sentence has no laugh tag.
+        """
         room = self._room
         if room is None:
             return
         self._seq += 1
-        payload = {"seq": self._seq, "mood": mood}
+        payload: dict = {"seq": self._seq, "mood": mood}
+        if laugh is not None:
+            payload["laugh"] = laugh
         try:
             await room.local_participant.publish_data(
                 json.dumps(payload).encode("utf-8"),
@@ -216,6 +224,7 @@ class _ExpressiveStream(tts.ChunkedStream):
 
         # Voice-only isolation (AVTR-12): publish the per-sentence mood ONLY when the
         # avatar is on. Published AFTER pushing audio so the data-channel round-trip
-        # never delays first audio.
+        # never delays first audio. A [laugh]/[chuckle] tag in this sentence rides the
+        # same packet so the face can react in sync with the vocalized laugh.
         if self._avatar_enabled:
-            await self._tts._publish_mood(mood)
+            await self._tts._publish_mood(mood, paralinguistics.laugh_kind(self.input_text))

@@ -9,6 +9,8 @@ import {
   avatarForPersona,
   CAMERA_VIEW,
   DRACO_DECODER_PATH,
+  LAUGH_GESTURE,
+  LAUGH_GESTURE_SECONDS,
   LIPSYNC_TOPIC,
   MOOD_TOPIC,
   TALKINGHEAD_SPECIFIER,
@@ -54,6 +56,7 @@ type MorphTier = { realtime: number | null; needsUpdate: boolean };
 type TalkingHeadInstance = {
   showAvatar: (avatar: Record<string, unknown>) => Promise<void>;
   setMood: (mood: string) => void;
+  playGesture: (name: string, dur?: number, mirror?: boolean, ms?: number) => void;
   speakWithHands: (delay?: number, prob?: number) => void;
   setFixedValue: (mt: string, val: number | null) => void;
   setValue: (mt: string, val: number, ms?: number | null) => void;
@@ -178,6 +181,10 @@ export default function AvatarStage({
   // the tick — the same moment the schedule-piggybacked mood applies — so it never
   // runs ahead of the audio. Cleared on turn end so a stale mood can't leak forward.
   const pendingAgentMoodRef = useRef<string | null>(null);
+  // Latest per-sentence laugh cue ("laugh"/"chuckle") received on MOOD_TOPIC. Fired
+  // ONCE as a transient face gesture at the audio anchor (in sync with the vocalized
+  // laugh), then cleared. Also cleared on turn end so a stale laugh can't leak forward.
+  const pendingLaughRef = useRef<string | null>(null);
 
   // --- Path-B captioned lip-sync state ---
   // FIFO of word schedules received over LIPSYNC_TOPIC but not yet started. Each is
@@ -223,10 +230,15 @@ export default function AvatarStage({
   const onMood = useCallback((msg: { payload: Uint8Array }) => {
     try {
       const obj = JSON.parse(new TextDecoder().decode(msg.payload)) as
-        | { seq?: number; mood?: string }
+        | { seq?: number; mood?: string; laugh?: string }
         | undefined;
       if (!obj || typeof obj.mood !== "string" || !AGENT_MOODS.has(obj.mood)) return;
       pendingAgentMoodRef.current = obj.mood;
+      // Optional laugh cue: stash it only if it maps to a known gesture; the tick fires
+      // it at the audio anchor so the face laughs in time with the vocalized laugh.
+      if (typeof obj.laugh === "string" && obj.laugh in LAUGH_GESTURE) {
+        pendingLaughRef.current = obj.laugh;
+      }
     } catch {
       // Malformed payload: ignore, the avatar simply keeps its current mood.
     }
@@ -559,6 +571,20 @@ export default function AvatarStage({
           }
         }
 
+        // --- 2d) Laugh reaction: fire the transient face gesture ONCE at the same
+        // audio anchor, so the smile/laugh lands in sync with the vocalized [laugh].
+        // Cleared immediately (one-shot) — playGesture auto-returns to the mood
+        // baseline, and turn-end also clears the ref so a stale cue can't replay. ---
+        if (audible && pendingLaughRef.current !== null) {
+          const laugh = pendingLaughRef.current;
+          pendingLaughRef.current = null;
+          try {
+            h.playGesture(LAUGH_GESTURE[laugh], LAUGH_GESTURE_SECONDS[laugh]);
+          } catch {
+            /* non-fatal: laugh was validated against LAUGH_GESTURE on receipt */
+          }
+        }
+
         // --- 3) Viseme selection. Prefer the captioned schedule (Path-B, real word
         // timing -> true lip-sync); fall back to the F1/F2 formant estimate (Path-A)
         // whenever no schedule is active (e.g. the stock OpenAI TTS, or pre-onset). ---
@@ -686,6 +712,9 @@ export default function AvatarStage({
       // Drop any un-applied expressive-mode mood so a stale mood from this turn
       // can't apply against the next utterance (mirrors dropping the word schedule).
       pendingAgentMoodRef.current = null;
+      // Drop any un-fired laugh cue for the same reason — it must not replay on the
+      // next utterance's audio onset.
+      pendingLaughRef.current = null;
       try {
         releaseRealtime(head, "mouthOpen");
         for (const v of VISEME_MORPHS) releaseRealtime(head, v);

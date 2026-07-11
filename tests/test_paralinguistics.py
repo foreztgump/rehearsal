@@ -33,6 +33,22 @@ def test_wants_laugh_false_on_normal_speech():
     assert paralinguistics.wants_laugh("Let's talk about my project.") is False
 
 
+def test_laugh_kind_detects_full_laugh():
+    assert paralinguistics.laugh_kind("[laugh] okay, that's good.") == "laugh"
+
+
+def test_laugh_kind_detects_chuckle():
+    assert paralinguistics.laugh_kind("Well [chuckle], fair enough.") == "chuckle"
+
+
+def test_laugh_kind_full_laugh_wins_over_chuckle():
+    assert paralinguistics.laugh_kind("[chuckle] wait [laugh] no.") == "laugh"
+
+
+def test_laugh_kind_none_on_plain_text():
+    assert paralinguistics.laugh_kind("Let's begin.") is None
+
+
 if __name__ == "__main__":
     test_strip_tags_removes_laugh_for_kokoro()
     test_strip_tags_removes_chuckle_for_kokoro()
@@ -40,4 +56,8 @@ if __name__ == "__main__":
     test_strip_tags_leaves_plain_text_unchanged()
     test_wants_laugh_detects_direct_request()
     test_wants_laugh_false_on_normal_speech()
+    test_laugh_kind_detects_full_laugh()
+    test_laugh_kind_detects_chuckle()
+    test_laugh_kind_full_laugh_wins_over_chuckle()
+    test_laugh_kind_none_on_plain_text()
     print("ok: paralinguistics tag handling")
