@@ -33,11 +33,14 @@ _MOOD_LEXICON: tuple[tuple[str, tuple[str, ...]], ...] = (
         # Sympathy/apology ONLY — never topic words. A coach constantly says
         # "problem", "mistake", "issue", "risk", "difficult" about the SUBJECT under
         # discussion, not their own feeling; matching those turned the face sad for no
-        # reason. Match genuine empathetic phrasing instead.
+        # reason. Match genuine empathetic phrasing instead. NOTE: "i hear you" was
+        # removed — as an acknowledgment opener ("i hear you have concerns…") it made
+        # the face sad on plain agreement, which is far more common than the empathetic
+        # standalone "I hear you."; the unambiguous empathy phrases below cover sympathy.
         (
             "unfortunately", "i'm sorry", "so sorry", "sorry to hear",
             "that's tough", "that must be hard", "that's a shame",
-            "that's rough", "that sounds hard", "i hear you", "hang in there",
+            "that's rough", "that sounds hard", "hang in there",
             "i know it's", "that's frustrating",
         ),
     ),

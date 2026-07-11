@@ -132,6 +132,14 @@ All notable changes to Rehearsal are documented here. The format follows
   (step 3) is the source of truth. Updated in INSTALLATION.md, `install.sh`,
   `docker-compose.macos.yml`, and `scripts/gpu-doctor.sh`.
 
+### Fixed
+- `agent`: the avatar no longer turns **sad on plain acknowledgment**. `"i hear you"`
+  was removed from the sympathy lexicon (`agent/emotion.py`) because the coach uses it
+  as an agreement opener (`"i hear you have some concerns…"`) far more often than as
+  standalone empathy, so its substring match was flipping the face sad on ordinary
+  agreement. The unambiguous empathy phrases (`"sorry to hear"`, `"that must be hard"`,
+  …) still map to sad. Regression test added in `tests/test_emotion.py`.
+
 ## [0.3.0] - 2026-07-04
 
 macOS (Apple Silicon) gets a real GPU voice path: TTS now runs in native-host
