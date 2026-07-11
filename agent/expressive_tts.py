@@ -33,6 +33,7 @@ import httpx
 import emotion
 import emotion_voice
 import voice_map
+import wav_pad
 from livekit import rtc
 from livekit.agents import (
     APIConnectionError,
@@ -159,7 +160,12 @@ class _ExpressiveStream(tts.ChunkedStream):
 
         Turbo ignores `exaggeration`, so expressiveness rides two honored levers: the
         `temperature` (mood-scaled, lifted baseline) and any paralinguistic tag injected
-        into the text (e.g. <laugh> on an amused line) for real personality on cue.
+        into the text (e.g. [laugh] on an amused line) for real personality on cue.
+
+        NOTE: `speed_factor` is deliberately NOT sent. The server implements it as a
+        post-hoc librosa phase-vocoder time-stretch on the already-generated waveform
+        (verified in the server source, utils.apply_speed_factor), which adds a metallic/
+        robotic artifact. Pace is shaped instead by the persona's sentence rhythm.
         """
         return {
             # Turbo tags ([laugh]/[chuckle]) are the model's NATIVE syntax — pass the
@@ -192,6 +198,11 @@ class _ExpressiveStream(tts.ChunkedStream):
 
         if not audio_bytes:
             raise APIConnectionError()
+
+        # Append a mood-scaled tail of SILENCE so consecutive sentence clips get a natural
+        # breath instead of butting together. Silence never warps the model audio (unlike
+        # the server's librosa speed_factor), so it costs quality nothing.
+        audio_bytes = wav_pad.pad_wav_tail(audio_bytes, emotion_voice.pad_ms_for_mood(mood))
 
         request_id = uuid.uuid4().hex
         output_emitter.initialize(

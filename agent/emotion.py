@@ -37,6 +37,8 @@ _MOOD_LEXICON: tuple[tuple[str, tuple[str, ...]], ...] = (
         (
             "unfortunately", "i'm sorry", "so sorry", "sorry to hear",
             "that's tough", "that must be hard", "that's a shame",
+            "that's rough", "that sounds hard", "i hear you", "hang in there",
+            "i know it's", "that's frustrating",
         ),
     ),
 )

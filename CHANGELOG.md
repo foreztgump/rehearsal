@@ -47,11 +47,45 @@ All notable changes to Rehearsal are documented here. The format follows
   an unknown label).
 
 ### Changed
-- `agent`: the Voice Fluency Coach persona is now warm and personable rather than
-  stiff — it may share a genuine laugh (and no longer refuses when asked to), marking
-  real laughs with Turbo's native `[laugh]`/`[chuckle]` tags that the expressive voice
-  engine vocalizes. Prompt-only change (`agent/persona.py`); coaching behavior is
-  otherwise unchanged.
+- `agent`: expressive voice now adds a **mood-scaled breath between sentences** so
+  multi-sentence replies stop running together. Each Chatterbox sentence clip gets a
+  short trailing pad of pure silence (`agent/wav_pad.py`, sized by
+  `emotion_voice.pad_ms_for_mood` — sympathy longest at 280 ms, praise shortest at
+  120 ms, neutral 180 ms). Silence leaves the model audio byte-for-byte untouched, so
+  unlike the rejected `speed_factor` time-stretch it adds pacing with zero quality cost;
+  it applies only to the expressive path (Kokoro is unaffected).
+- `agent`: rewrote the spoken-delivery instructions so the coach **stops faking laughter
+  and carries emotion in its words** (`agent/persona.py` footer + the forced-laugh nudge
+  in `agent/main.py`). The model was writing spelled-out laughter ("hahaha!") alongside
+  the real `[laugh]` token, and Chatterbox reads those letters syllable-by-syllable as an
+  ugly, robotic fake laugh. The new footer teaches the model that everything it writes is
+  spoken (so emotion must live in word choice, not punctuation or stage directions),
+  forbids spelled-out laughter at length, and reserves the two native tags `[laugh]` /
+  `[chuckle]` as the only real laugh — used rarely and only when genuinely funny. Verified
+  live against the failing transcript: zero spelled-out laughter across the laugh-request
+  turns, warm words when a laugh isn't earned.
+- `agent`: the expressive coach now **varies its sentence rhythm** for a more natural
+  cadence — short punchy lines mixed with longer flowing ones, clipped when the learner
+  is upset or thinking and stretched when encouraging (`agent/persona.py`). This replaces
+  the earlier reliance on punctuation for pauses (Chatterbox-Turbo barely voices commas/
+  em-dashes as silence — verified live). Note: Turbo's `speed_factor` knob is
+  deliberately left unused — the server implements it as a post-hoc librosa time-stretch
+  that sounds robotic, so pace is shaped by wording, not by warping the waveform.
+- `agent`: the Voice Fluency Coach persona now **sounds like a warm human**, not a
+  clinical assistant. Prompt-only change (`agent/persona.py`) grounded in voice-agent
+  prompting research (LiveKit + Vapi): personality is written as *audible behaviors*
+  (contractions, And/But/So openers, a light filler once or twice a reply, warm
+  specific reactions like "Yeah — that's exactly it" over "That is correct"), rhythm is
+  varied on purpose (short punchy lines mixed with longer flowing ones, clipped when the
+  learner is upset or thinking and stretched when encouraging), and emotion is a
+  *constraint* — a calm warm baseline with laughter reserved to roughly one turn in five,
+  never two in a row.
+  It still marks genuine laughs with Turbo's native `[laugh]`/`[chuckle]` tags (and no
+  longer refuses when asked to laugh). The `sad` avatar-mood lexicon
+  (`agent/emotion.py`) gained a few empathy phrases ("that's rough", "I hear you",
+  "that's frustrating") so genuine sympathy still moves the face. A new
+  `tests/test_persona_golden.py` runs the persona byte-stability self-check in the
+  normal test sweep so a prompt edit can no longer silently drift the golden string.
 
 ### Docs
 - `docs`/`README`: added an animated UI-preview GIF and centered hero block to the

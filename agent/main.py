@@ -394,7 +394,10 @@ class HistoryWindowAgent(Agent):
             turn_ctx.add_message(
                 role="system",
                 content="The learner asked you to laugh. Begin your reply with the exact "
-                "token [laugh] and share a warm, genuine laugh with them, then continue "
+                "token [laugh] — that token is the ONLY real laugh; it is vocalized as a "
+                "genuine laugh. Do NOT spell laughter out ('haha', 'hahaha', 'ha ha') "
+                "anywhere in the reply — spelled-out laughter is read letter by letter and "
+                "sounds fake and robotic. After the [laugh] token, continue warmly and "
                 "naturally.",
             )
         if history.should_trim(len(self.chat_ctx.items)):
