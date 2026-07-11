@@ -20,6 +20,11 @@ const AVATAR_OPTIONS = [
   { label: "Avatar", value: "avatar" },
 ] as const;
 
+const EXPRESSIVE_OPTIONS = [
+  { label: "Standard", value: "standard" },
+  { label: "Expressive", value: "expressive" },
+] as const;
+
 /**
  * Landing / setup screen (Screen A, D-01/D-02). A single centered card holding
  * EVERY session choice in plain React state BEFORE any LiveKit connection — NO
@@ -109,6 +114,16 @@ export default function SetupScreen({
               options={AVATAR_OPTIONS}
               value={config.avatarOn ? "avatar" : "voice"}
               onChange={(v) => onChange({ ...config, avatarOn: v === "avatar" })}
+            />
+          </div>
+
+          <div className="field">
+            <label className="field-label">Expressive voice (more emotional, slightly slower)</label>
+            <SegmentedToggle
+              ariaLabel="Standard / Expressive voice"
+              options={EXPRESSIVE_OPTIONS}
+              value={config.expressiveVoice ? "expressive" : "standard"}
+              onChange={(v) => onChange({ ...config, expressiveVoice: v === "expressive" })}
             />
           </div>
 

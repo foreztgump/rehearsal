@@ -86,6 +86,11 @@ services:
         condition: service_started
       kokoro:
         condition: service_started
+      # Opt-in expressive-voice engine — gated on START only (same relaxed condition as
+      # kokoro): the agent defaults to Kokoro and only reaches Chatterbox once the browser
+      # flips tts.update, so a slow/absent chatterbox never blocks the default voice path.
+      chatterbox:
+        condition: service_started
     restart: unless-stopped
 
   ollama:
@@ -308,6 +313,38 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
+  chatterbox:
+    # OPT-IN expressive-voice engine (agent/expressive_tts.py): Chatterbox-Turbo adds an
+    # `exaggeration` knob so the per-sentence lexicon mood modulates vocal intensity. OFF
+    # by default — Kokoro stays the default TTS; the browser flips it live via tts.update.
+    # GPU-ONLY (no CPU fallback), ~4.3GB VRAM, and ~0.8-1.2s/sentence so this mode
+    # deliberately exceeds the P50<1.0s budget.
+    # No upstream published image exists — build the pinned local image from the
+    # devnen/Chatterbox-TTS-Server repo's Dockerfile.cu128 (CUDA 12.8, Blackwell/sm_120),
+    # then tag it rehearsal-chatterbox:turbo-cu128.
+    image: rehearsal-chatterbox:turbo-cu128
+    # Same free VRAM knob as kokoro: reclaim allocator fragmentation at no latency cost.
+    environment:
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    # No env_file (M3): the TTS server takes its model/voice/exaggeration per request, so
+    # it needs none of .env — and must not carry the LiveKit secret.
+    # Persist the ~2GB Turbo weights so a container restart never re-downloads them from
+    # Hugging Face (the server fetches on first run into /app/hf_cache).
+    volumes:
+      - chatterbox-models:/app/hf_cache
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:8004:8004"
+    networks:
+      - rehearsal
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
   web:
     build:
       context: ./web
@@ -333,3 +370,4 @@ networks:
 
 volumes:
   ollama-models:
+  chatterbox-models:

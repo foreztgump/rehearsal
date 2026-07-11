@@ -38,12 +38,16 @@ security/reports/
 .agents/
 .claude/
 .codex/
+.factory/
+.opencode/
 .mcp.json
 .planning/
 .superpowers/
+openspec/
 AGENTS.md
 CLAUDE.md
 CODE_PRINCIPLES.md
+PONYTAIL.md
 opencode.json
 # Planning workspace is local-only, but the LAN-exposure runbook is a shipping
 # doc the proxy override depends on (F10). Ignore the tree's CONTENTS (docs/*,
@@ -68,3 +72,6 @@ WRAP_UP.md
 # The committed docker-compose.*.yml are the shipping topology; these bridge a
 # local operator's pre-rename volumes and must stay untracked.
 docker-compose.livetest-*.yml
+
+# my-factory-lite runtime state
+briefs/

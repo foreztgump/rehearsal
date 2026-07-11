@@ -97,6 +97,49 @@ test("acceptScheduleSequence rejects late schedules while not speaking", () => {
   );
 });
 
+test("queueSchedule neutralizes an unknown mood", () => {
+  const queued = queueSchedule({
+    seq: 1,
+    mood: "furious",
+    words: [{ w: "hi", s: 0, e: 0.2 }],
+  });
+
+  assert.ok(queued);
+  assert.equal(queued.mood, "neutral");
+});
+
+test("queueSchedule defaults a missing mood to neutral and keeps a valid one", () => {
+  const missing = queueSchedule({ seq: 1, words: [{ w: "hi", s: 0, e: 0.2 }] });
+  const sad = queueSchedule({
+    seq: 1,
+    mood: "sad",
+    words: [{ w: "hi", s: 0, e: 0.2 }],
+  });
+
+  assert.ok(missing);
+  assert.ok(sad);
+  assert.equal(missing.mood, "neutral");
+  assert.equal(sad.mood, "sad");
+});
+
+test("advancePathB carries the schedule mood onto the anchored active", () => {
+  const sad = queueSchedule({
+    seq: 1,
+    mood: "sad",
+    words: [{ w: "hello", s: 0, e: 0.4 }],
+  });
+
+  assert.ok(sad);
+
+  const result = advancePathB(
+    { active: null, queue: [sad] },
+    { now: 10, audible: true },
+  );
+
+  assert.equal(result.anchoredSeq, 1);
+  assert.equal(result.active?.mood, "sad");
+});
+
 test("advancePathB anchors the first schedule on audible audio", () => {
   const first = queueSchedule({ seq: 1, words: [{ w: "hello", s: 0, e: 0.4 }] });
 

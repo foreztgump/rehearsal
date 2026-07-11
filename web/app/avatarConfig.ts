@@ -14,9 +14,26 @@ export const TALKINGHEAD_SPECIFIER = "talkinghead";
 
 // LiveKit data-channel topic the agent's CaptionedTTS publishes word schedules on
 // (mirrors agent/captioned_tts.py LIPSYNC_TOPIC). Payload is JSON
-// {seq, request_id, words:[{w,s,e}]} with sentence-relative seconds; AvatarStage
-// re-anchors each schedule to the measured audio onset so jitter never desyncs.
+// {seq, request_id, words:[{w,s,e}], mood?} with sentence-relative seconds; the
+// optional `mood` field carries the per-sentence avatar expression (one of
+// AGENT_MOODS). AvatarStage re-anchors each schedule to the measured audio onset so
+// jitter never desyncs, applying the mood at anchor time (see AGENT_MOODS below).
 export const LIPSYNC_TOPIC = "lk.avatar.lipsync";
+
+// LiveKit data-channel topic the agent publishes per-sentence avatar mood on in
+// EXPRESSIVE mode (Chatterbox TTS), payload JSON {seq, mood} with mood ∈ AGENT_MOODS.
+// Kokoro mode piggybacks mood on LIPSYNC_TOPIC's schedule instead, so this topic
+// carries mood only when there is no lip-sync schedule to ride on. Publishing is
+// gated by avatar-ON, so a voice-only session sees none. AvatarStage applies the
+// mood at the audio anchor (when the agent's audio is audible), the same way the
+// lip-sync-piggybacked mood is applied.
+export const MOOD_TOPIC = "lk.avatar.mood";
+
+// Moods AvatarStage will accept from the agent's per-sentence `mood` field. This
+// guards talkinghead.mjs setMood (which THROWS on an unknown mood) and lets
+// queueSchedule fall back to "neutral" for a missing/unknown value. "angry" is
+// intentionally excluded — the agent never emits it.
+export const AGENT_MOODS = new Set(["neutral", "happy", "love", "sad"]);
 
 // Same-origin Draco decoder path (vendored, offline). The default GLB is Draco-
 // geometry + WebP-texture compressed (AVTR-08); TalkingHead's GLTFLoader needs the

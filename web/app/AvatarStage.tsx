@@ -4,11 +4,13 @@ import { useDataChannel, useVoiceAssistant } from "@livekit/components-react";
 import type { TrackReference } from "@livekit/components-core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AGENT_MOODS,
   applySpeakingGazeLock,
   avatarForPersona,
   CAMERA_VIEW,
   DRACO_DECODER_PATH,
   LIPSYNC_TOPIC,
+  MOOD_TOPIC,
   TALKINGHEAD_SPECIFIER,
   TALKINGHEAD_SPEAKING_BEHAVIOR,
 } from "./avatarConfig";
@@ -107,8 +109,11 @@ const VISEME_MORPHS = [
 const SPEAKING_GESTURE_INTERVAL_MS = 2600;
 const SPEAKING_GESTURE_PROBABILITY = 0.35;
 
+// While speaking, the per-sentence rAF anchor owns the mood (setMood is applied when
+// each sentence's audio anchors — see the tick). So speaking returns the resting mood
+// here to avoid a two-writer fight with the anchor: the state effect settles to
+// resting, the anchor overrides per sentence, and on turn end we fall back to resting.
 function moodForConversationState(state: string, restingMood: string): string {
-  if (state === "speaking") return "happy";
   if (state === "listening" || state === "thinking") return "neutral";
   return restingMood;
 }
@@ -168,6 +173,11 @@ export default function AvatarStage({
   // any residual inbound audio energy.
   const mutedRef = useRef(true);
   const activeMoodRef = useRef<string | null>(null);
+  // Latest per-sentence mood received over MOOD_TOPIC (expressive mode, where there
+  // is no lip-sync schedule to piggyback mood on). Applied at the audio anchor in
+  // the tick — the same moment the schedule-piggybacked mood applies — so it never
+  // runs ahead of the audio. Cleared on turn end so a stale mood can't leak forward.
+  const pendingAgentMoodRef = useRef<string | null>(null);
 
   // --- Path-B captioned lip-sync state ---
   // FIFO of word schedules received over LIPSYNC_TOPIC but not yet started. Each is
@@ -205,6 +215,23 @@ export default function AvatarStage({
     }
   }, []);
   useDataChannel(LIPSYNC_TOPIC, onLipsync);
+
+  // Receive per-sentence mood from the agent over MOOD_TOPIC (expressive/Chatterbox
+  // mode, which has no lip-sync schedule to carry mood). Validate against AGENT_MOODS
+  // (setMood throws on unknown) and stash the latest; the tick applies it at the
+  // audio anchor. Mirrors onLipsync's error handling — never throw into React.
+  const onMood = useCallback((msg: { payload: Uint8Array }) => {
+    try {
+      const obj = JSON.parse(new TextDecoder().decode(msg.payload)) as
+        | { seq?: number; mood?: string }
+        | undefined;
+      if (!obj || typeof obj.mood !== "string" || !AGENT_MOODS.has(obj.mood)) return;
+      pendingAgentMoodRef.current = obj.mood;
+    } catch {
+      // Malformed payload: ignore, the avatar simply keeps its current mood.
+    }
+  }, []);
+  useDataChannel(MOOD_TOPIC, onMood);
 
   // Apply the framing toggle (upper ↔ full) live, without re-mounting the avatar.
   // No-op until the GLB finishes loading and sets headRef; the mount effect sets the
@@ -499,6 +526,39 @@ export default function AvatarStage({
         activeRef.current = pathB.active;
         scheduleQueueRef.current = pathB.queue;
 
+        // --- 2b) Per-sentence mood: applied the instant a sentence's audio ANCHORS
+        // (not on data-packet receipt — sentences synthesize faster than realtime, so
+        // applying on receipt would run ahead of the audio). active.mood is a valid
+        // AGENT_MOODS value (guaranteed by queueSchedule), so setMood won't throw. ---
+        if (pathB.anchoredSeq !== null && pathB.active) {
+          const mood = pathB.active.mood;
+          if (mood !== activeMoodRef.current) {
+            try {
+              h.setMood(mood);
+              activeMoodRef.current = mood;
+            } catch {
+              /* non-fatal: unknown mood should not reach here after validation */
+            }
+          }
+        }
+
+        // --- 2c) Expressive-mode mood: MOOD_TOPIC carries mood with no lip-sync
+        // schedule to ride on, so anchor it to the SAME audio-audible signal Path-B
+        // uses. Apply the latest received mood once audio is audible, deduped through
+        // activeMoodRef so the schedule path (2b) and this path never fight. Validated
+        // against AGENT_MOODS on receipt, so setMood won't throw here. ---
+        if (audible && pendingAgentMoodRef.current !== null) {
+          const mood = pendingAgentMoodRef.current;
+          if (mood !== activeMoodRef.current) {
+            try {
+              h.setMood(mood);
+              activeMoodRef.current = mood;
+            } catch {
+              /* non-fatal: mood was validated against AGENT_MOODS on receipt */
+            }
+          }
+        }
+
         // --- 3) Viseme selection. Prefer the captioned schedule (Path-B, real word
         // timing -> true lip-sync); fall back to the F1/F2 formant estimate (Path-A)
         // whenever no schedule is active (e.g. the stock OpenAI TTS, or pre-onset). ---
@@ -623,14 +683,29 @@ export default function AvatarStage({
       // micro-expressions resume — do NOT pin them to 0 (that froze the mouth).
       activeRef.current = null;
       scheduleQueueRef.current = [];
+      // Drop any un-applied expressive-mode mood so a stale mood from this turn
+      // can't apply against the next utterance (mirrors dropping the word schedule).
+      pendingAgentMoodRef.current = null;
       try {
         releaseRealtime(head, "mouthOpen");
         for (const v of VISEME_MORPHS) releaseRealtime(head, v);
       } catch {
         /* non-fatal */
       }
+      // Restore the conversation-state mood so a mid-turn per-sentence mood (e.g.
+      // "sad") doesn't stick after the utterance ends. The rAF anchor owned mood
+      // while speaking; on turn end/barge-in ownership returns to the state.
+      const restMood = moodForConversationState(state, avatar.mood);
+      if (restMood !== activeMoodRef.current) {
+        try {
+          head.setMood(restMood);
+          activeMoodRef.current = restMood;
+        } catch {
+          /* non-fatal */
+        }
+      }
     }
-  }, [state, status]);
+  }, [state, status, avatar.mood]);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>

@@ -1,16 +1,29 @@
+import { AGENT_MOODS } from "./avatarConfig.ts";
+
 export type ScheduleWord = { w: string; s: number; e: number };
 export type LipsyncSchedule = {
   seq: number;
   request_id?: string;
   words: ScheduleWord[];
+  mood?: string;
 };
 export type VisemeSpan = { m: string; s: number; e: number };
-export type QueuedSchedule = LipsyncSchedule & { timeline: VisemeSpan[] };
+// `mood` is non-optional on the internal types: queueSchedule always resolves it to
+// a valid AGENT_MOODS value, so downstream code never re-validates.
+export type QueuedSchedule = LipsyncSchedule & {
+  timeline: VisemeSpan[];
+  mood: string;
+};
 export type ActiveSchedule = {
   seq: number;
   timeline: VisemeSpan[];
   anchor: number;
+  mood: string;
 };
+
+// Fallback when a schedule arrives with no `mood` or an unknown one (setMood throws
+// on unknown, so the default MUST be a valid AGENT_MOODS member).
+export const DEFAULT_MOOD = "neutral";
 export type PathBInput = {
   active: ActiveSchedule | null;
   queue: QueuedSchedule[];
@@ -131,7 +144,11 @@ export function queueSchedule(
   if (timeline.length === 0) return null;
   const request_id =
     typeof schedule.request_id === "string" ? schedule.request_id : undefined;
-  return { seq, request_id, words, timeline };
+  const mood =
+    typeof schedule.mood === "string" && AGENT_MOODS.has(schedule.mood)
+      ? schedule.mood
+      : DEFAULT_MOOD;
+  return { seq, request_id, words, timeline, mood };
 }
 
 export function acceptScheduleSequence(
@@ -169,7 +186,7 @@ export function advancePathB(
 
   const next = input.queue[0];
   return {
-    active: { seq: next.seq, timeline: next.timeline, anchor },
+    active: { seq: next.seq, timeline: next.timeline, anchor, mood: next.mood },
     queue: input.queue.slice(1),
     anchoredSeq: next.seq,
   };

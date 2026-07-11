@@ -47,11 +47,17 @@ COPY metrics.py persona.py history.py interview.py models.py main.py ./
 # (Kokoro /dev/captioned_speech -> audio + word timestamps for avatar lip-sync).
 # main.py imports all three at module load; without them the worker ImportErrors.
 COPY nemo_stt.py placement.py captioned_tts.py ./
+# Opt-in expressive-voice engine (Chatterbox-Turbo): the ExpressiveTTS plugin plus its
+# pure helpers (mood->exaggeration, Kokoro->Chatterbox voice map) and the live-swap
+# wrapper main.py wires as session.tts. Imported at module load — without them the
+# worker ImportErrors at startup.
+COPY expressive_tts.py expressive_mode_tts.py emotion_voice.py voice_map.py ./
 # Phase-14 pure agent modules: mode-aware endpointing selector (endpointing.py),
 # the captioned-TTS avatar gate (captioned_gate.py), and the garbled-finalize
 # predicate (transcript_gate.py). main.py + captioned_tts.py import them at module
-# load — without them the worker ImportErrors at startup.
-COPY endpointing.py captioned_gate.py transcript_gate.py transcript_debug.py ./
+# load — without them the worker ImportErrors at startup. emotion.py is the pure
+# per-sentence text->mood lexicon captioned_tts.py imports for avatar emotion.
+COPY endpointing.py captioned_gate.py transcript_gate.py transcript_debug.py emotion.py ./
 # The coalescing KB batch distiller (O3) — flat livekit-free module imported by main.py.
 COPY kb_ingest.py ./
 # The KB parser package (Plan 04-01) — pure, livekit-free; copied as a directory.
