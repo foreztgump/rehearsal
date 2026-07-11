@@ -51,7 +51,7 @@ COPY nemo_stt.py placement.py captioned_tts.py ./
 # pure helpers (mood->exaggeration, Kokoro->Chatterbox voice map) and the live-swap
 # wrapper main.py wires as session.tts. Imported at module load — without them the
 # worker ImportErrors at startup.
-COPY expressive_tts.py expressive_mode_tts.py emotion_voice.py voice_map.py ./
+COPY expressive_tts.py expressive_mode_tts.py emotion_voice.py voice_map.py paralinguistics.py ./
 # Phase-14 pure agent modules: mode-aware endpointing selector (endpointing.py),
 # the captioned-TTS avatar gate (captioned_gate.py), and the garbled-finalize
 # predicate (transcript_gate.py). main.py + captioned_tts.py import them at module

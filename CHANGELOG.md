@@ -8,25 +8,34 @@ All notable changes to Rehearsal are documented here. The format follows
 
 ### Added
 - `agent`/`web`/`compose`: opt-in **expressive voice** mode. A new toggle swaps the
-  default Kokoro TTS for **Chatterbox-Turbo** (`agent/expressive_tts.py`), whose
-  `exaggeration` knob is driven by the *same* per-sentence lexicon mood that moves the
-  avatar face — so praise sounds brighter, concern softer, in sync with the
-  expression. GPU-only, ~4.3 GB VRAM, served by a new pinned `chatterbox` compose
-  service (`rehearsal-chatterbox:turbo-cu128`, built from devnen/Chatterbox-TTS-Server
-  `Dockerfile.cu128` for Blackwell/sm_120) with a persistent model-cache volume. The
-  engine is switched **live** per session via a `tts.update {expressive}` RPC through a
-  session-lifetime wrapper (`agent/expressive_mode_tts.py`) that preserves the metrics
-  subscription across swaps. Persona `voice_id`s map to gender-matched Chatterbox
-  voices (`agent/voice_map.py`); mood→exaggeration is a pure table
-  (`agent/emotion_voice.py`). Because Chatterbox returns no word timestamps, expressive
-  mode uses Path-A energy lip-sync and publishes the per-sentence mood on its own
-  avatar-gated `lk.avatar.mood` topic (Kokoro mode still piggybacks the lipsync
-  schedule). **OFF by default** — expressive synthesis runs ~0.8–1.2 s/sentence and
-  deliberately exceeds the voice-to-voice P50<1.0 s budget; Kokoro remains the default
-  low-latency path.
+  default Kokoro TTS for **Chatterbox-Turbo** (`agent/expressive_tts.py`). Turbo has no
+  numeric emotion knob (it ignores `exaggeration`), so expressiveness rides its two
+  honored levers, both driven by the *same* per-sentence lexicon mood that moves the
+  avatar face: `temperature` scales with mood (animated for praise, subdued for
+  sympathy, with a lifted neutral baseline so every line is livelier than Kokoro), and
+  **real laughter**. The persona is permitted to be warm and to insert Turbo's native
+  paralinguistic tags — the exact tokens `[laugh]` / `[chuckle]` (lowercase, square
+  brackets; parentheses or angle brackets are spoken as noise) — which the model
+  vocalizes as genuine laughter. `agent/paralinguistics.py` passes those tags through to
+  the expressive engine and strips them for Kokoro (which would otherwise speak the
+  word). A direct user request to laugh also forces `[laugh]` onto that reply so it works
+  on demand. Synthesis uses the server's `/tts` route (the OpenAI `/v1/audio/speech` route
+  silently drops `temperature`). GPU-only, ~4.3 GB VRAM, served by a new pinned
+  `chatterbox` compose service (`rehearsal-chatterbox:turbo-cu128`, built from
+  devnen/Chatterbox-TTS-Server `Dockerfile.cu128` for Blackwell/sm_120) with a
+  persistent model-cache volume. The engine is switched **live** per session via a
+  `tts.update {expressive}` RPC through a session-lifetime wrapper
+  (`agent/expressive_mode_tts.py`) that preserves the metrics subscription across
+  swaps. Persona `voice_id`s map to gender-matched Chatterbox voices
+  (`agent/voice_map.py`); mood→temperature is a pure table (`agent/emotion_voice.py`).
+  Because Chatterbox returns no word timestamps, expressive mode uses Path-A energy
+  lip-sync and publishes the per-sentence mood on its own avatar-gated `lk.avatar.mood`
+  topic (Kokoro mode still piggybacks the lipsync schedule). **OFF by default** —
+  expressive synthesis runs ~0.8–1.2 s/sentence and deliberately exceeds the
+  voice-to-voice P50<1.0 s budget; Kokoro remains the default low-latency path.
 - `agent`/`web`: per-sentence avatar **emotion**. The 3D avatar's baseline facial
   mood now tracks what the trainer is saying, changing per sentence as it speaks
-  (praise → `happy`, warmth → `love`, concern → `sad`, otherwise `neutral`) instead
+  (praise → `happy`, warmth → `love`, sympathy → `sad`, otherwise `neutral`) instead
   of a single fixed speaking expression. The agent maps each synthesized sentence to
   a mood with a pure, GPU-free keyword lexicon (`agent/emotion.py`) and piggybacks
   the label onto the existing `lk.avatar.lipsync` schedule payload — no new data
@@ -36,6 +45,13 @@ All notable changes to Rehearsal are documented here. The format follows
   OFF no mood ships and voice-only stays byte-identical (AVTR-12 preserved). Unknown/
   missing moods fall back to `neutral` (guards TalkingHead `setMood`, which throws on
   an unknown label).
+
+### Changed
+- `agent`: the Voice Fluency Coach persona is now warm and personable rather than
+  stiff — it may share a genuine laugh (and no longer refuses when asked to), marking
+  real laughs with Turbo's native `[laugh]`/`[chuckle]` tags that the expressive voice
+  engine vocalizes. Prompt-only change (`agent/persona.py`); coaching behavior is
+  otherwise unchanged.
 
 ### Docs
 - `docs`/`README`: added an animated UI-preview GIF and centered hero block to the

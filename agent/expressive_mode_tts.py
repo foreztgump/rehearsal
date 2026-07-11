@@ -19,6 +19,7 @@ subscription keeps working across a swap.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from livekit import rtc
@@ -30,6 +31,8 @@ from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS
 
 from captioned_tts import CaptionedTTS
 from expressive_tts import ExpressiveTTS
+
+logger = logging.getLogger("rehearsal.expressive_mode_tts")
 
 
 class ExpressiveModeTTS(tts.TTS):
@@ -64,6 +67,7 @@ class ExpressiveModeTTS(tts.TTS):
     def set_expressive(self, on: bool) -> None:
         """Flip the active engine: Chatterbox when on, Kokoro when off."""
         self._active = self._chatterbox if on else self._kokoro
+        logger.info("expressive engine -> %s", type(self._active).__name__)
 
     def attach_room(self, room: rtc.Room) -> None:
         """Give BOTH engines the room so either can publish avatar data live."""

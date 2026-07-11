@@ -39,6 +39,7 @@ import endpointing
 import history
 import interview
 import metrics
+import paralinguistics
 import transcript_gate
 from transcript_debug import transcript_debug_values
 from captioned_tts import CaptionedTTS
@@ -386,6 +387,16 @@ class HistoryWindowAgent(Agent):
                 "sentence, say you didn't catch it and ask them to repeat."
             )
             raise StopResponse()
+        # Command path: a direct "laugh" request forces the laugh cue onto THIS reply so
+        # it always works on demand (test/demo), independent of the LLM's mood. The TTS
+        # layer turns the cue into real audio (expressive) or strips it (Kokoro).
+        if paralinguistics.wants_laugh(new_message.text_content or ""):
+            turn_ctx.add_message(
+                role="system",
+                content="The learner asked you to laugh. Begin your reply with the exact "
+                "token [laugh] and share a warm, genuine laugh with them, then continue "
+                "naturally.",
+            )
         if history.should_trim(len(self.chat_ctx.items)):
             trimmed = self.chat_ctx.copy().truncate(max_items=history.window_target())
             await self.update_chat_ctx(trimmed)
@@ -696,6 +707,7 @@ async def entrypoint(ctx: JobContext) -> None:
         if not isinstance(expressive, bool):
             logger.warning("tts.update rejected: 'expressive' not a bool: %r", expressive)
             return "error"
+        logger.info("tts.update received: expressive=%s (tts=%s)", expressive, type(session.tts).__name__)
         if isinstance(session.tts, ExpressiveModeTTS):
             session.tts.set_expressive(expressive)
         return "applied"

@@ -3,14 +3,17 @@
 WHY THIS EXISTS (opt-in expressive mode):
 The default voice is Kokoro (agent/captioned_tts.py), which is fast (~256ms/sentence)
 and returns word-level timestamps for true avatar lip-sync. Expressive mode swaps in
-Chatterbox-Turbo, which has an `exaggeration` knob so the SAME per-sentence lexicon mood
-(emotion.mood_for_text) that drives the avatar face ALSO modulates vocal intensity. The
+Chatterbox-Turbo. Turbo IGNORES the `exaggeration` knob (verified in the model source),
+so the SAME per-sentence lexicon mood (emotion.mood_for_text) that drives the avatar face
+instead scales Turbo's `temperature` — its only honored expressiveness lever — while a
+paralinguistic tag (e.g. <laugh>) is injected into the text for personality on cue. The
 tradeoff is latency (~0.8–1.2s/sentence, one forward pass, no streaming), so expressive
 mode deliberately exceeds the P50<1.0s budget and is OFF by default.
 
 CONTRACT DIFFERENCES vs CaptionedTTS (Kokoro):
-  * Endpoint POST /v1/audio/speech returns RAW WAV bytes (24 kHz mono 16-bit PCM) —
-    NOT base64 json, NO word timestamps. So there is no lip-sync schedule to piggyback.
+  * Endpoint POST /tts (NOT the OpenAI /v1/audio/speech route, which silently drops
+    `temperature`) returns RAW WAV bytes (24 kHz mono 16-bit PCM) — NOT base64 json,
+    NO word timestamps. So there is no lip-sync schedule to piggyback.
   * The per-sentence mood is therefore published on its OWN data-channel topic
     (MOOD_TOPIC = lk.avatar.mood), gated by the same avatar-enabled flag as CaptionedTTS
     so voice-only stays isolated (no lk.avatar.* traffic when the avatar is OFF).
@@ -47,9 +50,12 @@ logger = logging.getLogger("rehearsal.expressive_tts")
 SAMPLE_RATE = 24000
 NUM_CHANNELS = 1
 
-# OpenAI-compatible Chatterbox model + response format (verified endpoint contract).
-CHATTERBOX_MODEL = "chatterbox-turbo"
-RESPONSE_FORMAT = "wav"
+# The Chatterbox /tts endpoint contract (verified against the server source). We use
+# /tts NOT /v1/audio/speech because the OpenAI-compatible route silently DROPS
+# `temperature` (it only reads model/input/voice/format/speed/seed) — and on Turbo,
+# `temperature` is the ONLY honored expressiveness lever (`exaggeration` is ignored).
+OUTPUT_FORMAT = "wav"
+VOICE_MODE = "predefined"
 
 # Data-channel topic the browser avatar subscribes to for per-sentence mood. Chatterbox
 # has NO lipsync schedule to piggyback the mood onto (unlike Kokoro), so it rides its own
@@ -149,17 +155,24 @@ class _ExpressiveStream(tts.ChunkedStream):
         self._avatar_enabled = tts._avatar_enabled
 
     def _request_body(self, mood: str) -> dict:
-        """Chatterbox /v1/audio/speech body; exaggeration is driven by the sentence mood."""
+        """Chatterbox-Turbo /tts body.
+
+        Turbo ignores `exaggeration`, so expressiveness rides two honored levers: the
+        `temperature` (mood-scaled, lifted baseline) and any paralinguistic tag injected
+        into the text (e.g. <laugh> on an amused line) for real personality on cue.
+        """
         return {
-            "model": CHATTERBOX_MODEL,
-            "input": self.input_text,
-            "voice": voice_map.chatterbox_voice_for(self._opts.voice),
-            "response_format": RESPONSE_FORMAT,
-            "exaggeration": emotion_voice.exaggeration_for_mood(mood),
+            # Turbo tags ([laugh]/[chuckle]) are the model's NATIVE syntax — pass the
+            # LLM's text through untouched so the model vocalizes them.
+            "text": self.input_text,
+            "voice_mode": VOICE_MODE,
+            "predefined_voice_id": voice_map.chatterbox_voice_for(self._opts.voice),
+            "output_format": OUTPUT_FORMAT,
+            "temperature": emotion_voice.temperature_for_mood(mood),
         }
 
     async def _run(self, output_emitter: tts.AudioEmitter) -> None:
-        url = f"{self._opts.base_url}/v1/audio/speech"
+        url = f"{self._opts.base_url}/tts"
         mood = emotion.mood_for_text(self.input_text)
         try:
             resp = await self._tts._client.post(url, json=self._request_body(mood))

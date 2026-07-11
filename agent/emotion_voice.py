@@ -1,30 +1,33 @@
-"""Pure mood→Chatterbox-exaggeration mapping for the expressive-voice engine.
+"""Pure mood→Chatterbox-Turbo temperature mapping for the expressive-voice engine.
 
-Kept separate from expressive_tts.py — with NO livekit/httpx import — so the
-intensity decision is unit-testable in the GPU-less sandbox, mirroring
-agent/emotion.py (the sentence→mood lexicon this consumes) and agent/captioned_gate.py.
+Turbo IGNORES `exaggeration`/`cfg`/`min_p` (verified in the model source —
+chatterbox/tts_turbo.py logs a warning and drops them). Its only honored expressiveness
+lever is `temperature`: higher = livelier, more varied prosody. So the SAME per-sentence
+lexicon mood that drives the avatar face (emotion.mood_for_text) maps to a temperature
+here — animated for praise, subdued for sympathy — with a lifted NEUTRAL baseline so
+expressive mode is reliably warmer than Kokoro on EVERY sentence, not just keyword hits.
 
-The SAME per-sentence lexicon mood that drives the avatar face (emotion.mood_for_text)
-also sets Chatterbox-Turbo's `exaggeration` knob (emotional intensity, 0..1). Coarse
-by design: a miss just yields the neutral default, which is inaudible.
+Pure by design (no livekit/httpx) so it's unit-testable in the GPU-less sandbox, mirroring
+emotion.py (the lexicon it consumes) and captioned_gate.py.
 """
 from __future__ import annotations
 
-# Chatterbox `exaggeration` per lexicon mood (0..1). NEUTRAL is the engine default;
-# praise is the most animated, concern the most subdued. Named — never inlined.
-DEFAULT_EXAGGERATION = 0.5  # emotion.DEFAULT_MOOD ("neutral")
-HAPPY_EXAGGERATION = 0.8
-LOVE_EXAGGERATION = 0.7
-SAD_EXAGGERATION = 0.4
+# Chatterbox-Turbo `temperature` per lexicon mood (model default is 0.8). NEUTRAL is
+# lifted to 0.9 so expressive mode is livelier than Kokoro even when nothing matches;
+# praise is the most animated, sympathy the most subdued. Named — never inlined.
+DEFAULT_TEMPERATURE = 0.9  # emotion.DEFAULT_MOOD ("neutral")
+HAPPY_TEMPERATURE = 1.1
+LOVE_TEMPERATURE = 1.0
+SAD_TEMPERATURE = 0.7
 
-_EXAGGERATION_BY_MOOD: dict[str, float] = {
-    "happy": HAPPY_EXAGGERATION,
-    "love": LOVE_EXAGGERATION,
-    "neutral": DEFAULT_EXAGGERATION,
-    "sad": SAD_EXAGGERATION,
+_TEMPERATURE_BY_MOOD: dict[str, float] = {
+    "happy": HAPPY_TEMPERATURE,
+    "love": LOVE_TEMPERATURE,
+    "neutral": DEFAULT_TEMPERATURE,
+    "sad": SAD_TEMPERATURE,
 }
 
 
-def exaggeration_for_mood(mood: str) -> float:
-    """Map a lexicon mood label to a Chatterbox exaggeration; unknown → default."""
-    return _EXAGGERATION_BY_MOOD.get(mood, DEFAULT_EXAGGERATION)
+def temperature_for_mood(mood: str) -> float:
+    """Map a lexicon mood label to a Chatterbox-Turbo temperature; unknown → default."""
+    return _TEMPERATURE_BY_MOOD.get(mood, DEFAULT_TEMPERATURE)

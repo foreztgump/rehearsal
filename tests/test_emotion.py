@@ -15,8 +15,15 @@ def test_warmth_maps_to_love():
     assert emotion.mood_for_text("Of course, take your time.") == "love"
 
 
-def test_concern_maps_to_sad():
-    assert emotion.mood_for_text("Unfortunately that is a problem.") == "sad"
+def test_sympathy_maps_to_sad():
+    assert emotion.mood_for_text("I'm sorry to hear that.") == "sad"
+
+
+def test_topic_words_are_not_sad():
+    # A coach saying "problem"/"mistake"/"issue" about the SUBJECT must not go sad.
+    assert emotion.mood_for_text("Tell me about a problem you solved.") == "neutral"
+    assert emotion.mood_for_text("That's a common mistake in interviews.") == "neutral"
+    assert emotion.mood_for_text("Let's talk through the issue you raised.") == "neutral"
 
 
 def test_neutral_default():
@@ -34,7 +41,8 @@ def test_praise_beats_concern_by_priority():
 if __name__ == "__main__":
     test_praise_maps_to_happy()
     test_warmth_maps_to_love()
-    test_concern_maps_to_sad()
+    test_sympathy_maps_to_sad()
+    test_topic_words_are_not_sad()
     test_neutral_default()
     test_empty_string_is_neutral()
     test_praise_beats_concern_by_priority()

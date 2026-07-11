@@ -30,9 +30,13 @@ _MOOD_LEXICON: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     (
         "sad",
+        # Sympathy/apology ONLY — never topic words. A coach constantly says
+        # "problem", "mistake", "issue", "risk", "difficult" about the SUBJECT under
+        # discussion, not their own feeling; matching those turned the face sad for no
+        # reason. Match genuine empathetic phrasing instead.
         (
-            "unfortunately", "sorry", "careful", "risk", "problem",
-            "difficult", "mistake", "issue", "concern",
+            "unfortunately", "i'm sorry", "so sorry", "sorry to hear",
+            "that's tough", "that must be hard", "that's a shame",
         ),
     ),
 )

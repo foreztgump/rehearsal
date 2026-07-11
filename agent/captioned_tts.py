@@ -41,6 +41,7 @@ import httpx
 
 import captioned_gate
 import emotion
+import paralinguistics
 from livekit import rtc
 from livekit.agents import (
     APIConnectionError,
@@ -166,7 +167,12 @@ class CaptionedTTS(tts.TTS):
         *,
         conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
     ) -> tts.ChunkedStream:
-        return _CaptionedStream(tts=self, input_text=text, conn_options=conn_options)
+        # Strip any [laugh]/[chuckle] tags the persona emitted: Kokoro can't vocalize
+        # them and would otherwise SPEAK the word. Stripping before synthesis also keeps
+        # the word-timestamp schedule aligned to what is actually said.
+        return _CaptionedStream(
+            tts=self, input_text=paralinguistics.strip_tags(text), conn_options=conn_options
+        )
 
     async def aclose(self) -> None:
         await self._client.aclose()
