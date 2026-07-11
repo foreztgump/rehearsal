@@ -86,6 +86,12 @@ services:
         condition: service_started
       kokoro:
         condition: service_started
+      # NOTE: chatterbox (opt-in expressive voice) is intentionally NOT a dependency.
+      # It lives behind the `expressive` compose profile, so on a default install it
+      # is not built and not started — listing it here would make `docker compose up`
+      # fail on the missing image. The agent defaults to Kokoro and only reaches
+      # Chatterbox lazily once the browser flips tts.update, so its absence never
+      # blocks the default voice path (see the chatterbox service definition below).
     restart: unless-stopped
 
   ollama:
@@ -308,6 +314,47 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
+  chatterbox:
+    # OPT-IN expressive-voice engine (agent/expressive_tts.py): Chatterbox-Turbo adds an
+    # `exaggeration` knob so the per-sentence lexicon mood modulates vocal intensity. OFF
+    # by default — Kokoro stays the default TTS; the browser flips it live via tts.update.
+    # GPU-ONLY (no CPU fallback), ~4.3GB VRAM, and ~0.8-1.2s/sentence so this mode
+    # deliberately exceeds the P50<1.0s budget.
+    #
+    # Gated behind the `expressive` profile so it is neither built nor started on a
+    # default install (the installer opts in via COMPOSE_PROFILES=expressive). No
+    # upstream published image exists and its source tree is ~multi-GB, so rather than
+    # vendor it we build from a PINNED remote-git context: `docker compose build
+    # chatterbox` clones devnen/Chatterbox-TTS-Server at the pinned commit and builds
+    # its Dockerfile.cu128 (CUDA 12.8, Blackwell/sm_120), tagged rehearsal-chatterbox:turbo-cu128.
+    profiles: ["expressive"]
+    build:
+      # Pinned commit (not a moving branch) for reproducibility — matches the tag never-:latest rule.
+      context: https://github.com/devnen/Chatterbox-TTS-Server.git#915ae289340e10c6047f27f47e22eae9bf350c32
+      dockerfile: Dockerfile.cu128
+    image: rehearsal-chatterbox:turbo-cu128
+    # Same free VRAM knob as kokoro: reclaim allocator fragmentation at no latency cost.
+    environment:
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    # No env_file (M3): the TTS server takes its model/voice/exaggeration per request, so
+    # it needs none of .env — and must not carry the LiveKit secret.
+    # Persist the ~2GB Turbo weights so a container restart never re-downloads them from
+    # Hugging Face (the server fetches on first run into /app/hf_cache).
+    volumes:
+      - chatterbox-models:/app/hf_cache
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:8004:8004"
+    networks:
+      - rehearsal
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
   web:
     build:
       context: ./web
@@ -320,6 +367,10 @@ services:
         # pre-R7 fast/better set for back-compat. Changing these requires a web rebuild.
         NEXT_PUBLIC_REHEARSAL_MODEL_CHOICES: ${REHEARSAL_MODEL_CHOICES:-fast,better}
         NEXT_PUBLIC_REHEARSAL_MODEL_LABELS: ${NEXT_PUBLIC_REHEARSAL_MODEL_LABELS:-Fast,Better}
+        # Bake whether the expressive-voice engine (Chatterbox) was installed. "1" only
+        # when the installer opted into the `expressive` profile; otherwise "0" and the
+        # web UI hides the voice picker entirely. Changing this requires a web rebuild.
+        NEXT_PUBLIC_REHEARSAL_EXPRESSIVE_AVAILABLE: ${NEXT_PUBLIC_REHEARSAL_EXPRESSIVE_AVAILABLE:-0}
     env_file: .env
     ports:
       - "${LAN_BIND_IP:-127.0.0.1}:3000:3000"
@@ -333,3 +384,4 @@ networks:
 
 volumes:
   ollama-models:
+  chatterbox-models:

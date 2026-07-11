@@ -6,7 +6,155 @@ All notable changes to Rehearsal are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- `web`/`compose`/`install`: **expressive voice is now a real, install-aware option.**
+  The setup screen shows a named **Voice** picker — **Kokoro · fast** vs
+  **Chatterbox · expressive** — instead of a generic toggle, so the active engine is
+  explicit rather than reading as "stuck on Kokoro". The picker is baked in only when
+  the expressive engine was actually installed (`NEXT_PUBLIC_REHEARSAL_EXPRESSIVE_AVAILABLE`,
+  set by the installer); otherwise it is hidden entirely and `expressiveVoice` is clamped
+  off so a held value can never route a Chatterbox `tts.update` to a stack that has no
+  chatterbox service. New `web/app/voiceEngine.ts`; wired through `SetupScreen.tsx` and
+  `VoiceRoom.tsx`, with a matching web build-arg in `web/Dockerfile`.
+- `install`: **opt-in expressive-voice install** via `./install.sh --expressive` /
+  `.\install.ps1 -Expressive` (or `INSTALL_EXPRESSIVE=1`). NVIDIA-gated and off by
+  default (large ~19 GB build, +4.3 GB VRAM, exceeds the P50<1.0s budget). When enabled
+  the installer builds the `chatterbox` service, writes
+  `NEXT_PUBLIC_REHEARSAL_EXPRESSIVE_AVAILABLE=1` + `COMPOSE_PROFILES=expressive` to
+  `.env`, and rebuilds web so the picker appears; re-running without the flag turns it
+  back off. Documented in `INSTALLATION.md` (new "Expressive Voice (Opt-In)" section).
+- `web`: the avatar's **brows now lift subtly while it speaks** so the face reads as
+  engaged rather than a still mask under a moving mouth. A heavily smoothed
+  engagement envelope drives the outer-brow morphs off the same speech-energy signal
+  the mouth uses (`web/app/AvatarStage.tsx`: `BROW_MORPHS` + `BROW_LIFT_*` constants),
+  with a very slow attack/release so the brows drift with phrase energy instead of
+  twitching per syllable. It drives `browOuterUp*` specifically (never `browInnerUp`)
+  because the realtime morph tier *overrides* the mood baseline, so touching the inner
+  brows would stomp the emotional brows (sad's furrow, love's raise); the outer brows
+  are ~0 across moods, so the lift never fights a mood's expression. Released back to
+  the mood baseline on mute/turn-end alongside the mouth morphs.
+- `web`/`agent`: the 3D avatar now **laughs on its face when the voice laughs**. In
+  expressive mode the agent tags a sentence's laugh cue (`laugh`/`chuckle`, from the
+  `[laugh]`/`[chuckle]` tag it already emits) onto the per-sentence `lk.avatar.mood`
+  packet (`agent/paralinguistics.py` `laugh_kind`, published in `agent/expressive_tts.py`),
+  and `web/app/AvatarStage.tsx` plays a transient TalkingHead emoji gesture (😂 full
+  laugh / 🙂 chuckle) at the audio anchor so the expression lands in sync with the
+  vocalized laugh, then settles back. Avatar-gated (no data when Avatar is OFF); the
+  Kokoro path is unaffected (it strips laugh tags, so there is no laugh to mirror).
+- `web`: the avatar is **no longer a frozen statue while speaking**. It now shows the
+  library's subtle speaking head motion — occasional gentle head turns plus a
+  volume-synced neck bob — while keeping a strong eye-contact bias
+  (`web/app/avatarConfig.ts`: `avatarSpeakingHeadMove` 0 → 0.4, and the speaking gaze
+  lock narrowed to the eyes so the head is free to move).
+- `agent`/`web`/`compose`: opt-in **expressive voice** mode. A new toggle swaps the
+  default Kokoro TTS for **Chatterbox-Turbo** (`agent/expressive_tts.py`). Turbo has no
+  numeric emotion knob (it ignores `exaggeration`), so expressiveness rides its two
+  honored levers, both driven by the *same* per-sentence lexicon mood that moves the
+  avatar face: `temperature` scales with mood (animated for praise, subdued for
+  sympathy, with a lifted neutral baseline so every line is livelier than Kokoro), and
+  **real laughter**. The persona is permitted to be warm and to insert Turbo's native
+  paralinguistic tags — the exact tokens `[laugh]` / `[chuckle]` (lowercase, square
+  brackets; parentheses or angle brackets are spoken as noise) — which the model
+  vocalizes as genuine laughter. `agent/paralinguistics.py` passes those tags through to
+  the expressive engine and strips them for Kokoro (which would otherwise speak the
+  word). A direct user request to laugh also forces `[laugh]` onto that reply so it works
+  on demand. Synthesis uses the server's `/tts` route (the OpenAI `/v1/audio/speech` route
+  silently drops `temperature`). GPU-only, ~4.3 GB VRAM, served by a new pinned
+  `chatterbox` compose service (`rehearsal-chatterbox:turbo-cu128`, built from
+  devnen/Chatterbox-TTS-Server `Dockerfile.cu128` for Blackwell/sm_120) with a
+  persistent model-cache volume. The engine is switched **live** per session via a
+  `tts.update {expressive}` RPC through a session-lifetime wrapper
+  (`agent/expressive_mode_tts.py`) that preserves the metrics subscription across
+  swaps. Persona `voice_id`s map to gender-matched Chatterbox voices
+  (`agent/voice_map.py`); mood→temperature is a pure table (`agent/emotion_voice.py`).
+  Because Chatterbox returns no word timestamps, expressive mode uses Path-A energy
+  lip-sync and publishes the per-sentence mood on its own avatar-gated `lk.avatar.mood`
+  topic (Kokoro mode still piggybacks the lipsync schedule). **OFF by default** —
+  expressive synthesis runs ~0.8–1.2 s/sentence and deliberately exceeds the
+  voice-to-voice P50<1.0 s budget; Kokoro remains the default low-latency path.
+- `agent`/`web`: per-sentence avatar **emotion**. The 3D avatar's baseline facial
+  mood now tracks what the trainer is saying, changing per sentence as it speaks
+  (praise → `happy`, warmth → `love`, sympathy → `sad`, otherwise `neutral`) instead
+  of a single fixed speaking expression. The agent maps each synthesized sentence to
+  a mood with a pure, GPU-free keyword lexicon (`agent/emotion.py`) and piggybacks
+  the label onto the existing `lk.avatar.lipsync` schedule payload — no new data
+  channel, no model, off the audio hot path. The browser applies the mood at the
+  moment that sentence's audio anchors (in the lip-sync rAF tick), so expression
+  never races ahead of speech. Gated by avatar-ON exactly like lip-sync: with Avatar
+  OFF no mood ships and voice-only stays byte-identical (AVTR-12 preserved). Unknown/
+  missing moods fall back to `neutral` (guards TalkingHead `setMood`, which throws on
+  an unknown label).
+
+### Changed
+- `web`: the persona **Voice picker now shows human-readable, engine-honest names**
+  instead of raw ids like `af_bella`. In standard mode it reads "Bella — US, female"
+  (decoded from the id's accent/gender prefix by a new `formatVoiceLabel` helper in
+  `web/app/savedPersonas.ts`). In **expressive** mode it shows the *actual* Chatterbox
+  voice the agent maps to — e.g. "Olivia — female" — so the label matches what is heard
+  rather than promising a Kokoro voice Chatterbox doesn't have (the expressive map
+  preserves gender only, not accent). A new `web/app/voiceMap.ts` mirrors the agent's
+  canonical `agent/voice_map.py` for display; the option VALUE is unchanged (still the
+  `voice_id` contract). Applies to the picker in both the setup screen and the drawer.
+- `compose`: the `chatterbox` (expressive voice) service is now **behind the
+  `expressive` profile and buildable via `docker compose build`**. Previously it was in
+  the agent's hard `depends_on` yet had no build context, so a default `docker compose
+  up` would fail on the missing image; now it is only built/started when the profile is
+  enabled, and its image is produced from a pinned remote-git build context
+  (devnen/Chatterbox-TTS-Server `Dockerfile.cu128`) instead of a manual out-of-band
+  build. The agent no longer hard-depends on it (it reaches Chatterbox lazily via
+  `tts.update`), so the default Kokoro stack is unaffected.
+- `web`: **sharper, more fluid mouth articulation** during speech. The energy-driven
+  lip-sync now opens wider on loud syllables and forms lip shapes on softer ones
+  (`web/app/AvatarStage.tsx`: `MOUTH_OPEN_MAX` 0.6→0.75, `VISEME_INTENSITY` 0.7→0.85,
+  Path-A viseme gate 0.06→0.045), while the open/close *timing* is eased (not sped up)
+  so the motion flows instead of snapping mechanically. Magnitude and timing are tuned
+  separately: visible articulation without the rigid, hinge-like look.
+- `agent`: expressive voice now adds a **mood-scaled breath between sentences** so
+  multi-sentence replies stop running together. Each Chatterbox sentence clip gets a
+  short trailing pad of pure silence (`agent/wav_pad.py`, sized by
+  `emotion_voice.pad_ms_for_mood` — sympathy longest at 280 ms, praise shortest at
+  120 ms, neutral 180 ms). Silence leaves the model audio byte-for-byte untouched, so
+  unlike the rejected `speed_factor` time-stretch it adds pacing with zero quality cost;
+  it applies only to the expressive path (Kokoro is unaffected).
+- `agent`: rewrote the spoken-delivery instructions so the coach **stops faking laughter
+  and carries emotion in its words** (`agent/persona.py` footer + the forced-laugh nudge
+  in `agent/main.py`). The model was writing spelled-out laughter ("hahaha!") alongside
+  the real `[laugh]` token, and Chatterbox reads those letters syllable-by-syllable as an
+  ugly, robotic fake laugh. The new footer teaches the model that everything it writes is
+  spoken (so emotion must live in word choice, not punctuation or stage directions),
+  forbids spelled-out laughter at length, and reserves the two native tags `[laugh]` /
+  `[chuckle]` as the only real laugh — used rarely and only when genuinely funny. Verified
+  live against the failing transcript: zero spelled-out laughter across the laugh-request
+  turns, warm words when a laugh isn't earned.
+- `agent`: the expressive coach now **varies its sentence rhythm** for a more natural
+  cadence — short punchy lines mixed with longer flowing ones, clipped when the learner
+  is upset or thinking and stretched when encouraging (`agent/persona.py`). This replaces
+  the earlier reliance on punctuation for pauses (Chatterbox-Turbo barely voices commas/
+  em-dashes as silence — verified live). Note: Turbo's `speed_factor` knob is
+  deliberately left unused — the server implements it as a post-hoc librosa time-stretch
+  that sounds robotic, so pace is shaped by wording, not by warping the waveform.
+- `agent`: the Voice Fluency Coach persona now **sounds like a warm human**, not a
+  clinical assistant. Prompt-only change (`agent/persona.py`) grounded in voice-agent
+  prompting research (LiveKit + Vapi): personality is written as *audible behaviors*
+  (contractions, And/But/So openers, a light filler once or twice a reply, warm
+  specific reactions like "Yeah — that's exactly it" over "That is correct"), rhythm is
+  varied on purpose (short punchy lines mixed with longer flowing ones, clipped when the
+  learner is upset or thinking and stretched when encouraging), and emotion is a
+  *constraint* — a calm warm baseline with laughter reserved to roughly one turn in five,
+  never two in a row.
+  It still marks genuine laughs with Turbo's native `[laugh]`/`[chuckle]` tags (and no
+  longer refuses when asked to laugh). The `sad` avatar-mood lexicon
+  (`agent/emotion.py`) gained a few empathy phrases ("that's rough", "I hear you",
+  "that's frustrating") so genuine sympathy still moves the face. A new
+  `tests/test_persona_golden.py` runs the persona byte-stability self-check in the
+  normal test sweep so a prompt edit can no longer silently drift the golden string.
+
 ### Docs
+- `README`: added a **Features** section and a **Voice & avatar** subsection so the
+  front page actually surfaces the two headline optional features — the 3D avatar
+  (lip-sync, per-sentence emotion, head motion, laughter, brows) and the opt-in
+  expressive voice (Kokoro-default vs Chatterbox tradeoff, `--expressive` install) —
+  with a deep link to the INSTALLATION.md expressive-voice section.
 - `docs`/`README`: added an animated UI-preview GIF and centered hero block to the
   top of the README (`docs/assets/rehearsal-demo.gif`), rendered from the
   `design-mockups/v4` aurora-veil concept, so the project page shows the session
@@ -21,6 +169,29 @@ All notable changes to Rehearsal are documented here. The format follows
   failure (a false negative when the GUI toggle was used) — the container-side curl
   (step 3) is the source of truth. Updated in INSTALLATION.md, `install.sh`,
   `docker-compose.macos.yml`, and `scripts/gpu-doctor.sh`.
+
+### Fixed
+- `agent`: the "laugh on command" path no longer fires on **incidental mentions** of
+  laughter. `wants_laugh` now word-boundary matches (`\b(?:laugh|lol|(?:ha){2,})\b`), so
+  "I was laughing about that", "that's laughable", "we shared a lot of laughter", and
+  "lollipop" no longer force a `[laugh]` onto the reply — only a direct command
+  ("laugh", "lol", "haha…") does. Regression tests added in `tests/test_paralinguistics.py`.
+- `web`/`install`: review-pass fixes on the avatar/voice branch — (1) updated two stale
+  avatar gaze-lock tests that still asserted the pre-"come alive" behaviour
+  (`avatarSpeakingHeadMove` 0 and head-axis locks) after Avatar A freed head motion;
+  (2) added the missing `.ts` extension on `savedPersonas.ts`'s `voiceMap` import so the
+  Node `.mjs` tests load it; (3) made the installer's `COMPOSE_PROFILES` edit
+  token-accurate in both `install.sh` and `install.ps1` so disabling expressive removes
+  only the `expressive` token and preserves any other profile (e.g. `stt-gpu`); and
+  (4) made the compose-topology default render hermetic against a persisted
+  `COMPOSE_PROFILES` in `.env`. Added `formatVoiceLabel` unit tests incl. a
+  web↔agent voice-map drift guard.
+- `agent`: the avatar no longer turns **sad on plain acknowledgment**. `"i hear you"`
+  was removed from the sympathy lexicon (`agent/emotion.py`) because the coach uses it
+  as an agreement opener (`"i hear you have some concerns…"`) far more often than as
+  standalone empathy, so its substring match was flipping the face sad on ordinary
+  agreement. The unambiguous empathy phrases (`"sorry to hear"`, `"that must be hard"`,
+  …) still map to sad. Regression test added in `tests/test_emotion.py`.
 
 ## [0.3.0] - 2026-07-04
 

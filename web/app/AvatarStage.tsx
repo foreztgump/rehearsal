@@ -4,11 +4,15 @@ import { useDataChannel, useVoiceAssistant } from "@livekit/components-react";
 import type { TrackReference } from "@livekit/components-core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AGENT_MOODS,
   applySpeakingGazeLock,
   avatarForPersona,
   CAMERA_VIEW,
   DRACO_DECODER_PATH,
+  LAUGH_GESTURE,
+  LAUGH_GESTURE_SECONDS,
   LIPSYNC_TOPIC,
+  MOOD_TOPIC,
   TALKINGHEAD_SPECIFIER,
   TALKINGHEAD_SPEAKING_BEHAVIOR,
 } from "./avatarConfig";
@@ -52,6 +56,7 @@ type MorphTier = { realtime: number | null; needsUpdate: boolean };
 type TalkingHeadInstance = {
   showAvatar: (avatar: Record<string, unknown>) => Promise<void>;
   setMood: (mood: string) => void;
+  playGesture: (name: string, dur?: number, mirror?: boolean, ms?: number) => void;
   speakWithHands: (delay?: number, prob?: number) => void;
   setFixedValue: (mt: string, val: number | null) => void;
   setValue: (mt: string, val: number, ms?: number | null) => void;
@@ -104,11 +109,19 @@ const VISEME_MORPHS = [
   "viseme_RR",
 ];
 
+// Engagement-lift brows (B2): the outer-brow morphs driven by the speech-energy
+// envelope. browOuterUp SPECIFICALLY (not browInnerUp) so the realtime override
+// doesn't stomp the mood baseline's emotional brows — see the tick's tuning note.
+const BROW_MORPHS = ["browOuterUpLeft", "browOuterUpRight"];
+
 const SPEAKING_GESTURE_INTERVAL_MS = 2600;
 const SPEAKING_GESTURE_PROBABILITY = 0.35;
 
+// While speaking, the per-sentence rAF anchor owns the mood (setMood is applied when
+// each sentence's audio anchors — see the tick). So speaking returns the resting mood
+// here to avoid a two-writer fight with the anchor: the state effect settles to
+// resting, the anchor overrides per sentence, and on turn end we fall back to resting.
 function moodForConversationState(state: string, restingMood: string): string {
-  if (state === "speaking") return "happy";
   if (state === "listening" || state === "thinking") return "neutral";
   return restingMood;
 }
@@ -168,6 +181,15 @@ export default function AvatarStage({
   // any residual inbound audio energy.
   const mutedRef = useRef(true);
   const activeMoodRef = useRef<string | null>(null);
+  // Latest per-sentence mood received over MOOD_TOPIC (expressive mode, where there
+  // is no lip-sync schedule to piggyback mood on). Applied at the audio anchor in
+  // the tick — the same moment the schedule-piggybacked mood applies — so it never
+  // runs ahead of the audio. Cleared on turn end so a stale mood can't leak forward.
+  const pendingAgentMoodRef = useRef<string | null>(null);
+  // Latest per-sentence laugh cue ("laugh"/"chuckle") received on MOOD_TOPIC. Fired
+  // ONCE as a transient face gesture at the audio anchor (in sync with the vocalized
+  // laugh), then cleared. Also cleared on turn end so a stale laugh can't leak forward.
+  const pendingLaughRef = useRef<string | null>(null);
 
   // --- Path-B captioned lip-sync state ---
   // FIFO of word schedules received over LIPSYNC_TOPIC but not yet started. Each is
@@ -205,6 +227,28 @@ export default function AvatarStage({
     }
   }, []);
   useDataChannel(LIPSYNC_TOPIC, onLipsync);
+
+  // Receive per-sentence mood from the agent over MOOD_TOPIC (expressive/Chatterbox
+  // mode, which has no lip-sync schedule to carry mood). Validate against AGENT_MOODS
+  // (setMood throws on unknown) and stash the latest; the tick applies it at the
+  // audio anchor. Mirrors onLipsync's error handling — never throw into React.
+  const onMood = useCallback((msg: { payload: Uint8Array }) => {
+    try {
+      const obj = JSON.parse(new TextDecoder().decode(msg.payload)) as
+        | { seq?: number; mood?: string; laugh?: string }
+        | undefined;
+      if (!obj || typeof obj.mood !== "string" || !AGENT_MOODS.has(obj.mood)) return;
+      pendingAgentMoodRef.current = obj.mood;
+      // Optional laugh cue: stash it only if it maps to a known gesture; the tick fires
+      // it at the audio anchor so the face laughs in time with the vocalized laugh.
+      if (typeof obj.laugh === "string" && obj.laugh in LAUGH_GESTURE) {
+        pendingLaughRef.current = obj.laugh;
+      }
+    } catch {
+      // Malformed payload: ignore, the avatar simply keeps its current mood.
+    }
+  }, []);
+  useDataChannel(MOOD_TOPIC, onMood);
 
   // Apply the framing toggle (upper ↔ full) live, without re-mounting the avatar.
   // No-op until the GLB finishes loading and sets headRef; the mount effect sets the
@@ -431,14 +475,35 @@ export default function AvatarStage({
       // --- Mouth-feel tuning (natural, not exaggerated). The jaw opens GENTLY and
       // the viseme shapes sit BELOW the jaw envelope so the mouth never gapes or
       // snaps. These are perception knobs — nudge up if too subtle, down if overdone. ---
-      const MOUTH_OPEN_GAIN = 6; // loudness→openness slope (was 8)
-      const MOUTH_OPEN_MAX = 0.6; // cap so the mouth never gapes wide (was 0.9)
+      const MOUTH_OPEN_GAIN = 7; // loudness→openness slope (more responsive; gape bug was 8)
+      const MOUTH_OPEN_MAX = 0.75; // cap so the mouth articulates but never gapes (gape bug was 0.9)
       const MOUTH_OPEN_FLOOR = 0.01; // ignore room/noise below this rms
-      const MOUTH_ATTACK = 0.5; // jaw open speed (was 0.9 — snapped open)
-      const MOUTH_RELEASE = 0.3; // jaw close speed (was 0.45)
-      const VISEME_INTENSITY = 0.7; // lip shapes sit below the jaw envelope (was 1.0)
-      const VISEME_ATTACK = 0.4; // shape blend-in (was 0.6 — too snappy)
-      const VISEME_RELEASE = 0.28; // shape decay (was 0.35)
+      // Attack/release are SPEED (timing), separate from OPEN_MAX (magnitude). Fast
+      // attack snaps the jaw to target each frame and reads RIGID/mechanical, so these
+      // are softened BELOW the pre-C values for flowing motion, while the wider
+      // OPEN_MAX/INTENSITY magnitude from C is kept for visible articulation.
+      const MOUTH_ATTACK = 0.4; // jaw open speed — eased, not snapped (was 0.6 rigid, 0.5 pre-C)
+      const MOUTH_RELEASE = 0.22; // jaw close speed — gentler so it doesn't snap shut (was 0.3)
+      const VISEME_INTENSITY = 0.85; // crisper lip shapes below the jaw envelope (gape bug was 1.0)
+      const VISEME_ATTACK = 0.32; // shape blend-in — eased, not snapped (was 0.5 rigid, 0.4 pre-C)
+      const VISEME_RELEASE = 0.22; // shape decay — gentler cross-fade (was 0.28)
+
+      // --- Engagement-lift brows (B2). A gentle, HEAVILY smoothed outer-brow raise
+      // tracking overall speech energy, so the face reads as animated/engaged rather
+      // than a still mask under a moving mouth. This is an engagement ENVELOPE, not
+      // per-word emphasis: the very slow attack/release make the brows drift over
+      // ~1s with phrase energy, never twitch per syllable. Drives browOuterUp*
+      // SPECIFICALLY (not browInnerUp): the realtime tier OVERRIDES the mood baseline
+      // (talkinghead.mjs:1622, base=null), and browInnerUp carries sad's furrow (0.6)
+      // / love's raise (0.4), so driving it would stomp those emotional brows.
+      // browOuterUp is 0 on neutral/happy and only 0.2 on sad/love, so a small lift
+      // here never fights any mood's expression. (BROW_MORPHS is module-scoped so the
+      // turn-end reset can release the same morphs.)
+      const BROW_LIFT_MAX = 0.28; // gentle cap — engaged, not surprised
+      const BROW_LIFT_GAIN = 3.5; // energy→lift slope (well below the mouth's)
+      const BROW_ATTACK = 0.06; // VERY slow rise → drifts with phrase, no per-syllable twitch
+      const BROW_RELEASE = 0.04; // even slower settle when quiet
+      let browLift = 0;
 
       // Find the dominant spectral peak (bin index) within [loHz,hiHz].
       const peakHz = (loHz: number, hiHz: number) => {
@@ -465,7 +530,9 @@ export default function AvatarStage({
           // skip the energy/viseme drive entirely this frame.
           releaseRealtime(h, "mouthOpen");
           for (const key of VISEME_MORPHS) releaseRealtime(h, key);
+          for (const key of BROW_MORPHS) releaseRealtime(h, key);
           smooth = 0;
+          browLift = 0;
           const idleRaf = requestAnimationFrame(tick);
           if (tapRef.current) tapRef.current.raf = idleRaf;
           return;
@@ -487,6 +554,14 @@ export default function AvatarStage({
         const k = open > smooth ? MOUTH_ATTACK : MOUTH_RELEASE;
         smooth += (open - smooth) * k;
 
+        // --- 1b) Engagement-lift brows (B2). Same rms envelope, its own gentle slope
+        // and heavy smoothing so the outer brows drift with phrase energy (engagement)
+        // rather than snapping per syllable. Written to the realtime tier below.
+        const browGoal = mutedRef.current
+          ? 0
+          : Math.min(BROW_LIFT_MAX, Math.max(0, rms - MOUTH_OPEN_FLOOR) * BROW_LIFT_GAIN);
+        browLift += (browGoal - browLift) * (browGoal > browLift ? BROW_ATTACK : BROW_RELEASE);
+
         // --- 2) Path-B anchoring: start the first queued schedule on audible audio,
         // and chain the next one from the prior schedule end if audio stays audible.
         // Sentence-relative word times map to wall-clock by adding this anchor, so
@@ -499,6 +574,53 @@ export default function AvatarStage({
         activeRef.current = pathB.active;
         scheduleQueueRef.current = pathB.queue;
 
+        // --- 2b) Per-sentence mood: applied the instant a sentence's audio ANCHORS
+        // (not on data-packet receipt — sentences synthesize faster than realtime, so
+        // applying on receipt would run ahead of the audio). active.mood is a valid
+        // AGENT_MOODS value (guaranteed by queueSchedule), so setMood won't throw. ---
+        if (pathB.anchoredSeq !== null && pathB.active) {
+          const mood = pathB.active.mood;
+          if (mood !== activeMoodRef.current) {
+            try {
+              h.setMood(mood);
+              activeMoodRef.current = mood;
+            } catch {
+              /* non-fatal: unknown mood should not reach here after validation */
+            }
+          }
+        }
+
+        // --- 2c) Expressive-mode mood: MOOD_TOPIC carries mood with no lip-sync
+        // schedule to ride on, so anchor it to the SAME audio-audible signal Path-B
+        // uses. Apply the latest received mood once audio is audible, deduped through
+        // activeMoodRef so the schedule path (2b) and this path never fight. Validated
+        // against AGENT_MOODS on receipt, so setMood won't throw here. ---
+        if (audible && pendingAgentMoodRef.current !== null) {
+          const mood = pendingAgentMoodRef.current;
+          if (mood !== activeMoodRef.current) {
+            try {
+              h.setMood(mood);
+              activeMoodRef.current = mood;
+            } catch {
+              /* non-fatal: mood was validated against AGENT_MOODS on receipt */
+            }
+          }
+        }
+
+        // --- 2d) Laugh reaction: fire the transient face gesture ONCE at the same
+        // audio anchor, so the smile/laugh lands in sync with the vocalized [laugh].
+        // Cleared immediately (one-shot) — playGesture auto-returns to the mood
+        // baseline, and turn-end also clears the ref so a stale cue can't replay. ---
+        if (audible && pendingLaughRef.current !== null) {
+          const laugh = pendingLaughRef.current;
+          pendingLaughRef.current = null;
+          try {
+            h.playGesture(LAUGH_GESTURE[laugh], LAUGH_GESTURE_SECONDS[laugh]);
+          } catch {
+            /* non-fatal: laugh was validated against LAUGH_GESTURE on receipt */
+          }
+        }
+
         // --- 3) Viseme selection. Prefer the captioned schedule (Path-B, real word
         // timing -> true lip-sync); fall back to the F1/F2 formant estimate (Path-A)
         // whenever no schedule is active (e.g. the stock OpenAI TTS, or pre-onset). ---
@@ -506,7 +628,10 @@ export default function AvatarStage({
         const scheduledViseme = activeVisemeAt(activeRef.current, ctx.currentTime);
         if (scheduledViseme) {
           target = scheduledViseme;
-        } else if (!mutedRef.current && smooth > 0.06) {
+        } else if (!mutedRef.current && smooth > 0.045) {
+          // Gate lowered (0.06→0.045) so vowel shapes engage on softer syllables too,
+          // not just loud ones — the mouth articulates instead of only bobbing. The
+          // f2.mag>60 voiced-energy guard below still keeps noise from forming shapes.
           analyser.getByteFrequencyData(freq);
           const f1 = peakHz(250, 900);
           const f2 = peakHz(900, 2700);
@@ -540,6 +665,7 @@ export default function AvatarStage({
         try {
           setRealtime(h, "mouthOpen", smooth);
           for (const key of VISEME_MORPHS) setRealtime(h, key, vw[key]);
+          for (const key of BROW_MORPHS) setRealtime(h, key, browLift);
         } catch {
           /* non-fatal per-frame */
         }
@@ -623,14 +749,33 @@ export default function AvatarStage({
       // micro-expressions resume — do NOT pin them to 0 (that froze the mouth).
       activeRef.current = null;
       scheduleQueueRef.current = [];
+      // Drop any un-applied expressive-mode mood so a stale mood from this turn
+      // can't apply against the next utterance (mirrors dropping the word schedule).
+      pendingAgentMoodRef.current = null;
+      // Drop any un-fired laugh cue for the same reason — it must not replay on the
+      // next utterance's audio onset.
+      pendingLaughRef.current = null;
       try {
         releaseRealtime(head, "mouthOpen");
         for (const v of VISEME_MORPHS) releaseRealtime(head, v);
+        for (const v of BROW_MORPHS) releaseRealtime(head, v);
       } catch {
         /* non-fatal */
       }
+      // Restore the conversation-state mood so a mid-turn per-sentence mood (e.g.
+      // "sad") doesn't stick after the utterance ends. The rAF anchor owned mood
+      // while speaking; on turn end/barge-in ownership returns to the state.
+      const restMood = moodForConversationState(state, avatar.mood);
+      if (restMood !== activeMoodRef.current) {
+        try {
+          head.setMood(restMood);
+          activeMoodRef.current = restMood;
+        } catch {
+          /* non-fatal */
+        }
+      }
     }
-  }, [state, status]);
+  }, [state, status, avatar.mood]);
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>

@@ -39,9 +39,12 @@ import endpointing
 import history
 import interview
 import metrics
+import paralinguistics
 import transcript_gate
 from transcript_debug import transcript_debug_values
 from captioned_tts import CaptionedTTS
+from expressive_mode_tts import ExpressiveModeTTS
+from expressive_tts import ExpressiveTTS
 from nemo_stt import NemoSTT
 from models import MODEL_CHOICES, default_model_choice, resolved_model_tag
 from placement import resolve_stt_placement
@@ -75,6 +78,11 @@ NEMO_STT_URL = os.environ.get("NEMO_STT_URL", "ws://nemo-stt:8000/v1/audio/strea
 # picks between this and NEMO_STT_URL ONCE at session start (build_session).
 NEMO_STT_CPU_URL = os.environ.get("NEMO_STT_CPU_URL", "ws://nemo-stt-cpu:8000/v1/audio/stream")
 KOKORO_BASE_URL = os.environ.get("KOKORO_BASE_URL", "http://kokoro:8880/v1")
+# Chatterbox-Turbo root for the OPT-IN expressive-voice engine (expressive_tts.py).
+# GPU-only, ~4.3GB VRAM; OFF by default (Kokoro is the default TTS). Flipped live per
+# session via the tts.update RPC. NOT a /v1 suffix — the endpoint is POST /v1/audio/speech
+# under this root (expressive_tts.py appends it).
+CHATTERBOX_BASE_URL = os.environ.get("CHATTERBOX_BASE_URL", "http://chatterbox:8004")
 
 WARMUP_PROMPT = "Reply with the single word: ready."
 WARMUP_TIMEOUT_SECONDS = 120.0
@@ -228,15 +236,25 @@ def build_session(vad: silero.vad.VAD, transcript_correction_cb=None) -> AgentSe
             base_url=OLLAMA_BASE_URL,
             reasoning_effort="none",
         ),
-        # Captioned TTS (Phase 12 lip-sync): Kokoro /dev/captioned_speech returns the
-        # SAME 24 kHz mono WAV the room already plays PLUS word-level timestamps, which
-        # CaptionedTTS publishes over a data channel for the avatar's word->viseme
-        # lip-sync. Playout/turn/transcription behaviour is unchanged vs the old
-        # openai.TTS(model="tts-1") path; only the synthesis endpoint differs. The room
-        # is attached in the entrypoint after connect (see captioned_tts.attach_room).
-        tts=CaptionedTTS(
-            base_url=KOKORO_BASE_URL,
-            voice=DEFAULT_PERSONA.voice_id,
+        # TTS engine — a session-lifetime wrapper over BOTH TTS engines so expressive
+        # mode can be toggled LIVE (tts.update RPC) without a hot instance swap that
+        # would orphan the metrics subscription (see expressive_mode_tts.py). The DEFAULT
+        # active engine is Kokoro CaptionedTTS: /dev/captioned_speech returns the SAME
+        # 24 kHz mono WAV the room already plays PLUS word-level timestamps for the
+        # avatar's word->viseme lip-sync — default behaviour is unchanged. The OPT-IN
+        # Chatterbox ExpressiveTTS engine adds mood-driven vocal exaggeration (GPU-only,
+        # ~4.3GB, exceeds P50<1.0s by design). Both engines are cheap in-process (httpx
+        # only; model VRAM lives in the compose services). The room is attached to both
+        # in the entrypoint after connect (see ExpressiveModeTTS.attach_room).
+        tts=ExpressiveModeTTS(
+            kokoro=CaptionedTTS(
+                base_url=KOKORO_BASE_URL,
+                voice=DEFAULT_PERSONA.voice_id,
+            ),
+            chatterbox=ExpressiveTTS(
+                base_url=CHATTERBOX_BASE_URL,
+                voice=DEFAULT_PERSONA.voice_id,
+            ),
         ),
         # Endpointing surface (Plan 02-03 BLOCKER — resolved by reading the real
         # AgentSession source across the whole ~=1.5 pin, NOT by guessing).
@@ -369,6 +387,19 @@ class HistoryWindowAgent(Agent):
                 "sentence, say you didn't catch it and ask them to repeat."
             )
             raise StopResponse()
+        # Command path: a direct "laugh" request forces the laugh cue onto THIS reply so
+        # it always works on demand (test/demo), independent of the LLM's mood. The TTS
+        # layer turns the cue into real audio (expressive) or strips it (Kokoro).
+        if paralinguistics.wants_laugh(new_message.text_content or ""):
+            turn_ctx.add_message(
+                role="system",
+                content="The learner asked you to laugh. Begin your reply with the exact "
+                "token [laugh] — that token is the ONLY real laugh; it is vocalized as a "
+                "genuine laugh. Do NOT spell laughter out ('haha', 'hahaha', 'ha ha') "
+                "anywhere in the reply — spelled-out laughter is read letter by letter and "
+                "sounds fake and robotic. After the [laugh] token, continue warmly and "
+                "naturally.",
+            )
         if history.should_trim(len(self.chat_ctx.items)):
             trimmed = self.chat_ctx.copy().truncate(max_items=history.window_target())
             await self.update_chat_ctx(trimmed)
@@ -412,10 +443,10 @@ async def entrypoint(ctx: JobContext) -> None:
         )
 
     session = build_session(ctx.proc.userdata["vad"], publish_transcript_correction)
-    # Give the captioned TTS the room handle so it can publish word schedules for the
-    # avatar lip-sync (data channel). Done after connect; before this the agent never
-    # speaks, so no schedule is ever dropped for lack of a room.
-    if isinstance(session.tts, CaptionedTTS):
+    # Give BOTH TTS engines the room handle so either can publish avatar data (Kokoro's
+    # word schedules or Chatterbox's per-sentence mood). Done after connect; before this
+    # the agent never speaks, so no frame is ever dropped for lack of a room.
+    if isinstance(session.tts, ExpressiveModeTTS):
         session.tts.attach_room(ctx.room)
     metrics.attach(session)
     # Live generation cap (LLM-04) — the SINGLE site it is set, applied exactly
@@ -654,12 +685,38 @@ async def entrypoint(ctx: JobContext) -> None:
         if not isinstance(on, bool):
             logger.warning("avatar.update rejected: 'on' not a bool: %r", on)
             return "error"
-        if isinstance(session.tts, CaptionedTTS):
+        # Gate BOTH engines so avatar publishing works regardless of the active engine.
+        if isinstance(session.tts, ExpressiveModeTTS):
             session.tts.set_avatar_enabled(on)
         return "applied"
 
     ctx.room.local_participant.register_rpc_method(
         "avatar.update", handle_avatar_update
+    )
+
+    # tts.update {expressive: bool} flips the active TTS ENGINE live — Kokoro (fast,
+    # lip-sync, default) <-> Chatterbox (opt-in mood-driven vocal exaggeration, GPU-only,
+    # exceeds P50<1.0s by design). Mirrors handle_avatar_update's validate-before-mutate
+    # shape EXACTLY. No teardown: the wrapper (expressive_mode_tts.py) is the stable
+    # session.tts, so the metrics subscription survives; the next turn synthesizes
+    # through the newly-selected engine.
+    async def handle_tts_update(data):
+        # tts.update is the UNTRUSTED RPC boundary — validate the type BEFORE touching
+        # the live TTS so a malformed payload never reaches the engine switch.
+        snapshot = decode_rpc_payload(data, "tts.update")
+        if snapshot is None:
+            return "error"
+        expressive = snapshot.get("expressive")
+        if not isinstance(expressive, bool):
+            logger.warning("tts.update rejected: 'expressive' not a bool: %r", expressive)
+            return "error"
+        logger.info("tts.update received: expressive=%s (tts=%s)", expressive, type(session.tts).__name__)
+        if isinstance(session.tts, ExpressiveModeTTS):
+            session.tts.set_expressive(expressive)
+        return "applied"
+
+    ctx.room.local_participant.register_rpc_method(
+        "tts.update", handle_tts_update
     )
 
     # session.reset {} clears the conversation context WITHOUT tearing the room down

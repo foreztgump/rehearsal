@@ -97,6 +97,49 @@ test("acceptScheduleSequence rejects late schedules while not speaking", () => {
   );
 });
 
+test("queueSchedule neutralizes an unknown mood", () => {
+  const queued = queueSchedule({
+    seq: 1,
+    mood: "furious",
+    words: [{ w: "hi", s: 0, e: 0.2 }],
+  });
+
+  assert.ok(queued);
+  assert.equal(queued.mood, "neutral");
+});
+
+test("queueSchedule defaults a missing mood to neutral and keeps a valid one", () => {
+  const missing = queueSchedule({ seq: 1, words: [{ w: "hi", s: 0, e: 0.2 }] });
+  const sad = queueSchedule({
+    seq: 1,
+    mood: "sad",
+    words: [{ w: "hi", s: 0, e: 0.2 }],
+  });
+
+  assert.ok(missing);
+  assert.ok(sad);
+  assert.equal(missing.mood, "neutral");
+  assert.equal(sad.mood, "sad");
+});
+
+test("advancePathB carries the schedule mood onto the anchored active", () => {
+  const sad = queueSchedule({
+    seq: 1,
+    mood: "sad",
+    words: [{ w: "hello", s: 0, e: 0.4 }],
+  });
+
+  assert.ok(sad);
+
+  const result = advancePathB(
+    { active: null, queue: [sad] },
+    { now: 10, audible: true },
+  );
+
+  assert.equal(result.anchoredSeq, 1);
+  assert.equal(result.active?.mood, "sad");
+});
+
 test("advancePathB anchors the first schedule on audible audio", () => {
   const first = queueSchedule({ seq: 1, words: [{ w: "hello", s: 0, e: 0.4 }] });
 
@@ -161,19 +204,19 @@ test("activeVisemeAt returns the scheduled viseme for the current audio time", (
   assert.equal(activeVisemeAt(active, 6), null);
 });
 
-test("speaking avatar behavior holds eye contact without head scanning", () => {
+test("speaking avatar keeps eye contact but lets the head move (not a statue)", () => {
+  // Avatar A: a strong eye-contact bias, but head motion is ON (0.4) so the avatar
+  // is not a frozen statue, and only the EYES are gaze-locked — the head-rotate axes
+  // are intentionally free so the library's speaking head sway + neck bob come through.
   assert.equal(TALKINGHEAD_SPEAKING_BEHAVIOR.avatarSpeakingEyeContact, 1);
-  assert.equal(TALKINGHEAD_SPEAKING_BEHAVIOR.avatarSpeakingHeadMove, 0);
+  assert.equal(TALKINGHEAD_SPEAKING_BEHAVIOR.avatarSpeakingHeadMove, 0.4);
   assert.deepEqual(TALKINGHEAD_SPEAKING_GAZE_LOCKS, [
     ["eyesRotateX", 0],
     ["eyesRotateY", 0],
-    ["headRotateX", 0],
-    ["headRotateY", 0],
-    ["headRotateZ", 0],
   ]);
 });
 
-test("applySpeakingGazeLock fixes and releases speaking eye/head targets", () => {
+test("applySpeakingGazeLock fixes and releases ONLY the eye targets", () => {
   const calls = [];
   const head = {
     setFixedValue(mt, val) {
@@ -187,13 +230,7 @@ test("applySpeakingGazeLock fixes and releases speaking eye/head targets", () =>
   assert.deepEqual(calls, [
     ["eyesRotateX", 0],
     ["eyesRotateY", 0],
-    ["headRotateX", 0],
-    ["headRotateY", 0],
-    ["headRotateZ", 0],
     ["eyesRotateX", null],
     ["eyesRotateY", null],
-    ["headRotateX", null],
-    ["headRotateY", null],
-    ["headRotateZ", null],
   ]);
 });

@@ -15,6 +15,41 @@ files, and prompts are not sent to cloud inference services.
 
 Current release: `0.3.0`
 
+## Features
+
+- **Expert personas** — pick a coach/interviewer persona (or edit and save your own),
+  choose a practice mode, and speak out loud for near-real-time spoken replies.
+- **Local knowledge base** — optionally attach reference documents the persona draws on;
+  files never leave your LAN.
+- **Optional 3D avatar** — a talking-head avatar with audio-driven lip-sync,
+  per-sentence facial emotion, subtle head motion, engagement brows, and laughter on
+  cue. Toggle **Voice only ↔ Avatar** any time; it is client-side WebGL and adds no
+  server traffic when off.
+- **Optional expressive voice** — swap the fast default TTS for a more emotional engine
+  per session (see below).
+- **Local-first & private** — STT, LLM, TTS, LiveKit, and browser assets run on your
+  machine or LAN; audio, transcripts, KB files, and prompts are never sent to cloud
+  inference services.
+
+### Voice & avatar
+
+The default voice is **Kokoro** — fast (~256 ms/sentence) and inside the voice-to-voice
+**P50 < 1.0s** target. An optional **expressive** engine, **Chatterbox-Turbo**, makes
+the delivery more emotional (per-sentence mood shapes the vocal intensity, with real
+laughter) at a cost: it is **NVIDIA-only**, adds ~4.3 GB VRAM, and runs slower — so
+voice-to-voice P50 **exceeds** the 1.0s budget while it is in use. It is **off by
+default** and installed opt-in:
+
+```bash
+./install.sh --expressive        # Linux/macOS
+.\install.ps1 -Expressive        # Windows
+```
+
+When installed, the setup screen shows a **Voice** picker (Kokoro · fast /
+Chatterbox · expressive); when it is not, the picker is hidden. Full details — build
+size, enabling it later, and the compose wiring — are in
+[INSTALLATION.md](INSTALLATION.md#expressive-voice-opt-in).
+
 ## Quick Start
 
 Linux:

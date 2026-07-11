@@ -40,6 +40,8 @@ from dataclasses import dataclass, replace
 import httpx
 
 import captioned_gate
+import emotion
+import paralinguistics
 from livekit import rtc
 from livekit.agents import (
     APIConnectionError,
@@ -132,7 +134,9 @@ class CaptionedTTS(tts.TTS):
         """Enable/disable captioned word-timestamp publishing for avatar lip-sync."""
         self._avatar_enabled = bool(on)
 
-    async def _publish_schedule(self, request_id: str, words: list[dict]) -> None:
+    async def _publish_schedule(
+        self, request_id: str, words: list[dict], mood: str
+    ) -> None:
         """Send one utterance's word schedule to the browser avatar over the data channel."""
         room = self._room
         if room is None or not words:
@@ -144,6 +148,9 @@ class CaptionedTTS(tts.TTS):
             # [{w, s, e}] — sentence-relative seconds; the browser re-anchors to the
             # measured audio onset, so absolute clock skew is irrelevant.
             "words": words,
+            # Coarse per-sentence facial mood for the avatar; piggybacks this same
+            # schedule (no extra topic), so it too is gated by _avatar_enabled.
+            "mood": mood,
         }
         try:
             await room.local_participant.publish_data(
@@ -160,7 +167,12 @@ class CaptionedTTS(tts.TTS):
         *,
         conn_options: APIConnectOptions = DEFAULT_API_CONNECT_OPTIONS,
     ) -> tts.ChunkedStream:
-        return _CaptionedStream(tts=self, input_text=text, conn_options=conn_options)
+        # Strip any [laugh]/[chuckle] tags the persona emitted: Kokoro can't vocalize
+        # them and would otherwise SPEAK the word. Stripping before synthesis also keeps
+        # the word-timestamp schedule aligned to what is actually said.
+        return _CaptionedStream(
+            tts=self, input_text=paralinguistics.strip_tags(text), conn_options=conn_options
+        )
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -230,4 +242,5 @@ class _CaptionedStream(tts.ChunkedStream):
         if self._avatar_enabled:
             words = captioned_gate.lipsync_words(data.get("timestamps", []))
             if words:
-                await self._tts._publish_schedule(request_id, words)
+                mood = emotion.mood_for_text(self.input_text)
+                await self._tts._publish_schedule(request_id, words, mood)

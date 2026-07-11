@@ -4,12 +4,14 @@ import { LiveKitRoom, RoomAudioRenderer, StartAudio } from "@livekit/components-
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import ApplyAvatarMode from "./ApplyAvatarMode";
+import ApplyExpressiveMode from "./ApplyExpressiveMode";
 import ApplySetupOnConnect from "./ApplySetupOnConnect";
 import { DEFAULT_INTERVIEW, InterviewMode } from "./InterviewPanel";
 import { DEFAULT_MODEL, ModelChoice } from "./ModelPanel";
 import { DEFAULT_PERSONA, Persona } from "./PersonaPanel";
 import SetupScreen from "./SetupScreen";
 import TalkingScreen from "./TalkingScreen";
+import { EXPRESSIVE_AVAILABLE } from "./voiceEngine";
 import {
   invalidateLiveApplyVersions,
   nextLiveApplyVersion,
@@ -49,6 +51,7 @@ export type SessionConfig = {
   model: ModelChoice;
   micDeviceId?: string;
   avatarOn: boolean;
+  expressiveVoice: boolean;
   kbFiles: File[];
 };
 
@@ -60,6 +63,7 @@ const DEFAULT_SESSION_CONFIG: SessionConfig = {
   model: DEFAULT_MODEL,
   micDeviceId: undefined,
   avatarOn: false,
+  expressiveVoice: false,
   kbFiles: [],
 };
 
@@ -277,6 +281,13 @@ export default function VoiceRoom() {
           lip-sync gate (AVTR-12). Taps the same SessionConfig.avatarOn — no second
           source of truth; the in-room Voice/Avatar toggle flows through here. */}
       <ApplyAvatarMode avatarOn={sessionConfig.avatarOn} />
+      {/* Sends tts.update (initial + on every toggle) so the agent swaps its TTS
+          engine (Kokoro ↔ Chatterbox) for expressive speech. Mirrors ApplyAvatarMode:
+          SessionConfig.expressiveVoice is the single source of truth, no double-send.
+          Clamped to false when the expressive engine was not installed, so a held
+          value can never send a Chatterbox tts.update to a stack that has no chatterbox
+          service (the picker is hidden in that build, but this is the belt-and-braces). */}
+      <ApplyExpressiveMode expressive={EXPRESSIVE_AVAILABLE && sessionConfig.expressiveVoice} />
       <TalkingScreen
         avatarOn={sessionConfig.avatarOn}
         onToggleAvatar={(on) => setSessionConfig((c) => ({ ...c, avatarOn: on }))}

@@ -12,6 +12,7 @@ import { normalizeTranscriptSegments } from "./transcriptSegments";
 import { downloadTranscript, formatTranscript, TranscriptEntry } from "./transcriptExport";
 import { font, palette, space } from "./ui/tokens";
 import { useTranscriptionSegments } from "./useTranscriptionSegments";
+import { EXPRESSIVE_AVAILABLE } from "./voiceEngine";
 import type { LiveConfigField, SessionConfig } from "./VoiceRoom";
 
 // UI-SPEC Copywriting table — verbatim destructive-confirm copy (SESS-03 End is the
@@ -259,6 +260,7 @@ export default function SettingsDrawer({
             from the running session config instead of panel-local defaults. */}
         <PersonaPanel
           value={config.persona}
+          expressive={EXPRESSIVE_AVAILABLE && config.expressiveVoice}
           onApplyStart={() => onBeginConfigApply("persona")}
           onApplied={(persona, version) =>
             onConfigChange(sessionEpoch, "persona", version, (current) => ({

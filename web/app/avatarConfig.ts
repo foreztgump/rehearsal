@@ -14,9 +14,44 @@ export const TALKINGHEAD_SPECIFIER = "talkinghead";
 
 // LiveKit data-channel topic the agent's CaptionedTTS publishes word schedules on
 // (mirrors agent/captioned_tts.py LIPSYNC_TOPIC). Payload is JSON
-// {seq, request_id, words:[{w,s,e}]} with sentence-relative seconds; AvatarStage
-// re-anchors each schedule to the measured audio onset so jitter never desyncs.
+// {seq, request_id, words:[{w,s,e}], mood?} with sentence-relative seconds; the
+// optional `mood` field carries the per-sentence avatar expression (one of
+// AGENT_MOODS). AvatarStage re-anchors each schedule to the measured audio onset so
+// jitter never desyncs, applying the mood at anchor time (see AGENT_MOODS below).
 export const LIPSYNC_TOPIC = "lk.avatar.lipsync";
+
+// LiveKit data-channel topic the agent publishes per-sentence avatar mood on in
+// EXPRESSIVE mode (Chatterbox TTS), payload JSON {seq, mood} with mood ∈ AGENT_MOODS.
+// Kokoro mode piggybacks mood on LIPSYNC_TOPIC's schedule instead, so this topic
+// carries mood only when there is no lip-sync schedule to ride on. Publishing is
+// gated by avatar-ON, so a voice-only session sees none. AvatarStage applies the
+// mood at the audio anchor (when the agent's audio is audible), the same way the
+// lip-sync-piggybacked mood is applied.
+export const MOOD_TOPIC = "lk.avatar.mood";
+
+// Moods AvatarStage will accept from the agent's per-sentence `mood` field. This
+// guards talkinghead.mjs setMood (which THROWS on an unknown mood) and lets
+// queueSchedule fall back to "neutral" for a missing/unknown value. "angry" is
+// intentionally excluded — the agent never emits it.
+export const AGENT_MOODS = new Set(["neutral", "happy", "love", "sad"]);
+
+// Laugh cue (expressive mode) → the TalkingHead emoji gesture the face plays as a
+// TRANSIENT reaction in sync with the audio [laugh]/[chuckle] the model vocalizes.
+// "😂" is the full laugh (squint eyes + open jaw + big smile); "🙂" is a soft smile
+// for a chuckle. playGesture queues it into the animation queue and auto-returns to
+// the mood baseline, so it composes with lip-sync and speaking head motion. Keys are
+// the agent's laugh_kind() values; anything else is ignored on receipt.
+export const LAUGH_GESTURE: Record<string, string> = {
+  laugh: "😂",
+  chuckle: "🙂",
+};
+
+// How long each laugh gesture holds before settling back to baseline (seconds). A full
+// laugh lingers; a chuckle is quicker. Passed as playGesture's `dur`.
+export const LAUGH_GESTURE_SECONDS: Record<string, number> = {
+  laugh: 2.5,
+  chuckle: 1.5,
+};
 
 // Same-origin Draco decoder path (vendored, offline). The default GLB is Draco-
 // geometry + WebP-texture compressed (AVTR-08); TalkingHead's GLTFLoader needs the
@@ -24,19 +59,23 @@ export const LIPSYNC_TOPIC = "lk.avatar.lipsync";
 // Trailing slash: three's DRACOLoader appends draco_decoder.js / draco_wasm_wrapper.js.
 export const DRACO_DECODER_PATH = "/vendor/three/addons/libs/draco/";
 
-// During speech the trainer should keep direct eye contact. Ambient scanning is
-// fine outside speech, but looking away mid-answer reads unnatural in live UAT.
+// During speech the trainer keeps a strong eye-contact bias, but is NOT frozen: we
+// allow the library's own subtle, bounded speaking head motion (occasional gaussian
+// head turns + the volume-synced neck bob) so the avatar reads as alive rather than a
+// talking statue. avatarSpeakingHeadMove is the single dial for how often the head
+// turns while speaking — lower it toward 0 if it's too much, raise toward 1 for more.
 export const TALKINGHEAD_SPEAKING_BEHAVIOR = {
   avatarSpeakingEyeContact: 1,
-  avatarSpeakingHeadMove: 0,
+  avatarSpeakingHeadMove: 0.4,
 } as const;
 
+// Gaze locks held ONLY on the eyes while speaking, so the eyes stay on the camera
+// (what actually reads as "engaged") without pinning the head. The head-rotate axes
+// are intentionally NOT locked here — freezing them was the "frozen statue" cause;
+// letting them move lets the library's speaking head sway + neck bob come through.
 export const TALKINGHEAD_SPEAKING_GAZE_LOCKS = [
   ["eyesRotateX", 0],
   ["eyesRotateY", 0],
-  ["headRotateX", 0],
-  ["headRotateY", 0],
-  ["headRotateZ", 0],
 ] as const;
 
 type FixedMorphTarget = {

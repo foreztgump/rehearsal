@@ -26,6 +26,46 @@ Default services:
 
 The GPU STT service, `nemo-stt`, is opt-in with `--profile stt-gpu`.
 
+## Expressive Voice (Opt-In)
+
+By default the stack uses **Kokoro** for TTS (fast, ~256 ms/sentence, inside the
+P50<1.0s budget). An optional **expressive** engine — **Chatterbox-Turbo** — makes the
+coach's delivery more emotional (per-sentence mood modulates vocal intensity, real
+laughter). It is **off by default** because it is heavy:
+
+- **NVIDIA GPU only** (no CPU fallback), ~4.3 GB additional resident VRAM.
+- ~0.8–1.2 s/sentence, so voice-to-voice **P50 exceeds the 1.0 s budget** while it is in use.
+- Large first build (~19 GB image), built from the pinned
+  [`devnen/Chatterbox-TTS-Server`](https://github.com/devnen/Chatterbox-TTS-Server)
+  `Dockerfile.cu128` — the installer clones + builds it for you.
+
+**Install it with the stack:**
+
+```bash
+./install.sh --expressive        # Linux/macOS
+.\install.ps1 -Expressive        # Windows
+```
+
+The installer builds the `chatterbox` service, bakes the voice picker into the web UI
+(`NEXT_PUBLIC_REHEARSAL_EXPRESSIVE_AVAILABLE=1`), and enables the `expressive` compose
+profile (`COMPOSE_PROFILES=expressive` in `.env`) so `up.sh` brings it up. When it is
+installed, the setup screen shows a **Voice** picker (**Kokoro · fast** /
+**Chatterbox · expressive**); when it is not, the picker is hidden entirely.
+
+**Add it later** (without re-running the whole installer): from your checkout,
+
+```bash
+docker compose --profile expressive build chatterbox
+# then set these two lines in .env:
+#   NEXT_PUBLIC_REHEARSAL_EXPRESSIVE_AVAILABLE=1
+#   COMPOSE_PROFILES=expressive
+docker compose build web            # rebuild web to bake the picker in
+COMPOSE_PROFILES=expressive ./up.sh -d
+```
+
+Re-running `./install.sh` **without** `--expressive` disables it again (clears the flag
+and the profile), so a subsequent default `up` is Kokoro-only.
+
 ## Prerequisites
 
 ### All Platforms
@@ -383,6 +423,7 @@ Practical first-run expectations:
 | --- | --- |
 | Linux/Windows NVIDIA default | 30+ GB network before npm/Python/model cache variance; 60-100 GB free disk. |
 | GPU STT opt-in | Adds the heavy NeMo GPU STT runtime and baked model path. |
+| Expressive voice opt-in (`--expressive`) | Adds a ~19 GB Chatterbox image + ~4.3 GB resident VRAM (NVIDIA only). |
 | Linux AMD ROCm | Large ROCm TTS image; keep 100 GB free disk. |
 | Windows AMD | Smaller Docker stack, but native Ollama model storage still lives on the host. |
 | macOS (Apple Silicon) | Smaller Docker stack (arm64 images); native Ollama model storage lives on the host. |
