@@ -51,6 +51,9 @@ export type SessionConfig = {
   model: ModelChoice;
   micDeviceId?: string;
   avatarOn: boolean;
+  // Explicit avatar-face pick from the catalog (AVATAR_CATALOG). undefined = "Auto",
+  // which resolves the face from the chosen persona (resolveAvatar). Setup-only.
+  selectedAvatarId?: string;
   expressiveVoice: boolean;
   kbFiles: File[];
 };
@@ -63,6 +66,7 @@ const DEFAULT_SESSION_CONFIG: SessionConfig = {
   model: DEFAULT_MODEL,
   micDeviceId: undefined,
   avatarOn: false,
+  selectedAvatarId: undefined,
   expressiveVoice: false,
   kbFiles: [],
 };
@@ -304,7 +308,13 @@ export default function VoiceRoom() {
         }
         // Mount the avatar HERE so the dynamic-import (ssr:false) contract stays in
         // the shell; TalkingScreen only places it in the 360px region when avatarOn.
-        avatar={<AvatarStage persona={sessionConfig.persona.display_name} view={avatarView} />}
+        avatar={
+          <AvatarStage
+            persona={sessionConfig.persona.display_name}
+            avatarId={sessionConfig.selectedAvatarId}
+            view={avatarView}
+          />
+        }
         agentName={sessionConfig.persona.display_name}
         config={sessionConfig}
         sessionEpoch={sessionEpoch}

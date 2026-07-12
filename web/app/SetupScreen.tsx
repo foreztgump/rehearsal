@@ -9,6 +9,7 @@ import PersonaPresetPicker from "./PersonaPresetPicker";
 import SegmentedToggle from "./SegmentedToggle";
 import ThemeDots from "./ThemeDots";
 import { EXPRESSIVE_AVAILABLE, VOICE_ENGINE_OPTIONS } from "./voiceEngine";
+import { AVATAR_CATALOG } from "./avatarConfig";
 import type { SessionConfig } from "./VoiceRoom";
 
 // UI-SPEC Copywriting table — verbatim copy slots.
@@ -118,6 +119,31 @@ export default function SetupScreen({
               onChange={(v) => onChange({ ...config, avatarOn: v === "avatar" })}
             />
           </div>
+
+          {/* Avatar face picker — only when Avatar is on. "Auto" (empty value) keeps
+              the persona-matched face; any other choice loads that catalog GLB. */}
+          {config.avatarOn && (
+            <div className="field">
+              <label className="field-label" htmlFor="avatar-face-select">
+                Avatar face
+              </label>
+              <select
+                id="avatar-face-select"
+                className="control"
+                value={config.selectedAvatarId ?? ""}
+                onChange={(e) =>
+                  onChange({ ...config, selectedAvatarId: e.target.value || undefined })
+                }
+              >
+                <option value="">Auto (match persona)</option>
+                {AVATAR_CATALOG.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Voice engine — only rendered when the expressive engine was installed
               (else the flag is baked "0" and this whole field is hidden, so users

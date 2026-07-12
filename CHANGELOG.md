@@ -7,6 +7,21 @@ All notable changes to Rehearsal are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- `web`: **selectable avatar faces.** When Avatar mode is on, the setup screen shows
+  an **Avatar face** picker — **Auto (match persona)** plus four vendored faces
+  (Cyber Trainer, Brunette, Avaturn, Avatar SDK male) in the new
+  `AVATAR_CATALOG` (`web/app/avatarConfig.ts`). An explicit pick overrides the
+  persona's model but keeps the persona's resting mood, so expression continuity is
+  preserved; "Auto" keeps today's persona-matched behaviour. Purely client-side —
+  no agent/server/compose change (the agent never touches GLB files). Wired through
+  `SessionConfig.selectedAvatarId` (`VoiceRoom.tsx`) into `AvatarStage`, which now
+  resolves its GLB via `resolveAvatar(persona, avatarId)`. The four new faces are the
+  verified TalkingHead example set (all free / non-commercial — see
+  `web/public/avatars/ATTRIBUTION.md`); Ready Player Me's public avatar API shut down
+  on 2026-01-31, so faces are pre-vendored rather than fetched on demand. New
+  `scripts/verify-avatars.mjs` checks every catalog GLB carries the 15 Oculus visemes
+  + ARKit blendshapes AND is not meshopt-compressed (AvatarStage wires only the Draco
+  decoder), so an incompatible model can't ship unnoticed.
 - `web`/`compose`/`install`: **expressive voice is now a real, install-aware option.**
   The setup screen shows a named **Voice** picker — **Kokoro · fast** vs
   **Chatterbox · expressive** — instead of a generic toggle, so the active engine is
@@ -41,11 +56,22 @@ All notable changes to Rehearsal are documented here. The format follows
   laugh / 🙂 chuckle) at the audio anchor so the expression lands in sync with the
   vocalized laugh, then settles back. Avatar-gated (no data when Avatar is OFF); the
   Kokoro path is unaffected (it strips laugh tags, so there is no laugh to mirror).
-- `web`: the avatar is **no longer a frozen statue while speaking**. It now shows the
-  library's subtle speaking head motion — occasional gentle head turns plus a
-  volume-synced neck bob — while keeping a strong eye-contact bias
-  (`web/app/avatarConfig.ts`: `avatarSpeakingHeadMove` 0 → 0.4, and the speaking gaze
-  lock narrowed to the eyes so the head is free to move).
+- `web`: while speaking the avatar now **holds eye contact and faces the user**
+  (looks straight), like an attentive coach, instead of drifting off-center or turning
+  away mid-sentence. Two dials in `web/app/avatarConfig.ts`: the gaussian head-TURN
+  probability is off (`avatarSpeakingHeadMove` 0, `avatarSpeakingEyeContact` 1), and the
+  speaking gaze lock now pins the head-rotate axes (`headRotateX/Y/Z`) as well as the
+  eyes so mood/gesture animations can't rotate the head off the camera. It doesn't read
+  as a frozen statue despite the steady head because the face is kept alive by the mouth
+  visemes, the engagement brows, and the laugh gesture, and the volume-synced neck bob
+  is applied independently of these head morphs, so a subtle breathing nod survives the
+  pin. The lock is released on turn-end so ambient scanning resumes between turns.
+- `web`: the **laugh reaction is now brief** so it no longer keeps a laughing face
+  (eyes closed, jaw open, big smile) while the trainer talks through the words that
+  follow a `[laugh]`/`[chuckle]`. `LAUGH_GESTURE_SECONDS` dropped to 1.0s (laugh) / 0.7s
+  (chuckle) from 2.5s/1.5s (`web/app/avatarConfig.ts`) — the emoji gesture pins mouth
+  and eye morphs, so a long hold fought the viseme lipsync; a short reaction lands the
+  laugh and settles back before the next words.
 - `agent`/`web`/`compose`: opt-in **expressive voice** mode. A new toggle swaps the
   default Kokoro TTS for **Chatterbox-Turbo** (`agent/expressive_tts.py`). Turbo has no
   numeric emotion knob (it ignores `exaggeration`), so expressiveness rides its two

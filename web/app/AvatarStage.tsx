@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AGENT_MOODS,
   applySpeakingGazeLock,
-  avatarForPersona,
+  resolveAvatar,
   CAMERA_VIEW,
   DRACO_DECODER_PATH,
   LAUGH_GESTURE,
@@ -150,9 +150,11 @@ function inboundTrack(ref: TrackReference | undefined): MediaStreamTrack | null 
  */
 export default function AvatarStage({
   persona,
+  avatarId,
   view = "upper",
 }: {
   persona?: string;
+  avatarId?: string;
   view?: "upper" | "full";
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -162,7 +164,9 @@ export default function AvatarStage({
   );
 
   const { state, audioTrack } = useVoiceAssistant();
-  const avatar = avatarForPersona(persona);
+  // Explicit picker choice (avatarId) overrides the persona's GLB but keeps the
+  // persona's resting mood; no choice → the persona default (resolveAvatar).
+  const avatar = resolveAvatar(persona, avatarId);
 
   // Path-A audio tap resources, torn down with the stage. The cloned track + its
   // Web Audio nodes are a SECOND, read-only consumer of the agent audio — the
