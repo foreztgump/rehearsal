@@ -6,6 +6,16 @@ All notable changes to Rehearsal are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-12
+
+The avatar comes alive and gains a wardrobe, and voice can go expressive. The 3D
+trainer now carries per-sentence facial emotion, engagement brows, and real laughter,
+holds eye contact and faces the user while speaking, and offers a **selectable face**
+picker (Auto + four verified TalkingHead faces). Voice gains an opt-in, install-aware
+**Chatterbox-Turbo** expressive engine (off by default; Kokoro stays the low-latency
+path). Includes the provenance entry for the vendored avatar GLBs and a batch of
+review-pass and lexicon fixes surfaced during avatar/voice bring-up.
+
 ### Added
 - `web`: **selectable avatar faces.** When Avatar mode is on, the setup screen shows
   an **Avatar face** picker — **Auto (match persona)** plus four vendored faces
