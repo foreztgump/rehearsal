@@ -204,19 +204,24 @@ test("activeVisemeAt returns the scheduled viseme for the current audio time", (
   assert.equal(activeVisemeAt(active, 6), null);
 });
 
-test("speaking avatar keeps eye contact but lets the head move (not a statue)", () => {
-  // Avatar A: a strong eye-contact bias, but head motion is ON (0.4) so the avatar
-  // is not a frozen statue, and only the EYES are gaze-locked — the head-rotate axes
-  // are intentionally free so the library's speaking head sway + neck bob come through.
+test("speaking avatar holds eye contact and faces the user (no head turns)", () => {
+  // While speaking the trainer looks straight and holds eye contact: eye contact is
+  // biased ON and the gaussian head-TURN probability is 0 (turns are what break eye
+  // contact mid-sentence). Both the head-rotate and eye-rotate axes are gaze-locked so
+  // the head faces forward; the volume-synced neck bob is independent of these morphs,
+  // so the head still reads as alive rather than frozen.
   assert.equal(TALKINGHEAD_SPEAKING_BEHAVIOR.avatarSpeakingEyeContact, 1);
-  assert.equal(TALKINGHEAD_SPEAKING_BEHAVIOR.avatarSpeakingHeadMove, 0.4);
+  assert.equal(TALKINGHEAD_SPEAKING_BEHAVIOR.avatarSpeakingHeadMove, 0);
   assert.deepEqual(TALKINGHEAD_SPEAKING_GAZE_LOCKS, [
+    ["headRotateX", 0],
+    ["headRotateY", 0],
+    ["headRotateZ", 0],
     ["eyesRotateX", 0],
     ["eyesRotateY", 0],
   ]);
 });
 
-test("applySpeakingGazeLock fixes and releases ONLY the eye targets", () => {
+test("applySpeakingGazeLock fixes and releases the head + eye targets", () => {
   const calls = [];
   const head = {
     setFixedValue(mt, val) {
@@ -228,8 +233,14 @@ test("applySpeakingGazeLock fixes and releases ONLY the eye targets", () => {
   applySpeakingGazeLock(head, false);
 
   assert.deepEqual(calls, [
+    ["headRotateX", 0],
+    ["headRotateY", 0],
+    ["headRotateZ", 0],
     ["eyesRotateX", 0],
     ["eyesRotateY", 0],
+    ["headRotateX", null],
+    ["headRotateY", null],
+    ["headRotateZ", null],
     ["eyesRotateX", null],
     ["eyesRotateY", null],
   ]);

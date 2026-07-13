@@ -46,11 +46,14 @@ export const LAUGH_GESTURE: Record<string, string> = {
   chuckle: "🙂",
 };
 
-// How long each laugh gesture holds before settling back to baseline (seconds). A full
-// laugh lingers; a chuckle is quicker. Passed as playGesture's `dur`.
+// How long each laugh gesture holds before settling back to baseline (seconds). Kept
+// short and reaction-like: the emoji gesture pins eyesClosed/jawOpen/mouthSmile, so a
+// long hold fights the viseme lipsync and keeps a laughing face while the trainer talks
+// through the following words. A full laugh is a touch longer than a chuckle. Passed as
+// playGesture's `dur`.
 export const LAUGH_GESTURE_SECONDS: Record<string, number> = {
-  laugh: 2.5,
-  chuckle: 1.5,
+  laugh: 1.0,
+  chuckle: 0.7,
 };
 
 // Same-origin Draco decoder path (vendored, offline). The default GLB is Draco-
@@ -59,21 +62,33 @@ export const LAUGH_GESTURE_SECONDS: Record<string, number> = {
 // Trailing slash: three's DRACOLoader appends draco_decoder.js / draco_wasm_wrapper.js.
 export const DRACO_DECODER_PATH = "/vendor/three/addons/libs/draco/";
 
-// During speech the trainer keeps a strong eye-contact bias, but is NOT frozen: we
-// allow the library's own subtle, bounded speaking head motion (occasional gaussian
-// head turns + the volume-synced neck bob) so the avatar reads as alive rather than a
-// talking statue. avatarSpeakingHeadMove is the single dial for how often the head
-// turns while speaking — lower it toward 0 if it's too much, raise toward 1 for more.
+// While speaking the trainer holds EYE CONTACT and faces the user (looks straight),
+// like an attentive coach. avatarSpeakingEyeContact:1 keeps the gaze on camera, and
+// avatarSpeakingHeadMove:0 disables the library's occasional gaussian head TURNS —
+// those are what read as "looking away mid-sentence" and break eye contact. The face
+// is kept alive by the mouth visemes, engagement brows, and hand gestures (added
+// since), plus the volume-synced neck bob, which is independent of this dial — so a
+// steady, forward-facing head no longer looks like a frozen statue. Raise
+// avatarSpeakingHeadMove toward 1 to reintroduce head turns if a livelier head is
+// wanted at the cost of eye contact.
 export const TALKINGHEAD_SPEAKING_BEHAVIOR = {
   avatarSpeakingEyeContact: 1,
-  avatarSpeakingHeadMove: 0.4,
+  avatarSpeakingHeadMove: 0,
 } as const;
 
-// Gaze locks held ONLY on the eyes while speaking, so the eyes stay on the camera
-// (what actually reads as "engaged") without pinning the head. The head-rotate axes
-// are intentionally NOT locked here — freezing them was the "frozen statue" cause;
-// letting them move lets the library's speaking head sway + neck bob come through.
+// Gaze locks held while speaking so the trainer FACES the user and holds eye contact
+// (looks straight). Both the head-rotate axes and the eye-rotate axes are pinned to 0,
+// because disabling the gaussian head TURNS alone (avatarSpeakingHeadMove:0) still let
+// mood/gesture/lookAtCamera animations drift the head off-center. Pinning the head does
+// NOT re-create the old "frozen statue": the volume-synced neck bob (talkinghead.mjs
+// ~2665) is applied to the neck object independently of these headRotate morphs and
+// survives the pin, and the face is kept alive by the mouth visemes, engagement brows,
+// and laugh gesture (all added since the head-pin last read as a statue). Released on
+// turn-end via applySpeakingGazeLock so ambient scanning resumes outside speech.
 export const TALKINGHEAD_SPEAKING_GAZE_LOCKS = [
+  ["headRotateX", 0],
+  ["headRotateY", 0],
+  ["headRotateZ", 0],
   ["eyesRotateX", 0],
   ["eyesRotateY", 0],
 ] as const;
@@ -139,4 +154,45 @@ export function avatarForPersona(name: string | null | undefined): AvatarSpec {
     return PERSONA_AVATARS[name];
   }
   return DEFAULT_AVATAR;
+}
+
+// A user-selectable avatar face. `id` is the stable key the picker round-trips;
+// `label` is the human choice; `glb`/`body` are the model. Every GLB here MUST be
+// TalkingHead-compatible (Mixamo rig + ARKit-52 + Oculus-15 visemes) — enforced by
+// scripts/verify-avatars.mjs, which checks the morph targets of every file listed
+// here. Add a face by dropping its GLB into web/public/avatars/, listing it below,
+// and running `node scripts/verify-avatars.mjs`.
+export type AvatarChoice = {
+  id: string;
+  label: string;
+  glb: string;
+  body: "F" | "M";
+};
+
+// The catalog of faces the user can pick on the setup screen. cyber-trainer is the
+// seed default; the rest are the verified TalkingHead example faces (brunette,
+// avaturn, avatarsdk) vendored in web/public/avatars/ — all free / non-
+// commercial, see web/public/avatars/ATTRIBUTION.md. The picker's implicit first
+// option is "Auto (match persona)" (selectedId omitted), which falls back to
+// avatarForPersona — so this list is purely the explicit choices.
+export const AVATAR_CATALOG: readonly AvatarChoice[] = [
+  { id: "cyber-trainer", label: "Cyber Trainer", glb: "/avatars/cyber-trainer.glb", body: "F" },
+  { id: "brunette", label: "Brunette", glb: "/avatars/brunette.glb", body: "F" },
+  { id: "avaturn", label: "Avaturn", glb: "/avatars/avaturn.glb", body: "F" },
+  { id: "avatarsdk", label: "Avatar SDK (male)", glb: "/avatars/avatarsdk.glb", body: "M" },
+];
+
+// Resolve the avatar to load from the persona AND an optional explicit picker choice.
+// An explicit choice overrides the persona's GLB/body but KEEPS the persona's resting
+// mood, so expression continuity (the per-persona baseline used by AvatarStage) is
+// preserved across faces. No match / no choice → the persona default (avatarForPersona).
+export function resolveAvatar(
+  personaName: string | null | undefined,
+  selectedId?: string | null,
+): AvatarSpec {
+  const persona = avatarForPersona(personaName);
+  if (!selectedId) return persona;
+  const choice = AVATAR_CATALOG.find((c) => c.id === selectedId);
+  if (!choice) return persona;
+  return { glb: choice.glb, body: choice.body, mood: persona.mood };
 }

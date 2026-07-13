@@ -13,7 +13,7 @@ reference documents, and speak with the agent in your browser. STT, LLM, TTS,
 LiveKit, and browser assets run locally or on your LAN; audio, transcripts, KB
 files, and prompts are not sent to cloud inference services.
 
-Current release: `0.3.0`
+Current release: `0.4.0`
 
 ## Features
 
@@ -23,8 +23,11 @@ Current release: `0.3.0`
   files never leave your LAN.
 - **Optional 3D avatar** — a talking-head avatar with audio-driven lip-sync,
   per-sentence facial emotion, subtle head motion, engagement brows, and laughter on
-  cue. Toggle **Voice only ↔ Avatar** any time; it is client-side WebGL and adds no
-  server traffic when off.
+  cue. Toggle **Voice only ↔ Avatar** any time, and **pick a face** — Auto matches
+  the persona, or choose one of four bundled faces; it is client-side WebGL and adds
+  no server traffic when off. Faces live in `web/public/avatars/`; add your own
+  TalkingHead-compatible GLB, list it in `AVATAR_CATALOG`, and run
+  `node scripts/verify-avatars.mjs` (see `web/public/avatars/ATTRIBUTION.md`).
 - **Optional expressive voice** — swap the fast default TTS for a more emotional engine
   per session (see below).
 - **Local-first & private** — STT, LLM, TTS, LiveKit, and browser assets run on your
